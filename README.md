@@ -9,9 +9,9 @@
 | 包 | 最低版本 | 用途 |
 |---|---|---|
 | Python | 3.9+ | 运行环境 |
-| PyQt6 | 6.5.0 | 桌面 GUI 框架 |
 | cantools | 39.0.0 | DBC 文件解析与生成 |
 | toml | 0.10.2 | TOML 格式读写 |
+| Node.js | 18+ | 前端构建（仅开发/部署时） |
 
 ### 依赖安装
 
@@ -41,93 +41,82 @@ pip install -r requirements.txt
 
 ### 常见问题
 
-1. **`pip install PyQt6` 失败**：PyQt6 需要 C++ 编译环境。如果编译失败，使用预编译 wheel：
-   ```bash
-   pip install --only-binary :all: PyQt6
-   ```
-   或直接 `pip install PyQt6==6.5.3` 使用稳定版。
-
-2. **`cantools` 导入报错 `ModuleNotFoundError: bitstruct`**：重新安装 cantools 会自动拉取依赖：
+1. **`cantools` 导入报错 `ModuleNotFoundError: bitstruct`**：重新安装 cantools 会自动拉取依赖：
    ```bash
    pip install --force-reinstall cantools
    ```
 
-3. **Linux 下 GUI 无法启动**：PyQt6 需要 X11/Wayland 显示服务。无桌面环境请安装 `xvfb`：
-   ```bash
-   sudo apt install xvfb
-   xvfb-run python main.py
-   ```
-
 ## 启动方式
 
-### 直接运行
+### Web 编辑器（推荐）
+
+基于 Vue 3 + Vite 的前端 + Python HTTP API 后端架构。
+
+#### 1. 安装 Python 依赖
 
 ```bash
-cd canmatrix_editor
-python main.py
+pip install -r requirements.txt
 ```
 
-### 作为模块运行
+#### 2. 安装前端依赖并构建
 
 ```bash
-cd canmatrix_editor
-python -m canmatrix_editor.main
+cd frontend
+npm install
+npm run build
+cd ..
 ```
 
-> **注意**：必须从 `canmatrix_editor/` 目录内启动，程序依赖当前目录作为包根路径。
+构建产物输出到根目录 `dist/`。
 
-### 创建桌面快捷方式（Windows）
+#### 3. 启动后端服务
 
-创建 `CanMatrix Editor.bat`，内容：
-
-```bat
-@echo off
-cd /d "D:\your-path\canmatrix_editor"
-python main.py
+```bash
+python api_server.py
 ```
 
-## 实测资源占用
+访问 `http://localhost:8080/` 即可使用 Web 编辑器。
 
-以下数据基于 Windows 11，Python 3.11.8，加载 **20 条报文 + 100 个信号** 的工程后实测：
+#### 重新部署（清理后）
 
-| 指标 | 数值 |
-|---|---|
-| 进程内存（RSS） | **54.3 MB**（含 Python 解释器、PyQt6 框架 + 数据） |
-| 纯数据增量 | **35.4 MB**（QApplication + MainWindow + 数据） |
-| 启动 CPU 时间 | **0.31 s**（用户态） |
-| 运行时线程数 | **4**（1 GUI 主线程 + 3 Qt 内部线程） |
-| 项目磁盘占用 | **172.4 KB**（27 个文件，全部源码） |
-| 代码总行数 | **~1920 行** Python |
+如果从仓库克隆或执行了 `git clean`，以下目录会被清除，需要重新构建：
 
-### 内存构成分析
+| 被清除的目录 | 原因 | 恢复方式 |
+|---|---|---|
+| `frontend/node_modules/` | npm 依赖 | `cd frontend && npm install` |
+| `dist/` | 前端构建产物 | `cd frontend && npm run build` |
+| `data/` | 运行时会话数据 | 自动创建，无需手动恢复 |
+| `__pycache__/` | Python 字节码缓存 | 自动重建，无需手动恢复 |
 
+一键重新部署：
+
+```bash
+cd frontend
+npm install && npm run build
+cd ..
+python api_server.py
 ```
-Python 解释器基线:      ~19 MB
-PyQt6 框架初始化:       ~25 MB  (QApplication + 窗口 + 控件树)
-业务数据 (20msg/100sig): ~10 MB  (CanDatabase 对象图)
-合计:                   ~54 MB
-```
 
-数据量线性增长：每增加 100 条报文约增加 3-5 MB，对于典型项目（50-200 条报文）完全在可接受范围。
+
 
 ## 内部工作逻辑
 
 ### 整体架构
 
 ```
-main.py (入口)
+api_server.py (HTTP 服务入口)
   │
-  ├── QApplication ── MainWindow (主窗口)
-  │                      │
-  │     ┌────────────────┼────────────────┐
-  │     ▼                ▼                ▼
-  │  MessageTree     SignalTable      Menu/Toolbar
-  │  (QTreeWidget)   (QTableView)     (文件操作)
+  ├── REST API ── SessionManager ── CanDatabase (数据模型)
+  │      │                              │
+  │      │         ┌───────────────────┼───────────────────┐
+  │      │         ▼                   ▼                   ▼
+  │      │   GET /api/messages    GET /api/status    PUT /api/session
+  │      │
+  │      └── 静态文件服务 (dist/index.html + assets)
   │
   └── core/
        ├── can_database.py   数据模型层
-       │    CanDatabase → Message → Signal (dataclass)
-       │    CRUD + to_dict / from_dict 序列化
+       │    CanDatabase → Message → Signal
        │
        ├── toml_io.py        TOML 读写（主格式）
        ├── json_io.py        JSON 读写（辅助）
@@ -143,7 +132,7 @@ main.py (入口)
 DBC 文件 ──[cantools.load_file]──→ CanDatabase ──[save_toml]──→ .toml 文件
                                           │
 TOML 文件 ──[load_toml]──→ CanDatabase ──┤
-JSON 文件 ──[load_json]──→ CanDatabase ──┤── GUI 编辑 ──→ 保存回任意格式
+JSON 文件 ──[load_json]──→ CanDatabase ──┤── Web 编辑器编辑 ──→ 保存回任意格式
 XML 文件  ──[load_xml]──→  CanDatabase ──┤
                                           │
                          CanDatabase ──[export_dbc]──→ .dbc 文件
@@ -157,21 +146,21 @@ XML 文件  ──[load_xml]──→  CanDatabase ──┤
 
 3. **ID 十六进制**：TOML 中 `id = 0x123`，与 DBC 和 CAN 工具链一致，避免十进制换算的认知负担。
 
-4. **单向数据绑定**：GUI 直接操作 `CanDatabase` 对象图，SignalTableModel 是 `QAbstractTableModel` 的薄封装，无中间 ViewModel 层。简单直接，适合嵌入式工程师的思维模型。
+4. **前后端分离**：前端 Vue 3 负责 UI 渲染，所有数据操作通过 REST API 与 Python 后端交互。后端 `CanDatabase` 对象图通过 `SessionManager` 自动持久化到磁盘，会话可在浏览器意外关闭后恢复。
 
 ## 安全性考量
 
 ### 数据安全
 
-- **不联网**：CanMatrix Editor 是纯本地桌面应用，不发起任何网络请求，CAN 矩阵数据不会外泄。
+- **本地服务**：CanMatrix Editor 在本地 `localhost:8080` 运行，不连接外部网络，CAN 矩阵数据不会外泄。
 - **文件操作安全**：所有写入操作通过标准 Python `open()` 完成，依赖操作系统文件系统权限控制。无提权行为。
-- **无自动保存**：修改不会自动覆盖原文件。用户必须显式执行 `File → Save` 才会写入磁盘，防止误操作。
+- **自动持久化**：每次修改后后端自动保存到磁盘，浏览器意外关闭后可通过 `localStorage` 中的 session_id 恢复会话。
 
 ### 输入安全
 
 - **DBC 导入**：`import_dbc()` 通过 `cantools` 官方解析器处理，不执行外部代码，不受 DBC 文件注入攻击。
 - **TOML/JSON/XML 加载**：使用标准库解析器（`toml.load` / `json.load` / `xml.etree.ElementTree.parse`），均有限制解析深度和大小。
-- **对话框输入**：所有数值输入通过 `QSpinBox` / `QDoubleSpinBox` 限定范围（如 CAN ID 限制 0~0x1FFFFFFF），不接受任意文本。
+- **表单输入**：前端数值输入框限制有效范围（如 CAN ID 限制 0~0x1FFFFFFF），非法输入在提交前被校验拦截。
 
 ### 权限需求
 
@@ -185,26 +174,27 @@ XML 文件  ──[load_xml]──→  CanDatabase ──┤
 ### 推荐流程
 
 ```bash
-# 1. 将现有 DBC 导入并转为 TOML
-python main.py
-# File → Import DBC → 选择 existing.dbc
-# File → Save TOML → 保存为 can_matrix.toml
+# 1. 启动服务
+python api_server.py
 
-# 2. 将 TOML 纳入 Git
+# 2. 在浏览器中访问 http://localhost:8080/
+#    导入 DBC → 编辑 → 导出 TOML → 保存为 can_matrix.toml
+
+# 3. 将 TOML 纳入 Git
 git add can_matrix.toml
 git commit -m "初始化 CAN 矩阵，从 DBC 导入"
 
-# 3. 日常编辑
-# 在 CanMatrix Editor 中编辑后保存 can_matrix.toml
+# 4. 日常编辑
+# 在 Web 编辑器中编辑后自动保存到 can_matrix.toml
 git diff can_matrix.toml   # 查看变更，精准到信号级别
 git commit -m "新增 BatteryStatus 报文，修改 EngineSpeed 因子"
 
-# 4. 需要交付 DBC 时
-# File → Export DBC → can_matrix.dbc
+# 5. 需要交付 DBC 时
+# Web 编辑器 → 导出 → DBC → can_matrix.dbc
 # 将 .dbc 发给使用 CANdb++ 的同事
 
-# 5. 合入上游 DBC 变更
-# 同事改了 .dbc → Import DBC → 覆盖当前 .toml → git diff 审查
+# 6. 合入上游 DBC 变更
+# 同事改了 .dbc → Web 编辑器导入 → 覆盖当前 .toml → git diff 审查
 ```
 
 ### TOML vs DBC diff 对比
@@ -237,20 +227,27 @@ git commit -m "新增 BatteryStatus 报文，修改 EngineSpeed 因子"
 
 ```
 canmatrix_editor/
-├── main.py                       入口（QApplication + MainWindow）
+├── api_server.py                  Web 后端服务（HTTP API + 静态文件）
+├── session_manager.py             会话管理器（自动持久化、历史恢复）
+├── cli.py                         命令行入口
 ├── requirements.txt               依赖清单
 ├── README.md                      本文档
-├── core/
-│   ├── __init__.py
+├── .gitignore                     版本控制忽略规则
+├── core/                          数据模型与 IO
 │   ├── can_database.py            CanDatabase / Message / Signal 数据模型
 │   ├── toml_io.py                 TOML 读写（主存储格式）
 │   ├── json_io.py                 JSON 读写（辅助格式）
 │   ├── xml_io.py                  XML 读写（辅助格式）
 │   └── dbc_io.py                  DBC 导入导出（cantools）
-└── gui/
-    ├── __init__.py
-    ├── main_window.py             主窗口（报文树 + 信号表 + 菜单/工具栏）
-    ├── message_editor.py          报文编辑对话框
-    ├── signal_editor.py           信号编辑对话框（含 MUX 支持）
-    └── widgets.py                 HexSpinBox + SignalTableModel
+├── frontend/                      Vue 3 + Vite 前端（Web 编辑器）
+│   ├── package.json
+│   ├── vite.config.js
+│   └── src/
+│       ├── App.vue
+│       ├── main.js
+│       ├── i18n.js                国际化（中/英）
+│       ├── stores/editor.js       Pinia 状态管理
+│       ├── api/client.js          HTTP API 客户端
+│       └── components/            TopBar、SignalTable、MessagePanel 等
+└── dist/                          前端构建产物（由 Vite 生成）
 ```
