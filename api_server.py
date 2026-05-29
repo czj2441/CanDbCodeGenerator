@@ -3,6 +3,11 @@
 CanMatrix Editor - REST API Server
 解耦前后端架构：前端只负责UI渲染，所有数据操作通过REST API。
 使用标准库 http.server，不引入重量级依赖。
+
+会话模型：
+  - 每个浏览器标签页对应一个独立 session
+  - 每个 session 绑定一个数据文件，所有变更自动落盘
+  - 浏览器意外关闭后可通过 localStorage 中的 session_id 恢复
 """
 
 import json
@@ -16,11 +21,15 @@ try:
     from http.server import ThreadingHTTPServer
     THREADING_AVAILABLE = True
 except ImportError:
-    # Python < 3.7 回退
     from socketserver import ThreadingMixIn
     class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
         pass
     THREADING_AVAILABLE = True
+
+# ── 会话管理器 ──────────────────────────────────────────────────────────────────
+from session_manager import init_session_manager, get_session_manager
+
+SESSION_MGR = init_session_manager()
 
 # ── 数据模型 ──────────────────────────────────────────────────────────────────
 
@@ -192,6 +201,15 @@ class CanDatabase:
             db.messages[mid] = msg
         return db
 
+    # ── JSON 序列化（SessionManager 持久化用） ──
+
+    def to_json_dict(self) -> dict:
+        return self.to_dict()
+
+    @classmethod
+    def from_json_dict(cls, data: dict) -> "CanDatabase":
+        return cls.from_dict(data)
+
     # ── TOML 序列化 ──
 
     def to_toml_str(self) -> str:
@@ -352,8 +370,28 @@ _SIGNAL_DEFAULTS = {
 
 # ── 全局会话（单用户桌面应用场景）─────────────────────────────────────────────
 
-DB = CanDatabase()
-CURRENT_FILE: str | None = None
+# ── 临时 DB 降级（无 session 时）───────────────────────────────────────────────
+
+_temp_db_instance: CanDatabase | None = None
+
+def _temp_db() -> CanDatabase:
+    """返回匿名临时数据库（仅内存，不落盘）。"""
+    global _temp_db_instance
+    if _temp_db_instance is None:
+        _temp_db_instance = CanDatabase("Temporary")
+    return _temp_db_instance
+
+
+# ── 注入模型工厂 ──
+SESSION_MGR.set_model_factory(CanDatabase)
+
+
+def _pure_file_name(session) -> str:
+    """从 session 中提取纯文件名（去掉 session_id 前缀）。"""
+    base = os.path.basename(session.file_path)
+    if base.startswith(session.id + "_"):
+        base = base[len(session.id) + 1:]
+    return base
 
 
 def _resp(success: bool, data: Any = None, error: str = "") -> dict:
@@ -376,7 +414,7 @@ class ApiHandler(BaseHTTPRequestHandler):
     def _cors_headers(self) -> None:
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Session-Id")
 
     def do_OPTIONS(self) -> None:
         self.send_response(204)
@@ -418,6 +456,85 @@ class ApiHandler(BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         return [p for p in parsed.path.split("/") if p]
 
+    # ── 会话管理 ──
+
+    def _get_db(self) -> CanDatabase:
+        """从请求头提取 session_id，返回对应的 CanDatabase 实例。
+        若无有效 session，自动创建匿名临时 session（仅内存，不落盘）。
+        """
+        session_id = self.headers.get("X-Session-Id", "")
+        if session_id:
+            s = SESSION_MGR.restore(session_id)
+            if s:
+                return s.db
+        # 降级：无 session 时使用匿名临时 DB
+        return _temp_db()
+
+    def _auto_save(self) -> None:
+        """变更后自动保存。"""
+        session_id = self.headers.get("X-Session-Id", "")
+        if session_id:
+            SESSION_MGR.save(session_id)
+
+    def _session_id_from_path(self) -> str | None:
+        """从路径中取 session_id（用于 /api/session/{id} 类端点）。"""
+        parts = self._path_parts()
+        if len(parts) >= 3 and parts[0] == "api":
+            if parts[1] == "session":
+                return parts[2] if len(parts) >= 3 else None
+            if parts[1] == "sessions":
+                return None
+        return None
+
+    # ── 静态文件服务 ──
+
+    def _serve_static(self) -> None:
+        """Serve static files. New Vue frontend in dist/, legacy HTML in root."""
+        import mimetypes
+
+        parsed = urllib.parse.urlparse(self.path)
+        filepath = parsed.path.lstrip("/")
+        if not filepath:
+            filepath = "index.html"
+
+        safe_path = os.path.normpath(filepath)
+        if safe_path.startswith(".."):
+            self._send_json(403, _resp(False, error="Forbidden"))
+            return
+
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+
+        # Legacy HTML always served from root
+        if safe_path == "canmatrix_web_editor.html":
+            full_path = os.path.join(base_dir, safe_path)
+        else:
+            # New Vue frontend assets live in dist/
+            full_path = os.path.join(base_dir, "dist", safe_path)
+            if not os.path.isfile(full_path):
+                full_path = os.path.join(base_dir, safe_path)
+
+        if not os.path.isfile(full_path):
+            self._send_json(404, _resp(False, error="Not found"))
+            return
+
+        mime_type, _ = mimetypes.guess_type(full_path)
+        if mime_type is None:
+            mime_type = "application/octet-stream"
+
+        try:
+            with open(full_path, "rb") as f:
+                content = f.read()
+            self.send_response(200)
+            self._cors_headers()
+            self.send_header("Content-Type", mime_type)
+            self.send_header("Content-Length", str(len(content)))
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.wfile.write(content)
+            self.wfile.flush()
+        except Exception as e:
+            self._send_json(500, _resp(False, error=str(e)))
+
     # ── 路由 ──
 
     def do_GET(self) -> None:
@@ -434,18 +551,20 @@ class ApiHandler(BaseHTTPRequestHandler):
 
     def _handle_GET(self) -> None:
         parts = self._path_parts()
-        # parts: ["api", "messages", "{id}"] 等
         if parts == ["api", "status"]:
             self._get_status()
         elif parts == ["api", "messages"]:
             self._get_messages()
         elif parts[0:2] == ["api", "messages"] and len(parts) == 3:
-            # GET /api/messages/{id}
             self._get_message(parts[2])
         elif parts == ["api", "summary"]:
             self._get_summary()
+        elif parts[0:2] == ["api", "session"] and len(parts) == 3:
+            self._get_session(parts[2])
+        elif parts == ["api", "sessions"]:
+            self._get_sessions()
         else:
-            self._send_json(404, _resp(False, error="Not found"))
+            self._serve_static()
 
     def do_POST(self) -> None:
         try:
@@ -469,6 +588,11 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._post_export()
         elif parts == ["api", "messages"]:
             self._post_messages()
+        elif parts == ["api", "session"]:
+            self._post_session()
+        elif len(parts) == 4 and parts[0:2] == ["api", "session"] and parts[3] == "load":
+            # POST /api/session/{id}/load
+            self._post_session_load(parts[2])
         elif len(parts) == 4 and parts[0:3] == ["api", "messages", parts[2]] and parts[3] == "signals":
             # POST /api/messages/{id}/signals
             self._post_signals(parts[2])
@@ -483,6 +607,9 @@ class ApiHandler(BaseHTTPRequestHandler):
         elif len(parts) == 5 and parts[0:3] == ["api", "messages", parts[2]] and parts[3] == "signals":
             # PUT /api/messages/{id}/signals/{idx}
             self._put_signal(parts[2], parts[4])
+        elif parts == ["api", "session"]:
+            # PUT /api/session - 更新数据库名称
+            self._put_session()
         else:
             self._send_json(404, _resp(False, error="Not found"))
 
@@ -494,22 +621,117 @@ class ApiHandler(BaseHTTPRequestHandler):
         elif len(parts) == 5 and parts[0:3] == ["api", "messages", parts[2]] and parts[3] == "signals":
             # DELETE /api/messages/{id}/signals/{idx}
             self._delete_signal(parts[2], parts[4])
+        elif len(parts) == 3 and parts[0:2] == ["api", "session"]:
+            # DELETE /api/session/{id}
+            self._delete_session(parts[2])
         else:
             self._send_json(404, _resp(False, error="Not found"))
 
     # ── 端点实现 ──
 
-    def _get_status(self) -> None:
-        global DB
+    # ── Session ──
+
+    def _post_session(self) -> None:
+        """POST /api/session - 创建新会话。
+        Body: {name: str, content: dict|None}
+        返回: {session_id, file_name}
+        """
+        body = self._read_body()
+        db_name = body.get("name", "Untitled")
+        content = body.get("content", None)
+
+        if content:
+            db = CanDatabase.from_dict(content)
+            db.name = db_name
+        else:
+            db = CanDatabase(db_name)
+
+        file_name = f"{db_name}.toml"
+        session_id = SESSION_MGR.create(file_name, db)
+        self._send_json(201, _resp(True, {
+            "session_id": session_id,
+            "file_name": file_name,
+            "message_count": len(db.messages),
+            "signal_count": db.total_signals(),
+        }))
+
+    def _get_session(self, session_id: str) -> None:
+        """GET /api/session/{id} - 恢复会话，返回完整数据库状态。"""
+        s = SESSION_MGR.restore(session_id)
+        if not s:
+            self._send_json(404, _resp(False, error="Session not found or expired"))
+            return
         self._send_json(200, _resp(True, {
-            "message_count": len(DB.messages),
-            "signal_count": DB.total_signals(),
-            "modified": DB.modified,
-            "current_file": CURRENT_FILE,
+            "session_id": s.id,
+            "file_name": _pure_file_name(s),
+            "db": s.db.to_dict(),
+            "message_count": len(s.db.messages),
+            "signal_count": s.db.total_signals(),
+        }))
+
+    def _get_sessions(self) -> None:
+        """GET /api/sessions - 列出所有历史会话（含磁盘文件）。"""
+        sessions = SESSION_MGR.list_history()
+        self._send_json(200, _resp(True, sessions))
+
+    def _delete_session(self, session_id: str) -> None:
+        """DELETE /api/session/{id} - 删除历史会话（内存 + 磁盘）。"""
+        ok = SESSION_MGR.delete_history(session_id)
+        if ok:
+            self._send_json(200, _resp(True, {"deleted": session_id}))
+        else:
+            self._send_json(404, _resp(False, error="Session not found"))
+
+    def _post_session_load(self, session_id: str) -> None:
+        """POST /api/session/{id}/load - 恢复历史会话（直接复用原 session，不创建副本）。"""
+        s = SESSION_MGR.restore(session_id)
+        if not s:
+            self._send_json(404, _resp(False, error="Session not found or corrupted"))
+            return
+        self._send_json(200, _resp(True, {
+            "session_id": s.id,
+            "file_name": _pure_file_name(s),
+            "message_count": len(s.db.messages),
+            "signal_count": s.db.total_signals(),
+        }))
+
+    def _put_session(self) -> None:
+        """PUT /api/session - 更新数据库名称并重命名文件。"""
+        session_id = self.headers.get("X-Session-Id", "")
+        if not session_id:
+            self._send_json(400, _resp(False, error="Session ID required"))
+            return
+        body = self._read_body()
+        new_name = body.get("name", "")
+        if not new_name:
+            self._send_json(400, _resp(False, error="Name is required"))
+            return
+        ok = SESSION_MGR.rename(session_id, new_name)
+        if not ok:
+            self._send_json(404, _resp(False, error="Session not found"))
+            return
+        s = SESSION_MGR.get(session_id)
+        self._send_json(200, _resp(True, {
+            "name": s.db.name,
+            "file_name": _pure_file_name(s),
+        }))
+
+    # ── Status ──
+
+    def _get_status(self) -> None:
+        db = self._get_db()
+        session_id = self.headers.get("X-Session-Id", "")
+        s = SESSION_MGR.get(session_id) if session_id else None
+        self._send_json(200, _resp(True, {
+            "message_count": len(db.messages),
+            "signal_count": db.total_signals(),
+            "modified": db.modified,
+            "session_id": session_id,
+            "file_name": _pure_file_name(s) if s else None,
         }))
 
     def _get_messages(self) -> None:
-        global DB
+        db = self._get_db()
         data = [
             {
                 "id": mid,
@@ -519,30 +741,30 @@ class ApiHandler(BaseHTTPRequestHandler):
                 "cycle_time": m.cycle_time,
                 "signal_count": len(m.signals),
             }
-            for mid, m in sorted(DB.messages.items())
+            for mid, m in sorted(db.messages.items())
         ]
         self._send_json(200, _resp(True, data))
 
     def _get_message(self, id_str: str) -> None:
-        global DB
+        db = self._get_db()
         msg_id = _parse_id(id_str)
         if msg_id is None:
             self._send_json(400, _resp(False, error="Invalid message ID"))
             return
-        msg = DB.get_message(msg_id)
+        msg = db.get_message(msg_id)
         if not msg:
             self._send_json(404, _resp(False, error=f"Message 0x{msg_id:X} not found"))
             return
         self._send_json(200, _resp(True, msg.to_dict()))
 
     def _get_summary(self) -> None:
-        global DB
-        msgs = list(DB.messages.values())
+        db = self._get_db()
+        msgs = list(db.messages.values())
         self._send_json(200, _resp(True, {
-            "name": DB.name,
+            "name": db.name,
             "message_count": len(msgs),
-            "signal_count": DB.total_signals(),
-            "modified": DB.modified,
+            "signal_count": db.total_signals(),
+            "modified": db.modified,
             "messages": [
                 {
                     "id": m.id,
@@ -556,18 +778,27 @@ class ApiHandler(BaseHTTPRequestHandler):
         }))
 
     def _post_new(self) -> None:
-        global DB, CURRENT_FILE
         body = self._read_body()
         name = body.get("name", "Untitled") if body else {"name": "Untitled"}
         if isinstance(name, dict):
             name = name.get("name", "Untitled")
-        DB = CanDatabase(name)
-        CURRENT_FILE = None
-        self._send_json(200, _resp(True, {"name": DB.name}))
+
+        session_id = self.headers.get("X-Session-Id", "")
+        # 先保存当前会话（确保旧数据不丢失）
+        if session_id:
+            SESSION_MGR.save(session_id)
+
+        new_db = CanDatabase(name)
+        file_name = f"{name}.toml"
+        new_session_id = SESSION_MGR.create(file_name, new_db)
+
+        self._send_json(200, _resp(True, {
+            "name": new_db.name,
+            "session_id": new_session_id,
+        }))
 
     def _post_import(self) -> None:
         """导入文件内容（前端已读取文件，发送JSON）。"""
-        global DB, CURRENT_FILE
         body = self._read_body()
         fmt = body.get("format", "json")
         content = body.get("content", "")
@@ -576,12 +807,11 @@ class ApiHandler(BaseHTTPRequestHandler):
         try:
             if fmt == "toml":
                 import toml
-                DB = CanDatabase.from_toml_str(content)
+                new_db = CanDatabase.from_toml_str(content)
             elif fmt == "json":
                 data = json.loads(content)
-                DB = CanDatabase.from_dict(data)
+                new_db = CanDatabase.from_dict(data)
             elif fmt == "dbc":
-                # DBC需要文件，这里只做占位
                 self._send_json(400, _resp(False, error="DBC import via API not yet implemented"))
                 return
             else:
@@ -591,22 +821,29 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._send_json(400, _resp(False, error=f"Import failed: {e}"))
             return
 
-        CURRENT_FILE = filename or None
-        self._send_json(200, _resp(True, {"message_count": len(DB.messages)}))
+        # 替换当前会话的 DB 并自动保存
+        session_id = self.headers.get("X-Session-Id", "")
+        if session_id:
+            s = SESSION_MGR.get(session_id)
+            if s:
+                s.db = new_db
+                self._auto_save()
+
+        self._send_json(200, _resp(True, {"message_count": len(new_db.messages)}))
 
     def _post_export(self) -> None:
         """导出数据库为指定格式并返回内容。"""
-        global DB
+        db = self._get_db()
         body = self._read_body()
         fmt = body.get("format", "json") if body else "json"
 
         try:
             if fmt == "json":
-                content = json.dumps(DB.to_dict(), ensure_ascii=False, indent=2)
+                content = json.dumps(db.to_dict(), ensure_ascii=False, indent=2)
             elif fmt == "toml":
-                content = DB.to_toml_str()
+                content = db.to_toml_str()
             elif fmt == "dbc":
-                content = DB.to_dbc_str()
+                content = db.to_dbc_str()
             else:
                 self._send_json(400, _resp(False, error=f"Unsupported format: {fmt}"))
                 return
@@ -618,7 +855,7 @@ class ApiHandler(BaseHTTPRequestHandler):
 
     def _post_messages(self) -> None:
         """POST /api/messages - 添加报文。"""
-        global DB
+        db = self._get_db()
         body = self._read_body()
         msg_id = _parse_id(body.get("id", ""))
         if msg_id is None:
@@ -626,14 +863,15 @@ class ApiHandler(BaseHTTPRequestHandler):
             return
         msg = Message(body)
         msg.id = msg_id
-        if not DB.add_message(msg):
+        if not db.add_message(msg):
             self._send_json(409, _resp(False, error=f"Message 0x{msg_id:X} already exists"))
             return
+        self._auto_save()
         self._send_json(201, _resp(True, msg.to_dict()))
 
     def _put_message(self, id_str: str) -> None:
         """PUT /api/messages/{id} - 更新报文。"""
-        global DB
+        db = self._get_db()
         msg_id = _parse_id(id_str)
         if msg_id is None:
             self._send_json(400, _resp(False, error="Invalid message ID"))
@@ -645,50 +883,53 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._send_json(400, _resp(False, error="Invalid new ID"))
             return
         if new_id != msg_id:
-            if DB.get_message(new_id):
+            if db.get_message(new_id):
                 self._send_json(409, _resp(False, error=f"Message 0x{new_id:X} already exists"))
                 return
-            old = DB.remove_message(msg_id)
+            old = db.remove_message(msg_id)
             if old:
                 old.id = new_id
-                DB.add_message(old)
+                db.add_message(old)
                 msg_id = new_id
-        ok = DB.update_message(msg_id, **{k: v for k, v in body.items() if k != "id"})
+        ok = db.update_message(msg_id, **{k: v for k, v in body.items() if k != "id"})
         if not ok:
             self._send_json(404, _resp(False, error=f"Message 0x{msg_id:X} not found"))
             return
-        self._send_json(200, _resp(True, DB.get_message(msg_id).to_dict()))
+        self._auto_save()
+        self._send_json(200, _resp(True, db.get_message(msg_id).to_dict()))
 
     def _delete_message(self, id_str: str) -> None:
         """DELETE /api/messages/{id} - 删除报文。"""
-        global DB
+        db = self._get_db()
         msg_id = _parse_id(id_str)
         if msg_id is None:
             self._send_json(400, _resp(False, error="Invalid message ID"))
             return
-        msg = DB.remove_message(msg_id)
+        msg = db.remove_message(msg_id)
         if not msg:
             self._send_json(404, _resp(False, error=f"Message 0x{msg_id:X} not found"))
             return
+        self._auto_save()
         self._send_json(200, _resp(True, {"deleted": f"0x{msg_id:X}"}))
 
     def _post_signals(self, id_str: str) -> None:
         """POST /api/messages/{id}/signals - 添加信号。"""
-        global DB
+        db = self._get_db()
         msg_id = _parse_id(id_str)
         if msg_id is None:
             self._send_json(400, _resp(False, error="Invalid message ID"))
             return
         body = self._read_body()
         sig = Signal(body)
-        if not DB.add_signal_to_message(msg_id, sig):
+        if not db.add_signal_to_message(msg_id, sig):
             self._send_json(404, _resp(False, error=f"Message 0x{msg_id:X} not found"))
             return
+        self._auto_save()
         self._send_json(201, _resp(True, sig.to_dict()))
 
     def _put_signal(self, id_str: str, idx_str: str) -> None:
         """PUT /api/messages/{id}/signals/{idx} - 更新信号。"""
-        global DB
+        db = self._get_db()
         msg_id = _parse_id(id_str)
         if msg_id is None:
             self._send_json(400, _resp(False, error="Invalid message ID"))
@@ -699,16 +940,17 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._send_json(400, _resp(False, error="Invalid signal index"))
             return
         body = self._read_body()
-        ok = DB.update_signal_in_message(msg_id, sig_idx, **body)
+        ok = db.update_signal_in_message(msg_id, sig_idx, **body)
         if not ok:
             self._send_json(404, _resp(False, error=f"Message or signal not found"))
             return
-        sig = DB.get_message(msg_id).signals[sig_idx]
+        sig = db.get_message(msg_id).signals[sig_idx]
+        self._auto_save()
         self._send_json(200, _resp(True, sig.to_dict()))
 
     def _delete_signal(self, id_str: str, idx_str: str) -> None:
         """DELETE /api/messages/{id}/signals/{idx} - 删除信号。"""
-        global DB
+        db = self._get_db()
         msg_id = _parse_id(id_str)
         if msg_id is None:
             self._send_json(400, _resp(False, error="Invalid message ID"))
@@ -718,10 +960,11 @@ class ApiHandler(BaseHTTPRequestHandler):
         except ValueError:
             self._send_json(400, _resp(False, error="Invalid signal index"))
             return
-        ok = DB.remove_signal_from_message(msg_id, sig_idx)
+        ok = db.remove_signal_from_message(msg_id, sig_idx)
         if not ok:
             self._send_json(404, _resp(False, error=f"Message or signal not found"))
             return
+        self._auto_save()
         self._send_json(200, _resp(True, {"deleted": sig_idx}))
 
 

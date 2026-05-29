@@ -1,0 +1,63 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment
+.env
+.env.local
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Build output (Vue -> ../dist)
+/dist/
+
+# Runtime data
+data/
+
+# Temp files (test screenshots & scripts)
+temp/
+
+# Design doc exports (keep source .md)
+*.pdf
+*.docx
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
