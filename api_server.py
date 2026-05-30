@@ -13,7 +13,10 @@ CanMatrix Editor - REST API Server
 import json
 import os
 import sys
+import threading
+import time
 import urllib.parse
+import uuid
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from typing import Any
 
@@ -38,6 +41,7 @@ class Signal:
 
     def __init__(self, data: dict | None = None) -> None:
         data = data or {}
+        self.uuid: str = data.get("uuid", uuid.uuid4().hex[:8])
         self.name: str = data.get("name", "")
         self.start_bit: int = data.get("start_bit", 0)
         self.length: int = data.get("length", 8)
@@ -55,6 +59,7 @@ class Signal:
 
     def to_dict(self) -> dict:
         return {
+            "uuid": self.uuid,
             "name": self.name,
             "start_bit": self.start_bit,
             "length": self.length,
@@ -118,78 +123,283 @@ class CanDatabase:
         self.name: str = name
         self.messages: dict[int, Message] = {}
         self.modified: bool = False
+        self.__lock = threading.RLock()
+
+    def with_lock(self):
+        """返回锁上下文管理器，供外部需要原子操作时使用。"""
+        return self.__lock
 
     # ── 报文操作 ──
 
     def add_message(self, msg: Message) -> bool:
-        if msg.id in self.messages:
-            return False
-        self.messages[msg.id] = msg
-        self.modified = True
-        return True
+        with self.__lock:
+            if msg.id in self.messages:
+                return False
+            self.messages[msg.id] = msg
+            self.modified = True
+            return True
 
     def remove_message(self, msg_id: int) -> Message | None:
-        msg = self.messages.pop(msg_id, None)
-        if msg:
-            self.modified = True
-        return msg
+        with self.__lock:
+            msg = self.messages.pop(msg_id, None)
+            if msg:
+                self.modified = True
+            return msg
 
     def get_message(self, msg_id: int) -> Message | None:
-        return self.messages.get(msg_id)
+        with self.__lock:
+            return self.messages.get(msg_id)
 
     def update_message(self, msg_id: int, **kwargs: Any) -> bool:
-        msg = self.messages.get(msg_id)
-        if not msg:
-            return False
-        for k, v in kwargs.items():
-            if hasattr(msg, k):
-                setattr(msg, k, v)
-        self.modified = True
-        return True
+        with self.__lock:
+            msg = self.messages.get(msg_id)
+            if not msg:
+                return False
+            kwargs.pop("id", None)
+            changed = False
+            for k, v in kwargs.items():
+                if hasattr(msg, k) and getattr(msg, k) != v:
+                    setattr(msg, k, v)
+                    changed = True
+            if changed:
+                self.modified = True
+            return True
+
+    def move_message(self, old_id: int, new_id: int) -> bool:
+        with self.__lock:
+            if new_id in self.messages or old_id not in self.messages:
+                return False
+            msg = self.messages.pop(old_id)
+            msg.id = new_id
+            self.messages[new_id] = msg
+            self.modified = True
+            return True
 
     # ── 信号操作 ──
 
-    def add_signal_to_message(self, msg_id: int, sig: Signal) -> bool:
+    def _ensure_sig_uuid_unique(
+        self, msg: Message, sig: Signal, exclude_sig: Signal | None = None
+    ) -> None:
+        """若 sig.uuid 与 msg 中其他信号冲突，则重新生成。"""
+        existing = {s.uuid for s in msg.signals if s is not exclude_sig}
+        while sig.uuid in existing:
+            sig.uuid = uuid.uuid4().hex[:8]
+
+    # ── 信号有效性检查（DBC标准） ──
+
+    @staticmethod
+    def _get_signal_bits(start_bit: int, length: int, byte_order: str) -> set[int]:
+        """将信号按字节序展开为占用的物理 bit 集合（线性编号 0~N-1）。
+        Intel（小端序）: start_bit 是 LSB，占用连续递增位。
+        Motorola（大端序）: start_bit 是 MSB，按锯齿规则展开：
+            字节内从高位向低位填充，到达 bit0 后跳到下一字节的 bit7。
+        """
+        bits: set[int] = set()
+        bo = str(byte_order).lower() if byte_order else "little_endian"
+        if bo in ("big_endian", "motorola"):
+            current = start_bit
+            for _ in range(length):
+                bits.add(current)
+                bit_in_byte = current % 8
+                if bit_in_byte == 0:
+                    current += 15
+                else:
+                    current -= 1
+        else:
+            for i in range(length):
+                bits.add(start_bit + i)
+        return bits
+
+    def _find_next_available_start_bit(
+        self, msg: Message, length: int, byte_order: str, exclude_uuid: str | None = None
+    ) -> dict | None:
+        """在报文中寻找第一个足够大的空闲区间，返回建议的 start_bit。"""
+        max_bits = msg.dlc * 8
+        if length > max_bits:
+            return None
+        used: set[int] = set()
+        for s in msg.signals:
+            if exclude_uuid and s.uuid == exclude_uuid:
+                continue
+            used |= self._get_signal_bits(s.start_bit, s.length, s.byte_order)
+        for candidate in range(max_bits):
+            candidate_bits = self._get_signal_bits(candidate, length, byte_order)
+            if all(0 <= b < max_bits for b in candidate_bits) and not (candidate_bits & used):
+                return {
+                    "action": "move_start_bit",
+                    "recommended_start_bit": candidate,
+                    "reason": f"First available gap at bit {candidate}",
+                }
+        return None
+
+    def validate_signal(
+        self, msg_id: int, sig: Signal, exclude_uuid: str | None = None
+    ) -> tuple[bool, str, dict]:
+        """验证信号是否可以加入/更新到报文中。返回 (is_valid, error_message, details)."""
         msg = self.messages.get(msg_id)
         if not msg:
-            return False
-        msg.signals.append(sig)
-        self.modified = True
-        return True
+            return False, "Message not found", {"type": "invalid_param"}
+        max_bits = msg.dlc * 8
+        if max_bits < 1:
+            return False, "Invalid message DLC", {"type": "invalid_param"}
+        if sig.start_bit < 0:
+            return False, "Start bit must be non-negative", {
+                "type": "invalid_param", "field": "start_bit", "value": sig.start_bit,
+            }
+        if sig.length < 1:
+            return False, "Signal length must be at least 1", {
+                "type": "invalid_param", "field": "length", "value": sig.length,
+            }
+        # 越界检查
+        occupied = self._get_signal_bits(sig.start_bit, sig.length, sig.byte_order)
+        oob = [b for b in occupied if b < 0 or b >= max_bits]
+        if oob:
+            suggestion = self._find_next_available_start_bit(
+                msg, sig.length, sig.byte_order, exclude_uuid
+            )
+            return False, f"Signal out of bounds (DLC={msg.dlc}, max bit={max_bits - 1})", {
+                "type": "out_of_bounds",
+                "signal_name": sig.name,
+                "start_bit": sig.start_bit,
+                "length": sig.length,
+                "byte_order": sig.byte_order,
+                "dlc": msg.dlc,
+                "max_bit": max_bits - 1,
+                "out_of_bounds_bits": sorted(oob)[:10],
+                "suggestion": suggestion,
+            }
+        # 重叠检查
+        for existing in msg.signals:
+            if exclude_uuid and existing.uuid == exclude_uuid:
+                continue
+            existing_bits = self._get_signal_bits(
+                existing.start_bit, existing.length, existing.byte_order
+            )
+            overlap = occupied & existing_bits
+            if overlap:
+                suggestion = self._find_next_available_start_bit(
+                    msg, sig.length, sig.byte_order, exclude_uuid
+                )
+                return False, f"Signal overlaps with '{existing.name}'", {
+                    "type": "overlap",
+                    "signal_name": sig.name,
+                    "conflicts_with": existing.name,
+                    "conflicts_uuid": existing.uuid,
+                    "overlapping_bits": sorted(overlap),
+                    "suggestion": suggestion,
+                }
+        return True, "", {"type": "ok"}
 
-    def remove_signal_from_message(self, msg_id: int, sig_idx: int) -> bool:
+    def validate_all_signals(self, msg_id: int) -> list[dict]:
+        """验证报文中所有信号，返回全部错误列表（用于界面错误提示区）。"""
         msg = self.messages.get(msg_id)
-        if not msg or sig_idx < 0 or sig_idx >= len(msg.signals):
+        if not msg:
+            return []
+        errors: list[dict] = []
+        max_bits = msg.dlc * 8
+        n = len(msg.signals)
+        for i in range(n):
+            sig = msg.signals[i]
+            occupied = self._get_signal_bits(sig.start_bit, sig.length, sig.byte_order)
+            oob = [b for b in occupied if b < 0 or b >= max_bits]
+            if oob:
+                suggestion = self._find_next_available_start_bit(
+                    msg, sig.length, sig.byte_order, sig.uuid
+                )
+                errors.append({
+                    "type": "out_of_bounds",
+                    "signal_uuid": sig.uuid,
+                    "signal_name": sig.name,
+                    "start_bit": sig.start_bit,
+                    "length": sig.length,
+                    "out_of_bounds_bits": sorted(oob)[:10],
+                    "suggestion": suggestion,
+                })
+            for j in range(i + 1, n):
+                other = msg.signals[j]
+                other_bits = self._get_signal_bits(other.start_bit, other.length, other.byte_order)
+                overlap = occupied & other_bits
+                if overlap:
+                    suggestion = self._find_next_available_start_bit(
+                        msg, sig.length, sig.byte_order, sig.uuid
+                    )
+                    errors.append({
+                        "type": "overlap",
+                        "signal_uuid": sig.uuid,
+                        "signal_name": sig.name,
+                        "conflicts_uuid": other.uuid,
+                        "conflicts_name": other.name,
+                        "overlapping_bits": sorted(overlap),
+                        "suggestion": suggestion,
+                    })
+        return errors
+
+    def add_signal_to_message(self, msg_id: int, sig: Signal) -> bool:
+        with self.__lock:
+            msg = self.messages.get(msg_id)
+            if not msg:
+                return False
+            self._ensure_sig_uuid_unique(msg, sig)
+            msg.signals.append(sig)
+            self.modified = True
+            return True
+
+    def remove_signal_from_message(self, msg_id: int, sig_uuid: str) -> bool:
+        with self.__lock:
+            msg = self.messages.get(msg_id)
+            if not msg:
+                return False
+            for i, sig in enumerate(msg.signals):
+                if sig.uuid == sig_uuid:
+                    msg.signals.pop(i)
+                    self.modified = True
+                    return True
             return False
-        msg.signals.pop(sig_idx)
-        self.modified = True
-        return True
 
     def update_signal_in_message(
-        self, msg_id: int, sig_idx: int, **kwargs: Any
+        self, msg_id: int, sig_uuid: str, **kwargs: Any
     ) -> bool:
-        msg = self.messages.get(msg_id)
-        if not msg or sig_idx < 0 or sig_idx >= len(msg.signals):
+        with self.__lock:
+            msg = self.messages.get(msg_id)
+            if not msg:
+                return False
+            for sig in msg.signals:
+                if sig.uuid == sig_uuid:
+                    changed = False
+                    new_uuid = kwargs.get("uuid")
+                    if new_uuid is not None and new_uuid != sig.uuid:
+                        # 检查新 uuid 是否与同报文其他信号冲突
+                        if any(s.uuid == new_uuid for s in msg.signals if s is not sig):
+                            # 冲突：忽略 uuid 修改，保留原值
+                            kwargs.pop("uuid", None)
+                        else:
+                            sig.uuid = new_uuid
+                            changed = True
+                    for k, v in kwargs.items():
+                        if k == "uuid":
+                            continue
+                        if hasattr(sig, k) and getattr(sig, k) != v:
+                            setattr(sig, k, v)
+                            changed = True
+                    if changed:
+                        self.modified = True
+                    return True
             return False
-        sig = msg.signals[sig_idx]
-        for k, v in kwargs.items():
-            if hasattr(sig, k):
-                setattr(sig, k, v)
-        self.modified = True
-        return True
 
     def total_signals(self) -> int:
-        return sum(len(m.signals) for m in self.messages.values())
+        with self.__lock:
+            return sum(len(m.signals) for m in self.messages.values())
 
     # ── 序列化 ──
 
     def to_dict(self) -> dict:
-        return {
-            "name": self.name,
-            "messages": {
-                str(mid): m.to_dict() for mid, m in sorted(self.messages.items())
-            },
-        }
+        with self.__lock:
+            return {
+                "name": self.name,
+                "messages": {
+                    f"0x{mid:X}": m.to_dict() for mid, m in sorted(self.messages.items())
+                },
+            }
 
     @classmethod
     def from_dict(cls, data: dict) -> "CanDatabase":
@@ -215,106 +425,108 @@ class CanDatabase:
     def to_toml_str(self) -> str:
         import toml
 
-        data = {"name": self.name, "messages": []}
-        for mid in sorted(self.messages):
-            msg = self.messages[mid]
-            m_dict = {
-                "id": f"0x{mid:X}",
-                "name": msg.name,
-                "dlc": msg.dlc,
-                "cycle_time": msg.cycle_time,
-                "sender": msg.sender,
-                "comment": msg.comment,
-                "signals": [],
-            }
-            for sig in msg.signals:
-                s_dict = {k: v for k, v in sig.to_dict().items() if v != _SIGNAL_DEFAULTS.get(k)}
-                m_dict["signals"].append(s_dict)
-            data["messages"].append(m_dict)
-        return toml.dumps(data)
+        with self.__lock:
+            data = {"name": self.name, "messages": []}
+            for mid in sorted(self.messages):
+                msg = self.messages[mid]
+                m_dict = {
+                    "id": f"0x{mid:X}",
+                    "name": msg.name,
+                    "dlc": msg.dlc,
+                    "cycle_time": msg.cycle_time,
+                    "sender": msg.sender,
+                    "comment": msg.comment,
+                    "signals": [],
+                }
+                for sig in msg.signals:
+                    s_dict = {k: v for k, v in sig.to_dict().items() if v != _SIGNAL_DEFAULTS.get(k)}
+                    m_dict["signals"].append(s_dict)
+                data["messages"].append(m_dict)
+            return toml.dumps(data)
 
     # ── DBC 序列化 ──
 
     def to_dbc_str(self) -> str:
         """导出为 DBC 格式字符串。"""
-        lines = []
-        lines.append("VERSION \"\"")
-        lines.append("")
-        lines.append("NS_ :")
-        lines.append("    NS_DESC_")
-        lines.append("    CM_")
-        lines.append("    BA_DEF_")
-        lines.append("    BA_")
-        lines.append("    VAL_")
-        lines.append("    CAT_DEF_")
-        lines.append("    CAT_")
-        lines.append("    FILTER")
-        lines.append("    BA_DEF_DEF_")
-        lines.append("    EV_DATA_")
-        lines.append("    ENVVAR_DATA_")
-        lines.append("    SGTYPE_")
-        lines.append("    SGTYPE_VAL_")
-        lines.append("    BA_DEF_SGTYPE_")
-        lines.append("    BA_SGTYPE_")
-        lines.append("    SIG_TYPE_REF_")
-        lines.append("    VAL_TABLE_")
-        lines.append("    SIG_GROUP_")
-        lines.append("    SIG_VALTYPE_")
-        lines.append("    SIGTYPE_VALTYPE_")
-        lines.append("    BO_TX_BU_")
-        lines.append("    BA_DEF_REL_")
-        lines.append("    BA_REL_")
-        lines.append("    BA_DEF_DEF_REL_")
-        lines.append("    BU_SG_REL_")
-        lines.append("    BU_EV_REL_")
-        lines.append("    BU_BO_REL_")
-        lines.append("    SG_MUL_VAL_")
-        lines.append("")
-        
-        # BU_: 网络节点
-        lines.append("BU_: ECU1 ECU2 BMS")
-        lines.append("")
-        
-        # BO_: 报文定义
-        for mid in sorted(self.messages):
-            msg = self.messages[mid]
-            # BO_ <id> <name>: <dlc> <sender>
-            sender = msg.sender if msg.sender else "ECU1"
-            lines.append(f"BO_ {mid} {msg.name}: {msg.dlc} {sender}")
-            
-            # 信号定义
-            for sig in msg.signals:
-                # SG_ <name> : <start_bit>|<length>@<byte_order><sign> (<factor>,<offset>) [<min>|<max>] "<unit>" <receivers>
-                byte_order = 1 if sig.byte_order == "big_endian" else 0
-                sign = "-" if sig.is_signed else "+"
-                factor = sig.factor if sig.factor != 1.0 else 1
-                offset = sig.offset if sig.offset != 0.0 else 0
-                min_val = sig.min_val if sig.min_val != 0.0 else 0
-                max_val = sig.max_val if sig.max_val != 0.0 else 0
-                unit = sig.unit if sig.unit else ""
-                receivers = ",".join(sig.receivers) if sig.receivers else "Vector__XXX"
-                
-                lines.append(f" SG_ {sig.name} : {sig.start_bit}|{sig.length}@{byte_order}{sign} ({factor},{offset}) [{min_val}|{max_val}] \"{unit}\" {receivers}")
-            
+        with self.__lock:
+            lines = []
+            lines.append("VERSION \"\"")
             lines.append("")
-        
-        # VAL_: 信号值描述（可选）
-        for mid in sorted(self.messages):
-            msg = self.messages[mid]
-            for sig in msg.signals:
-                if sig.comment:
-                    # CM_ SG_ <message_id> <signal_name> "<comment>";
-                    lines.append(f"CM_ SG_ {mid} {sig.name} \"{self._escape_dbc_string(sig.comment)}\";")
-        
-        # 报文注释
-        for mid in sorted(self.messages):
-            msg = self.messages[mid]
-            if msg.comment:
-                lines.append(f"CM_ BO_ {mid} \"{self._escape_dbc_string(msg.comment)}\";")
-        
-        lines.append("")
-        return "\n".join(lines)
-    
+            lines.append("NS_ :")
+            lines.append("    NS_DESC_")
+            lines.append("    CM_")
+            lines.append("    BA_DEF_")
+            lines.append("    BA_")
+            lines.append("    VAL_")
+            lines.append("    CAT_DEF_")
+            lines.append("    CAT_")
+            lines.append("    FILTER")
+            lines.append("    BA_DEF_DEF_")
+            lines.append("    EV_DATA_")
+            lines.append("    ENVVAR_DATA_")
+            lines.append("    SGTYPE_")
+            lines.append("    SGTYPE_VAL_")
+            lines.append("    BA_DEF_SGTYPE_")
+            lines.append("    BA_SGTYPE_")
+            lines.append("    SIG_TYPE_REF_")
+            lines.append("    VAL_TABLE_")
+            lines.append("    SIG_GROUP_")
+            lines.append("    SIG_VALTYPE_")
+            lines.append("    SIGTYPE_VALTYPE_")
+            lines.append("    BO_TX_BU_")
+            lines.append("    BA_DEF_REL_")
+            lines.append("    BA_REL_")
+            lines.append("    BA_DEF_DEF_REL_")
+            lines.append("    BU_SG_REL_")
+            lines.append("    BU_EV_REL_")
+            lines.append("    BU_BO_REL_")
+            lines.append("    SG_MUL_VAL_")
+            lines.append("")
+
+            # BU_: 网络节点
+            lines.append("BU_: ECU1 ECU2 BMS")
+            lines.append("")
+
+            # BO_: 报文定义
+            for mid in sorted(self.messages):
+                msg = self.messages[mid]
+                # BO_ <id> <name>: <dlc> <sender>
+                sender = msg.sender if msg.sender else "ECU1"
+                lines.append(f"BO_ {mid} {msg.name}: {msg.dlc} {sender}")
+
+                # 信号定义
+                for sig in msg.signals:
+                    # SG_ <name> : <start_bit>|<length>@<byte_order><sign> (<factor>,<offset>) [<min>|<max>] "<unit>" <receivers>
+                    byte_order = 1 if sig.byte_order == "big_endian" else 0
+                    sign = "-" if sig.is_signed else "+"
+                    factor = sig.factor if sig.factor != 1.0 else 1
+                    offset = sig.offset if sig.offset != 0.0 else 0
+                    min_val = sig.min_val if sig.min_val != 0.0 else 0
+                    max_val = sig.max_val if sig.max_val != 0.0 else 0
+                    unit = sig.unit if sig.unit else ""
+                    receivers = ",".join(sig.receivers) if sig.receivers else "Vector__XXX"
+
+                    lines.append(f" SG_ {sig.name} : {sig.start_bit}|{sig.length}@{byte_order}{sign} ({factor},{offset}) [{min_val}|{max_val}] \"{unit}\" {receivers}")
+
+                lines.append("")
+
+            # VAL_: 信号值描述（可选）
+            for mid in sorted(self.messages):
+                msg = self.messages[mid]
+                for sig in msg.signals:
+                    if sig.comment:
+                        # CM_ SG_ <message_id> <signal_name> "<comment>";
+                        lines.append(f"CM_ SG_ {mid} {sig.name} \"{self._escape_dbc_string(sig.comment)}\"")
+
+            # 报文注释
+            for mid in sorted(self.messages):
+                msg = self.messages[mid]
+                if msg.comment:
+                    lines.append(f"CM_ BO_ {mid} \"{self._escape_dbc_string(msg.comment)}\"")
+
+            lines.append("")
+            return "\n".join(lines)
+
     def _escape_dbc_string(self, s: str) -> str:
         """转义 DBC 字符串中的特殊字符。"""
         if not s:
@@ -336,14 +548,14 @@ class CanDatabase:
         for m_dict in data.get("messages", []):
             mid_raw = m_dict["id"]
             mid = int(mid_raw, 16) if isinstance(mid_raw, str) and mid_raw.startswith("0x") else int(mid_raw)
-            msg = Message(
-                id=mid,
-                name=m_dict.get("name", ""),
-                dlc=m_dict.get("dlc", 8),
-                cycle_time=m_dict.get("cycle_time", 0),
-                sender=m_dict.get("sender", ""),
-                comment=m_dict.get("comment", ""),
-            )
+            msg = Message({
+                "id": mid,
+                "name": m_dict.get("name", ""),
+                "dlc": m_dict.get("dlc", 8),
+                "cycle_time": m_dict.get("cycle_time", 0),
+                "sender": m_dict.get("sender", ""),
+                "comment": m_dict.get("comment", ""),
+            })
             for s_dict in m_dict.get("signals", []):
                 msg.signals.append(Signal.from_dict(s_dict))
             db.messages[mid] = msg
@@ -394,9 +606,12 @@ def _pure_file_name(session) -> str:
     return base
 
 
-def _resp(success: bool, data: Any = None, error: str = "") -> dict:
+def _resp(success: bool, data: Any = None, error: str = "", details: dict | None = None) -> dict:
     """统一JSON响应格式。"""
-    return {"success": success, "data": data, "error": error}
+    result = {"success": success, "data": data, "error": error}
+    if details is not None:
+        result["details"] = details
+    return result
 
 
 # ── API 请求处理器 ────────────────────────────────────────────────────────────
@@ -424,6 +639,7 @@ class ApiHandler(BaseHTTPRequestHandler):
     # ── 工具方法 ──
 
     def _send_json(self, status: int, body: dict) -> None:
+        t_resp_start = time.monotonic()
         payload = json.dumps(body, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self._cors_headers()
@@ -433,6 +649,8 @@ class ApiHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(payload)
         self.wfile.flush()
+        elapsed = (time.monotonic() - t_resp_start) * 1000
+        print(f"[API] response: {status} {len(payload)} bytes +{elapsed:.1f}ms")
 
     def _read_body(self) -> dict:
         try:
@@ -471,10 +689,22 @@ class ApiHandler(BaseHTTPRequestHandler):
         return _temp_db()
 
     def _auto_save(self) -> None:
-        """变更后自动保存。"""
+        """变更后自动保存（延迟写入，不阻塞 API 响应）。"""
         session_id = self.headers.get("X-Session-Id", "")
         if session_id:
-            SESSION_MGR.save(session_id)
+            # 在后台线程中延迟保存，避免阻塞 HTTP 响应
+            def _save_later(sid):
+                import time as _t
+                _t.sleep(0.5)  # 延迟 500ms，等待响应返回客户端
+                t_save = time.monotonic()
+                print(f"[API] auto_save START session={sid[:8]}...")
+                try:
+                    SESSION_MGR.save(sid)
+                    elapsed = (time.monotonic() - t_save) * 1000
+                    print(f"[API] auto_save DONE +{elapsed:.1f}ms")
+                except Exception as e:
+                    print(f"[WARN] auto_save failed for session {sid}: {e}")
+            threading.Thread(target=_save_later, args=(session_id,), daemon=True).start()
 
     def _session_id_from_path(self) -> str | None:
         """从路径中取 session_id（用于 /api/session/{id} 类端点）。"""
@@ -538,8 +768,11 @@ class ApiHandler(BaseHTTPRequestHandler):
     # ── 路由 ──
 
     def do_GET(self) -> None:
+        t_start = time.monotonic()
         try:
             self._handle_GET()
+            elapsed = (time.monotonic() - t_start) * 1000
+            print(f"[API] GET {self.path} DONE +{elapsed:.1f}ms")
         except Exception as e:
             print(f"[ERROR] do_GET: {e}", flush=True)
             import traceback
@@ -557,6 +790,8 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._get_messages()
         elif parts[0:2] == ["api", "messages"] and len(parts) == 3:
             self._get_message(parts[2])
+        elif parts[0:2] == ["api", "messages"] and len(parts) == 4 and parts[3] == "signal-errors":
+            self._get_signal_errors(parts[2])
         elif parts == ["api", "summary"]:
             self._get_summary()
         elif parts[0:2] == ["api", "session"] and len(parts) == 3:
@@ -567,8 +802,11 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._serve_static()
 
     def do_POST(self) -> None:
+        t_start = time.monotonic()
         try:
             self._handle_POST()
+            elapsed = (time.monotonic() - t_start) * 1000
+            print(f"[API] POST {self.path} DONE +{elapsed:.1f}ms")
         except Exception as e:
             print(f"[ERROR] do_POST: {e}", flush=True)
             import traceback
@@ -600,26 +838,30 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._send_json(404, _resp(False, error="Not found"))
 
     def do_PUT(self) -> None:
+        t_start = time.monotonic()
         parts = self._path_parts()
         if len(parts) == 3 and parts[0:2] == ["api", "messages"]:
             # PUT /api/messages/{id}
             self._put_message(parts[2])
         elif len(parts) == 5 and parts[0:3] == ["api", "messages", parts[2]] and parts[3] == "signals":
-            # PUT /api/messages/{id}/signals/{idx}
+            # PUT /api/messages/{id}/signals/{uuid}
             self._put_signal(parts[2], parts[4])
         elif parts == ["api", "session"]:
             # PUT /api/session - 更新数据库名称
             self._put_session()
         else:
             self._send_json(404, _resp(False, error="Not found"))
+        elapsed = (time.monotonic() - t_start) * 1000
+        print(f"[API] PUT {self.path} DONE +{elapsed:.1f}ms")
 
     def do_DELETE(self) -> None:
+        t_start = time.monotonic()
         parts = self._path_parts()
         if len(parts) == 3 and parts[0:2] == ["api", "messages"]:
             # DELETE /api/messages/{id}
             self._delete_message(parts[2])
         elif len(parts) == 5 and parts[0:3] == ["api", "messages", parts[2]] and parts[3] == "signals":
-            # DELETE /api/messages/{id}/signals/{idx}
+            # DELETE /api/messages/{id}/signals/{uuid}
             self._delete_signal(parts[2], parts[4])
         elif len(parts) == 3 and parts[0:2] == ["api", "session"]:
             # DELETE /api/session/{id}
@@ -656,7 +898,7 @@ class ApiHandler(BaseHTTPRequestHandler):
         }))
 
     def _get_session(self, session_id: str) -> None:
-        """GET /api/session/{id} - 恢复会话，返回完整数据库状态。"""
+        """GET /api/session/{id} - 恢复会话，返回会话元数据（不含完整数据库，避免大对象序列化）。"""
         s = SESSION_MGR.restore(session_id)
         if not s:
             self._send_json(404, _resp(False, error="Session not found or expired"))
@@ -664,7 +906,6 @@ class ApiHandler(BaseHTTPRequestHandler):
         self._send_json(200, _resp(True, {
             "session_id": s.id,
             "file_name": _pure_file_name(s),
-            "db": s.db.to_dict(),
             "message_count": len(s.db.messages),
             "signal_count": s.db.total_signals(),
         }))
@@ -756,6 +997,16 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._send_json(404, _resp(False, error=f"Message 0x{msg_id:X} not found"))
             return
         self._send_json(200, _resp(True, msg.to_dict()))
+
+    def _get_signal_errors(self, id_str: str) -> None:
+        """GET /api/messages/{id}/signal-errors - 获取报文所有信号布局错误。"""
+        db = self._get_db()
+        msg_id = _parse_id(id_str)
+        if msg_id is None:
+            self._send_json(400, _resp(False, error="Invalid message ID"))
+            return
+        errors = db.validate_all_signals(msg_id)
+        self._send_json(200, _resp(True, errors))
 
     def _get_summary(self) -> None:
         db = self._get_db()
@@ -883,14 +1134,10 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._send_json(400, _resp(False, error="Invalid new ID"))
             return
         if new_id != msg_id:
-            if db.get_message(new_id):
+            if not db.move_message(msg_id, new_id):
                 self._send_json(409, _resp(False, error=f"Message 0x{new_id:X} already exists"))
                 return
-            old = db.remove_message(msg_id)
-            if old:
-                old.id = new_id
-                db.add_message(old)
-                msg_id = new_id
+            msg_id = new_id
         ok = db.update_message(msg_id, **{k: v for k, v in body.items() if k != "id"})
         if not ok:
             self._send_json(404, _resp(False, error=f"Message 0x{msg_id:X} not found"))
@@ -928,44 +1175,35 @@ class ApiHandler(BaseHTTPRequestHandler):
         self._send_json(201, _resp(True, sig.to_dict()))
 
     def _put_signal(self, id_str: str, idx_str: str) -> None:
-        """PUT /api/messages/{id}/signals/{idx} - 更新信号。"""
+        """PUT /api/messages/{id}/signals/{uuid} - 更新信号。"""
         db = self._get_db()
         msg_id = _parse_id(id_str)
         if msg_id is None:
             self._send_json(400, _resp(False, error="Invalid message ID"))
-            return
-        try:
-            sig_idx = int(idx_str)
-        except ValueError:
-            self._send_json(400, _resp(False, error="Invalid signal index"))
             return
         body = self._read_body()
-        ok = db.update_signal_in_message(msg_id, sig_idx, **body)
+        ok = db.update_signal_in_message(msg_id, idx_str, **body)
         if not ok:
-            self._send_json(404, _resp(False, error=f"Message or signal not found"))
+            self._send_json(404, _resp(False, error="Message or signal not found"))
             return
-        sig = db.get_message(msg_id).signals[sig_idx]
+        msg = db.get_message(msg_id)
+        sig = next((s for s in msg.signals if s.uuid == idx_str), None) if msg else None
         self._auto_save()
-        self._send_json(200, _resp(True, sig.to_dict()))
+        self._send_json(200, _resp(True, sig.to_dict() if sig else {}))
 
-    def _delete_signal(self, id_str: str, idx_str: str) -> None:
-        """DELETE /api/messages/{id}/signals/{idx} - 删除信号。"""
+    def _delete_signal(self, id_str: str, uuid_str: str) -> None:
+        """DELETE /api/messages/{id}/signals/{uuid} - 删除信号。"""
         db = self._get_db()
         msg_id = _parse_id(id_str)
         if msg_id is None:
             self._send_json(400, _resp(False, error="Invalid message ID"))
             return
-        try:
-            sig_idx = int(idx_str)
-        except ValueError:
-            self._send_json(400, _resp(False, error="Invalid signal index"))
-            return
-        ok = db.remove_signal_from_message(msg_id, sig_idx)
+        ok = db.remove_signal_from_message(msg_id, uuid_str)
         if not ok:
             self._send_json(404, _resp(False, error=f"Message or signal not found"))
             return
         self._auto_save()
-        self._send_json(200, _resp(True, {"deleted": sig_idx}))
+        self._send_json(200, _resp(True, {"deleted": uuid_str}))
 
 
 def _parse_id(s: Any) -> int | None:

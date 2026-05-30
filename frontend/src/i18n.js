@@ -117,6 +117,15 @@ const dict = {
     'toast.serverOffline': '请启动 API 服务器',
     'toast.batchCreated': '已创建 {count} 个信号',
     'toast.batchFailed': '批量创建在第 #{idx} 个失败：{msg}',
+    'toast.signalOutOfBounds': '信号 "{name}" 超出范围（DLC={dlc}，最大位 {max}）',
+    'toast.signalOverlap': '信号 "{name}" 与 "{other}" 在位 {bits} 重叠',
+    'toast.signalAutoFixed': '已自动调整 "{name}" 的起始位为 {start}',
+    // Signal validation errors
+    'signal.errorsTitle': '信号布局错误',
+    'signal.errorOutOfBounds': '{name}：超出范围（位 {bits} > {max}）',
+    'signal.errorOverlap': '{name} 与 {other}：重叠（位 {bits}）',
+    'signal.fixBtn': '自动修复',
+    'signal.noErrors': '无布局错误',
   },
   en: {
     // TopBar
@@ -236,6 +245,15 @@ const dict = {
     'toast.serverOffline': 'Start API server to begin',
     'toast.batchCreated': 'Created {count} signals',
     'toast.batchFailed': 'Batch create failed at #{idx}: {msg}',
+    'toast.signalOutOfBounds': 'Signal "{name}" out of bounds (DLC={dlc}, max bit {max})',
+    'toast.signalOverlap': 'Signal "{name}" overlaps with "{other}" at bits {bits}',
+    'toast.signalAutoFixed': 'Auto-adjusted "{name}" start bit to {start}',
+    // Signal validation errors
+    'signal.errorsTitle': 'Signal Layout Errors',
+    'signal.errorOutOfBounds': '{name}: out of bounds (bits {bits} > {max})',
+    'signal.errorOverlap': '{name} vs {other}: overlap at bits {bits}',
+    'signal.fixBtn': 'Auto Fix',
+    'signal.noErrors': 'No layout errors',
   }
 }
 

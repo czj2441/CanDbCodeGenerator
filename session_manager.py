@@ -201,8 +201,9 @@ class SessionManager:
         session = self.get(session_id)
         if not session:
             return False
-        self._write_file(session)
-        session.db.modified = False
+        with session.db.with_lock():
+            self._write_file(session)
+            session.db.modified = False
         return True
 
     def destroy(self, session_id: str) -> bool:
@@ -271,10 +272,10 @@ class SessionManager:
             name_part = base
         new_file_name = f"{new_sid}_{name_part}"
         new_file_path = os.path.join(self._data_dir, new_file_name)
-        # 先写入新文件
+        # 先写入新文件（统一使用 TOML 格式）
         tmp_path = new_file_path + ".tmp"
         with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(db.to_json_dict(), f, ensure_ascii=False, indent=2)
+            f.write(db.to_toml_str())
         os.replace(tmp_path, new_file_path)
 
         session = Session(new_sid, new_file_path, db)
@@ -330,7 +331,12 @@ class SessionManager:
         return None
 
     def _write_file(self, session: Session):
-        """将会话数据以 TOML 格式写入磁盘。"""
+        """将会话数据以 TOML 格式写入磁盘。
+
+        调用方必须已持有 session.db 的锁（通过 with_lock()），
+        因为 to_toml_str() 内部也会获取同一把 RLock，外部持锁可避免
+        三重嵌套并保证写操作原子性。
+        """
         content = session.db.to_toml_str()
         # 文件名包含 session_id 前缀，便于恢复时查找
         base = os.path.basename(session.file_path)

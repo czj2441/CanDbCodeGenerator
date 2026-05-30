@@ -38,28 +38,44 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="(sig, idx) in msg.signals" :key="idx" :data-sig-idx="idx">
+          <tr v-for="(sig, idx) in msg.signals" :key="sig.uuid" :data-sig-id="sig.uuid" :class="{ 'has-error': errorUuids.has(sig.uuid), 'selected': selectedSigUuid === sig.uuid }" @click="selectRow(sig.uuid)">
             <td><input class="hex" :value="idx" readonly></td>
-            <td><input v-model="sig.name" @blur="update(idx, 'name', sig.name)"></td>
-            <td><input class="mono" type="number" v-model.number="sig.start_bit" @blur="update(idx, 'start_bit', sig.start_bit)"></td>
-            <td><input class="mono" type="number" v-model.number="sig.length" @blur="update(idx, 'length', sig.length)"></td>
-            <td><input class="mono" v-model="sig.byte_order" @blur="update(idx, 'byte_order', sig.byte_order)"></td>
-            <td><input class="mono" type="number" step="any" v-model.number="sig.factor" @blur="update(idx, 'factor', sig.factor)"></td>
-            <td><input class="mono" type="number" step="any" v-model.number="sig.offset" @blur="update(idx, 'offset', sig.offset)"></td>
-            <td><input class="mono" type="number" step="any" v-model.number="sig.min_val" @blur="update(idx, 'min_val', sig.min_val)"></td>
-            <td><input class="mono" type="number" step="any" v-model.number="sig.max_val" @blur="update(idx, 'max_val', sig.max_val)"></td>
-            <td><input v-model="sig.unit" @blur="update(idx, 'unit', sig.unit)"></td>
-            <td><input v-model="sig.comment" @blur="update(idx, 'comment', sig.comment)"></td>
-            <td><button class="action-delete" @click="store.deleteSignal(idx)" title="删除">×</button></td>
+            <td><input v-model="sig.name" @blur="update(sig.uuid, 'name', sig.name)"></td>
+            <td><input class="mono" type="number" v-model.number="sig.start_bit" @blur="update(sig.uuid, 'start_bit', sig.start_bit)"></td>
+            <td><input class="mono" type="number" v-model.number="sig.length" @blur="update(sig.uuid, 'length', sig.length)"></td>
+            <td><input class="mono" v-model="sig.byte_order" @blur="update(sig.uuid, 'byte_order', sig.byte_order)"></td>
+            <td><input class="mono" type="number" step="any" v-model.number="sig.factor" @blur="update(sig.uuid, 'factor', sig.factor)"></td>
+            <td><input class="mono" type="number" step="any" v-model.number="sig.offset" @blur="update(sig.uuid, 'offset', sig.offset)"></td>
+            <td><input class="mono" type="number" step="any" v-model.number="sig.min_val" @blur="update(sig.uuid, 'min_val', sig.min_val)"></td>
+            <td><input class="mono" type="number" step="any" v-model.number="sig.max_val" @blur="update(sig.uuid, 'max_val', sig.max_val)"></td>
+            <td><input v-model="sig.unit" @blur="update(sig.uuid, 'unit', sig.unit)"></td>
+            <td><input v-model="sig.comment" @blur="update(sig.uuid, 'comment', sig.comment)"></td>
+            <td><button class="action-delete" @click="store.deleteSignal(sig.uuid)" title="删除">×</button></td>
           </tr>
         </tbody>
       </table>
+    </div>
+
+    <!-- 信号布局错误提示区 -->
+    <div v-if="msg && store.signalErrors.length > 0" class="error-panel">
+      <div class="error-title">{{ t('signal.errorsTitle') }}</div>
+      <div v-for="err in store.signalErrors" :key="err.signal_uuid + err.type" class="error-item">
+        <span v-if="err.type === 'out_of_bounds'">
+          {{ t('signal.errorOutOfBounds', { name: err.signal_name, bits: err.out_of_bounds_bits.join(','), max: msg.dlc * 8 - 1 }) }}
+        </span>
+        <span v-if="err.type === 'overlap'">
+          {{ t('signal.errorOverlap', { name: err.signal_name, other: err.conflicts_name, bits: err.overlapping_bits.join(',') }) }}
+        </span>
+        <button v-if="err.suggestion" class="btn-fix" @click="fixSignal(err.signal_uuid, err.suggestion.recommended_start_bit)">
+          {{ t('signal.fixBtn') }}
+        </button>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, onMounted, onUnmounted, watch } from 'vue'
 import { useEditorStore } from '../stores/editor.js'
 import { toHex } from '../utils/format.js'
 import { t } from '../i18n.js'
@@ -67,6 +83,45 @@ import { t } from '../i18n.js'
 const store = useEditorStore()
 
 const msg = computed(() => store.selectedMessage)
+const selectedSigUuid = ref(null)
+
+// 切换报文时清除选中
+watch(msg, () => { selectedSigUuid.value = null })
+
+const errorUuids = computed(() => {
+  const set = new Set()
+  for (const err of store.signalErrors) {
+    set.add(err.signal_uuid)
+    if (err.conflicts_uuid) set.add(err.conflicts_uuid)
+  }
+  return set
+})
+
+function selectRow(uuid) {
+  selectedSigUuid.value = selectedSigUuid.value === uuid ? null : uuid
+}
+
+function onKeyDown(e) {
+  const isInput = e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable
+  const ctrl = e.ctrlKey || e.metaKey
+  if (!ctrl) return
+
+  if (e.key === 'c' && !isInput) {
+    e.preventDefault()
+    if (selectedSigUuid.value) {
+      store.copySignal(selectedSigUuid.value)
+    }
+  } else if (e.key === 'v' && !isInput) {
+    e.preventDefault()
+    store.pasteSignal()
+  } else if (e.key === 'z' && !isInput) {
+    e.preventDefault()
+    store.undo()
+  }
+}
+
+onMounted(() => window.addEventListener('keydown', onKeyDown))
+onUnmounted(() => window.removeEventListener('keydown', onKeyDown))
 
 function addSignal() {
   store.addSignal({ name: 'NewSignal', start_bit: 0, length: 8 })
@@ -79,6 +134,10 @@ function update(idx, field, value) {
 function deleteMsg() {
   if (store.selectedMsgId == null) return
   store.deleteMessage(store.selectedMsgId)
+}
+
+function fixSignal(uuid, newStartBit) {
+  store.autoFixSignal(uuid, newStartBit)
 }
 </script>
 
@@ -114,7 +173,7 @@ function deleteMsg() {
 .btn-accent { background: var(--accent); color: oklch(0.12 0.01 155); border-color: transparent; font-weight: 600; }
 .btn-danger { background: oklch(0.22 0.05 25); color: oklch(0.85 0.05 25); border-color: oklch(0.35 0.08 25); }
 
-.table-wrap { flex: 1; overflow: auto; padding: 8px; }
+.table-wrap { flex: 1 1 auto; overflow: auto; padding: 8px; min-height: 120px; }
 
 .empty {
   padding: 60px 20px;
@@ -169,4 +228,68 @@ function deleteMsg() {
   line-height: 1;
 }
 .action-delete:hover { color: oklch(0.75 0.15 25); }
+
+/* 错误提示区 */
+.error-panel {
+  background: oklch(0.18 0.06 25);
+  border: 1px solid oklch(0.4 0.1 25);
+  border-radius: var(--radius-sm);
+  margin: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  flex-shrink: 0;
+  max-height: 140px;
+  overflow-y: auto;
+}
+.error-title {
+  color: oklch(0.75 0.15 25);
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.error-item {
+  color: oklch(0.8 0.08 25);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 0;
+  flex-wrap: wrap;
+}
+.btn-fix {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  cursor: pointer;
+}
+.btn-fix:hover { background: var(--accent); }
+
+/* 选中行高亮 */
+.signal-table tr.selected {
+  background: color-mix(in oklch, var(--accent) 15%, transparent) !important;
+}
+.signal-table tr.selected td:first-child {
+  border-left: 3px solid var(--accent);
+}
+
+/* 冲突行高亮 */
+.signal-table tr.has-error {
+  background: color-mix(in oklch, var(--danger) 12%, transparent) !important;
+}
+.signal-table tr.has-error td:first-child {
+  border-left: 3px solid var(--danger);
+}
+.signal-table tr.has-error input {
+  border-color: color-mix(in oklch, var(--danger) 40%, transparent);
+  color: var(--text);
+}
+
+/* 同时选中和报错：以 danger 为主，但保留 accent 左边框提示 */
+.signal-table tr.selected.has-error {
+  background: color-mix(in oklch, var(--danger) 18%, transparent) !important;
+}
+.signal-table tr.selected.has-error td:first-child {
+  border-left: 3px solid var(--danger);
+}
 </style>

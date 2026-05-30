@@ -74,7 +74,7 @@ const contextMenuItems = computed(() => {
 })
 
 function onContextMenu(e) {
-  const row = e.target.closest('tr[data-sig-idx]')
+  const row = e.target.closest('tr[data-sig-id]')
   const msgItem = e.target.closest('.message-item')
   if (row) {
     e.preventDefault()
@@ -83,7 +83,7 @@ function onContextMenu(e) {
       x: Math.min(e.clientX, window.innerWidth - 180),
       y: Math.min(e.clientY, window.innerHeight - 200),
       target: 'signal',
-      idx: parseInt(row.dataset.sigIdx),
+      idx: row.dataset.sigId,
     }
   } else if (msgItem) {
     e.preventDefault()
