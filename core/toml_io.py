@@ -3,21 +3,21 @@
 TOML is chosen for its human readability, diff-friendliness, and excellent
 Git version-control compatibility.
 
-Storage layout::
+Storage layout (per-message nested signals)::
 
     [database]
     name = "MyProject"
-
-    [signals.RPM]
-    start_bit = 0
-    length = 16
-    ...
 
     [[messages]]
     id = 0x100
     name = "EngineStatus"
     dlc = 8
-    signals = ["RPM", "Speed"]
+
+      [[messages.signals]]
+      name = "RPM"
+      start_bit = 0
+      length = 16
+      ...
 """
 
 from __future__ import annotations
