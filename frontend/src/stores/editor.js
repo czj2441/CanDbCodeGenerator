@@ -7,23 +7,31 @@ import { useUiStore } from './uiStore.js'
 
 export const useEditorStore = defineStore('editor', {
   state: () => ({
+    // ── 核心数据 ──
     messages: [],
     selectedMsgId: null,
     messageCache: {},
+
+    // ── 会话与文件 ──
     currentFileName: '',
+    sessionHistory: [],
+
+    // ── 运行时状态 ──
     isLoading: false,
     apiStatus: 'connecting',
     modified: false,
     modifiedAt: 0,
-    clipboard: null,
-    sessionHistory: [],
     signalErrors: [],
+
+    // ── 视图状态 ──
     layoutViewMode: false,
     selectedSignalUuid: null,
-    _undoRedo: null, // 撤销/重做管理器实例
-    // ═══════════════════════════════════════════
-    // 响应式撤销计数器（Pinia getter 不会追踪普通对象内部变化）
-    // ═══════════════════════════════════════════
+
+    // ── 剪贴板 ──
+    clipboard: null,
+
+    // ── 撤销/重做 ──
+    _undoRedo: null,
     undoCount: 0,
     redoCount: 0,
   }),
@@ -44,8 +52,14 @@ export const useEditorStore = defineStore('editor', {
   },
 
   actions: {
-    // ── 撤销/重做 ──
+    // ═══════════════════════════════════════════
+    // 区域 C：撤销/重做（Undo/Redo）
+    // ═══════════════════════════════════════════
 
+    /**
+     * 初始化撤销/重做管理器
+     * 懒加载模式：首次调用时创建 createUndoRedoManager 实例
+     */
     initUndoRedo() {
       if (this._undoRedo) return // 已初始化
       this._undoRedo = createUndoRedoManager({
@@ -91,6 +105,10 @@ export const useEditorStore = defineStore('editor', {
         this.redoCount = 0
       }
     },
+
+    // ═══════════════════════════════════════════
+    // 区域 B：会话管理（Session Management）
+    // ═══════════════════════════════════════════
 
     async initSession() {
       const sid = sessionStorage.getItem('canmatrix_session_id')
@@ -147,16 +165,19 @@ export const useEditorStore = defineStore('editor', {
       }
     },
 
+    // ═══════════════════════════════════════════
+    // 区域 A：数据操作（Data Operations）
+    // ═══════════════════════════════════════════
+
+    // ── 报文加载与选择 ──
+
     async loadMessages() {
       const t0 = performance.now()
-      console.log('[STORE] loadMessages() START')
       try {
-        console.log('[STORE] loadMessages() API DONE +', (performance.now() - t0).toFixed(1), 'ms)')
         this.messages = await api('GET', '/api/messages')
         if (this.selectedMsgId != null) {
           await this.loadSelectedMessage()
         }
-        console.log('[STORE] loadMessages() ALL DONE +', (performance.now() - t0).toFixed(1), 'ms)')
         await this._checkModifiedStatus()
       } catch (e) {
         useUiStore().showToast(e.message, true)
@@ -182,23 +203,18 @@ export const useEditorStore = defineStore('editor', {
     },
 
     async selectMessage(id) {
-      const t0 = performance.now()
       this.selectedMsgId = id
       // 乐观更新：立即清空旧缓存，让 UI 显示加载中
       this.messageCache[id] = null
-      console.log('[STORE] selectMessage() optimistic DONE +', (performance.now() - t0).toFixed(1), 'ms)')
       // 异步加载，不阻塞 UI
       this.loadSelectedMessage()
     },
 
     async loadSelectedMessage() {
       if (this.selectedMsgId == null) return
-      const t0 = performance.now()
-      console.log('[STORE] loadSelectedMessage() START', this.selectedMsgId)
       try {
         const msg = await api('GET', `/api/messages/${this.selectedMsgId}`)
         this.messageCache[this.selectedMsgId] = msg
-        console.log('[STORE] loadSelectedMessage() DONE +', (performance.now() - t0).toFixed(1), 'ms)')
         this.loadSignalErrors()
       } catch (e) {
         useUiStore().showToast(e.message, true)
@@ -215,12 +231,12 @@ export const useEditorStore = defineStore('editor', {
       }
     },
 
+    // ── 报文 CRUD ──
+
     async autoFixSignal(sigUuid, newStartBit) {
       if (this.selectedMsgId == null) return
       await this.updateSignal(sigUuid, 'start_bit', newStartBit)
     },
-
-    // ── Layout View ──
 
     toggleLayoutView() {
       this.layoutViewMode = !this.layoutViewMode
@@ -239,10 +255,12 @@ export const useEditorStore = defineStore('editor', {
       await this.updateSignal(sigUuid, 'length', newLength)
     },
 
+    /**
+     * 添加报文（乐观更新模式）
+     * 先更新本地状态再发送 API，失败时回滚
+     * @returns {Promise<void>}
+     */
     async addMessage() {
-      const t0 = performance.now()
-      console.log(`[STORE] addMessage() START`)
-
       const id = 0x300 + this.messages.length
       const name = `NewMessage${this.messages.length + 1}`
 
@@ -257,17 +275,12 @@ export const useEditorStore = defineStore('editor', {
       this.modified = true
       this.modifiedAt = Date.now()
 
-      const t1 = performance.now()
-      console.log(`[STORE] addMessage() optimistic update DONE (+${(t1 - t0).toFixed(1)}ms)`)
-
       // 异步发送 API 请求，不阻塞 UI
       try {
         await api('POST', '/api/messages', {
           id: `0x${id.toString(16)}`, name,
           dlc: 8, cycle_time: 0, sender: '', signals: [],
         })
-        const t2 = performance.now()
-        console.log(`[STORE] addMessage() API response DONE (+${(t2 - t0).toFixed(1)}ms)`)
 
         // API 成功后入栈（用于撤销删除）
         this.pushUndo({
@@ -355,10 +368,14 @@ export const useEditorStore = defineStore('editor', {
       }
     },
 
+    /**
+     * 添加信号（乐观更新 + client UUID 替换）
+     * 使用前端生成的临时 UUID 乐观更新 UI，API 成功后替换为后端真实 UUID
+     * @param {Object} signalData - 信号初始数据
+     * @returns {Promise<void>}
+     */
     async addSignal(signalData) {
       if (this.selectedMsgId == null) return
-      const t0 = performance.now()
-      console.log('[STORE] addSignal() START', signalData.name || 'unnamed')
 
       // 补充完整默认值，确保 UI 上所有字段都有值
       const fullData = {
@@ -390,12 +407,9 @@ export const useEditorStore = defineStore('editor', {
       }
       markModified(this)
 
-      console.log('[STORE] addSignal() optimistic DONE +', (performance.now() - t0).toFixed(1), 'ms)')
-
       // 异步发送
       try {
         const result = await api('POST', `/api/messages/${this.selectedMsgId}/signals`, fullData)
-        console.log('[STORE] addSignal() API DONE +', (performance.now() - t0).toFixed(1), 'ms)')
         // 用后端返回的完整数据（含正确 uuid）替换乐观更新的信号
         const sigIdx = msg.signals.findIndex(s => s.uuid === clientUuid)
         if (sigIdx >= 0 && result) {
@@ -424,10 +438,16 @@ export const useEditorStore = defineStore('editor', {
       }
     },
 
+    /**
+     * 更新信号属性（乐观更新模式）
+     * 值变化时先入撤销栈，再更新本地状态，异步发送 API
+     * @param {string} sigUuid - 信号 UUID
+     * @param {string} field - 字段名
+     * @param {any} value - 新值
+     * @returns {Promise<void>}
+     */
     async updateSignal(sigUuid, field, value) {
       if (this.selectedMsgId == null) return
-      const t0 = performance.now()
-      console.log('[STORE] updateSignal()', sigUuid, field, '=', value)
 
       // 乐观更新
       const msg = this.messageCache[this.selectedMsgId]
@@ -454,8 +474,6 @@ export const useEditorStore = defineStore('editor', {
       sig[field] = value
       markModified(this)
 
-      console.log('[STORE] updateSignal() optimistic DONE +', (performance.now() - t0).toFixed(1), 'ms)')
-
       // 异步发送
       try {
         await api('PUT', `/api/messages/${this.selectedMsgId}/signals/${sigUuid}`, { [field]: value })
@@ -463,15 +481,12 @@ export const useEditorStore = defineStore('editor', {
       } catch (e) {
         // 回滚（仅针对真正的 API 失败；验证错误不再被后端拒绝）
         sig[field] = oldVal
-        console.log('[STORE] updateSignal() API DONE +', (performance.now() - t0).toFixed(1), 'ms)')
         useUiStore().showToast(e.message, true)
       }
     },
 
     async deleteSignal(sigUuid) {
       if (this.selectedMsgId == null) return
-      const t0 = performance.now()
-      console.log('[STORE] deleteSignal()', sigUuid)
 
       const msg = this.selectedMessage
       const sig = msg ? msg.signals.find(s => s.uuid === sigUuid) : null
@@ -489,12 +504,9 @@ export const useEditorStore = defineStore('editor', {
       }
       markModified(this)
 
-      console.log('[STORE] deleteSignal() optimistic DONE +', (performance.now() - t0).toFixed(1), 'ms)')
-
       // 异步发送
       try {
         await api('DELETE', `/api/messages/${this.selectedMsgId}/signals/${sigUuid}`)
-        console.log('[STORE] deleteSignal() API DONE +', (performance.now() - t0).toFixed(1), 'ms)')
         useUiStore().showToast(t('toast.signalDeleted'))
         this.loadSignalErrors()
       } catch (e) {
@@ -507,6 +519,12 @@ export const useEditorStore = defineStore('editor', {
       }
     },
 
+    /**
+     * 批量添加信号（乐观更新 + 并发 API）
+     * 所有信号先本地乐观更新，然后并发发送 API 请求
+     * @param {Object} params - 批量参数
+     * @returns {Promise<void>}
+     */
     async batchAddSignals({ nameTemplate, count, startNum, startBit, bitStep, length, byteOrder, factor, offset, minVal, maxVal, unit, commentTemplate }) {
       if (this.selectedMsgId == null) return
       const msg = this.messageCache[this.selectedMsgId]
@@ -670,7 +688,9 @@ export const useEditorStore = defineStore('editor', {
       }
     },
 
-    // ── Clipboard ──
+    // ═══════════════════════════════════════════
+    // 区域 D：剪贴板（Clipboard）
+    // ═══════════════════════════════════════════
 
     copySignal(sigUuid) {
       const msg = this.selectedMessage
