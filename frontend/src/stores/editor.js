@@ -26,6 +26,8 @@ export const useEditorStore = defineStore('editor', {
     layoutViewMode: false,
     selectedSignalUuid: null,
     _undoRedo: null, // 撤销/重做管理器实例
+    showLogPanel: false, // 日志面板显示开关
+    logEntries: [], // 操作日志条目
   }),
 
   getters: {
@@ -44,6 +46,21 @@ export const useEditorStore = defineStore('editor', {
     showToast(text, isError = false) {
       this.toast = { text, isError, visible: true }
       setTimeout(() => { this.toast.visible = false }, 2000)
+    },
+
+    // ── 操作日志 ──
+    addLogEntry(type, description) {
+      const now = new Date()
+      const time = now.toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      this.logEntries.unshift({ time, type, description })
+      // 限制日志条数（保留最近 200 条）
+      if (this.logEntries.length > 200) {
+        this.logEntries.pop()
+      }
+    },
+
+    clearLog() {
+      this.logEntries = []
     },
 
     setTheme(theme) {
@@ -79,6 +96,7 @@ export const useEditorStore = defineStore('editor', {
           if (this.selectedMsgId != null) await this.loadSelectedMessage()
         },
         onToast: (text, isError) => this.showToast(text, isError),
+        onLog: (type, description) => this.addLogEntry(type, description),
       })
     },
 

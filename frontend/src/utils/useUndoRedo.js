@@ -83,6 +83,50 @@ const REDO_HANDLERS = {
   },
 }
 
+// ── 日志描述生成 ──
+const TYPE_LABELS = {
+  message_delete: '报文',
+  signal_delete: '信号',
+  message_update: '报文属性',
+  signal_update: '信号属性',
+  message_add: '报文',
+  signal_add: '信号',
+  batch_signal_add: '批量信号',
+}
+
+function getLogDescription(snap, action) {
+  const label = TYPE_LABELS[snap.type] || snap.type
+  const actionText = action === 'undo' ? '撤销' : '重做'
+
+  if (snap.type === 'message_update' || snap.type === 'signal_update') {
+    const field = Object.keys(snap.prev || {})[0] || ''
+    const prevVal = Object.values(snap.prev || {})[0] || ''
+    const nextVal = Object.values(snap.next || {})[0] || ''
+    if (action === 'undo') {
+      return `${actionText}${label}：${field} "${nextVal}" → "${prevVal}"`
+    }
+    return `${actionText}${label}：${field} "${prevVal}" → "${nextVal}"`
+  }
+
+  if (snap.type === 'batch_signal_add') {
+    const count = snap.signals?.length || 0
+    const names = snap.signals?.map(s => s.data?.name || s.uuid).join(', ') || ''
+    return `${actionText}${label}（${count}个）：${names}`
+  }
+
+  if (snap.type === 'signal_add' || snap.type === 'signal_delete') {
+    const name = snap.data?.name || snap.sigUuid || ''
+    return `${actionText}${label}：${name}`
+  }
+
+  if (snap.type === 'message_add' || snap.type === 'message_delete') {
+    const name = snap.data?.name || `0x${(snap.msgId || 0).toString(16)}` || ''
+    return `${actionText}${label}：${name}`
+  }
+
+  return `${actionText}${label}`
+}
+
 /**
  * 创建撤销/重做管理器
  * @param {object} options
@@ -91,7 +135,7 @@ const REDO_HANDLERS = {
  * @param {Function} options.onToast - 提示回调
  * @returns {object} 管理器实例
  */
-export function createUndoRedoManager({ maxSize = 50, onReload, onToast } = {}) {
+export function createUndoRedoManager({ maxSize = 50, onReload, onToast, onLog } = {}) {
   const undoStack = []
   const redoStack = []
   let isExecuting = false // ⚠️ 并发保护：防止快速连按导致重复执行
@@ -149,6 +193,10 @@ export function createUndoRedoManager({ maxSize = 50, onReload, onToast } = {}) 
       if (onReload) await onReload()
 
       if (onToast) onToast('撤销成功', false)
+      if (onLog) {
+        const desc = getLogDescription(snap, 'undo')
+        onLog('undo', desc)
+      }
     } catch (e) {
       console.error('[UndoRedo] 撤销失败:', e)
       if (onToast) onToast(e.message || '撤销失败', true)
@@ -195,6 +243,10 @@ export function createUndoRedoManager({ maxSize = 50, onReload, onToast } = {}) 
       if (onReload) await onReload()
 
       if (onToast) onToast('重做成功', false)
+      if (onLog) {
+        const desc = getLogDescription(snap, 'redo')
+        onLog('redo', desc)
+      }
     } catch (e) {
       console.error('[UndoRedo] 重做失败:', e)
       if (onToast) onToast(e.message || '重做失败', true)

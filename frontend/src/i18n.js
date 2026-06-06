@@ -8,6 +8,7 @@ const dict = {
     'topbar.save': '保存',
     'topbar.undo': '撤销',
     'topbar.redo': '重做',
+    'topbar.log': '操作日志',
     'topbar.connected': '已连接',
     'topbar.offline': '离线',
     'topbar.newConfirmTitle': '创建新会话？',
@@ -150,6 +151,18 @@ const dict = {
     'layout.noSignals': '未定义信号。',
     'layout.byteLabel': '字节',
     'layout.bitHeader': '位',
+
+    // Log Panel
+    'log.title': '操作日志',
+    'log.clear': '清空',
+    'log.empty': '暂无操作记录',
+    'log.type.undo': '撤销',
+    'log.type.redo': '重做',
+    'log.type.update': '修改',
+    'log.type.add': '添加',
+    'log.type.delete': '删除',
+    'log.type.batch': '批量',
+    'log.type.info': '信息',
   },
   en: {
     // TopBar
@@ -160,6 +173,7 @@ const dict = {
     'topbar.save': 'Save',
     'topbar.undo': 'Undo',
     'topbar.redo': 'Redo',
+    'topbar.log': 'Operation Log',
     'topbar.connected': 'Connected',
     'topbar.offline': 'Offline',
     'topbar.newConfirmTitle': 'Create New Session?',
@@ -302,6 +316,18 @@ const dict = {
     'layout.noSignals': 'No signals defined.',
     'layout.byteLabel': 'Byte',
     'layout.bitHeader': 'Bit',
+
+    // Log Panel
+    'log.title': 'Operation Log',
+    'log.clear': 'Clear',
+    'log.empty': 'No operations yet',
+    'log.type.undo': 'UNDO',
+    'log.type.redo': 'REDO',
+    'log.type.update': 'Update',
+    'log.type.add': 'Add',
+    'log.type.delete': 'Delete',
+    'log.type.batch': 'Batch',
+    'log.type.info': 'Info',
   }
 }
 

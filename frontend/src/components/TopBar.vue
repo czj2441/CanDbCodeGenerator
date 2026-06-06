@@ -13,6 +13,14 @@
     <span class="topbar-spacer"></span>
     <button class="btn btn-icon" @click="store.toggleLocale" title="切换语言">{{ store.locale === 'zh' ? '中' : 'EN' }}</button>
     <button class="btn btn-icon" @click="store.toggleTheme" title="切换主题">{{ store.theme === 'dark' ? '☀' : '☾' }}</button>
+    <button
+      class="btn btn-icon"
+      :class="{ active: store.showLogPanel }"
+      @click="store.showLogPanel = !store.showLogPanel"
+      :title="t('topbar.log')"
+    >
+      {{ store.showLogPanel ? '📋' : '📄' }}
+    </button>
     <span class="api-status" :class="store.apiStatus">
       <span class="dot"></span>
       {{ store.apiStatus === 'connected' ? t('topbar.connected') : t('topbar.offline') }}

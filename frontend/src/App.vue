@@ -6,6 +6,7 @@
       <div class="center">
         <SignalLayoutVisualizer v-if="store.layoutViewMode" />
         <SignalTable v-else />
+        <LogPanel />
       </div>
       <MessagePanel />
     </div>
@@ -33,6 +34,7 @@ import LoadingOverlay from './components/LoadingOverlay.vue'
 import Toast from './components/Toast.vue'
 import ContextMenu from './components/ContextMenu.vue'
 import HistoryModal from './components/HistoryModal.vue'
+import LogPanel from './components/LogPanel.vue'
 
 const store = useEditorStore()
 let healthTimer = null
