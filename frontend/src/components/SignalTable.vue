@@ -39,7 +39,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="(sig, idx) in msg.signals" :key="sig.uuid" :data-sig-id="sig.uuid" :class="{ 'has-error': errorUuids.has(sig.uuid), 'selected': selectedSigUuid === sig.uuid }" @click="selectRow(sig.uuid)">
+          <tr v-for="(sig, idx) in msg.signals" :key="sig.uuid" :data-sig-id="sig.uuid" :class="{ 'has-error': errorUuids.has(sig.uuid), 'selected': selectedSigUuid === sig.uuid }" @mousedown="handleRowMouseDown(sig.uuid, $event)">
             <td><input class="hex" :value="idx" readonly></td>
             <td><input v-model="sig.name" @blur="update(sig.uuid, 'name', sig.name)"></td>
             <td><input class="mono" type="number" v-model.number="sig.start_bit" @blur="update(sig.uuid, 'start_bit', sig.start_bit)"></td>
@@ -56,7 +56,7 @@
             <td><input class="mono" type="number" step="any" v-model.number="sig.max_val" @blur="update(sig.uuid, 'max_val', sig.max_val)"></td>
             <td><input v-model="sig.unit" @blur="update(sig.uuid, 'unit', sig.unit)"></td>
             <td><input v-model="sig.comment" @blur="update(sig.uuid, 'comment', sig.comment)"></td>
-            <td><button class="action-delete" @click="store.deleteSignal(sig.uuid)" title="删除">×</button></td>
+            <td><button class="action-delete" @click.stop="store.deleteSignal(sig.uuid)" title="删除">×</button></td>
           </tr>
         </tbody>
       </table>
@@ -106,10 +106,23 @@ const errorUuids = computed(() => {
   return set
 })
 
-function selectRow(uuid) {
-  selectedSigUuid.value = selectedSigUuid.value === uuid ? null : uuid
-  // 同步选中状态到 Store，供 MessagePanel 显示信号属性
-  store.selectedSignalUuid = selectedSigUuid.value
+function handleRowMouseDown(uuid, event) {
+  // ⚠️ 维护注意：新增交互元素类型（如自定义 datepicker/autocomplete）时，
+  // 需同步扩展下面的 INTERACTIVE_TAGS 集合，否则会被误判为"空白区域"触发 toggle。
+  const INTERACTIVE_TAGS = new Set(['INPUT', 'SELECT'])
+  const isInteractive = INTERACTIVE_TAGS.has(event.target.tagName)
+
+  if (isInteractive) {
+    // 点击交互元素：确保选中该信号（已选中则保持，不切换）
+    if (selectedSigUuid.value !== uuid) {
+      selectedSigUuid.value = uuid
+      store.selectedSignalUuid = uuid
+    }
+  } else {
+    // 点击空白区域：切换选中状态
+    selectedSigUuid.value = selectedSigUuid.value === uuid ? null : uuid
+    store.selectedSignalUuid = selectedSigUuid.value
+  }
 }
 
 function onKeyDown(e) {
