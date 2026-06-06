@@ -11,7 +11,7 @@
       <MessagePanel />
     </div>
     <StatusBar />
-    <BatchModal v-model:visible="store.batchModalOpen" />
+    <BatchModal v-model:visible="ui.batchModalOpen" />
     <LoadingOverlay />
     <Toast />
     <ContextMenu :items="contextMenuItems" />
@@ -22,6 +22,7 @@
 <script setup>
 import { onMounted, onUnmounted, computed } from 'vue'
 import { useEditorStore } from './stores/editor.js'
+import { useUiStore } from './stores/uiStore.js'
 import { t } from './i18n.js'
 import TopBar from './components/TopBar.vue'
 import MessageList from './components/MessageList.vue'
@@ -37,13 +38,14 @@ import HistoryModal from './components/HistoryModal.vue'
 import LogPanel from './components/LogPanel.vue'
 
 const store = useEditorStore()
+const ui = useUiStore()
 let healthTimer = null
 
 onMounted(() => {
   store.initSession()
   healthTimer = setInterval(() => store.checkApiHealth(), 15000)
   document.addEventListener('click', hideMenu)
-  document.documentElement.setAttribute('data-theme', store.theme)
+  document.documentElement.setAttribute('data-theme', ui.theme)
 })
 
 onUnmounted(() => {
@@ -52,12 +54,12 @@ onUnmounted(() => {
 })
 
 function hideMenu() {
-  store.contextMenu.visible = false
+  ui.hideContextMenu()
 }
 
 const contextMenuItems = computed(() => {
-  const target = store.contextMenu.target
-  const idx = store.contextMenu.idx
+  const target = ui.contextMenu.target
+  const idx = ui.contextMenu.idx
   if (target === 'signal' && idx !== null) {
     return [
       { label: t('ctx.copySignal'), action: () => store.copySignal(idx) },
@@ -82,22 +84,20 @@ function onContextMenu(e) {
   const msgItem = e.target.closest('.message-item')
   if (row) {
     e.preventDefault()
-    store.contextMenu = {
-      visible: true,
-      x: Math.min(e.clientX, window.innerWidth - 180),
-      y: Math.min(e.clientY, window.innerHeight - 200),
-      target: 'signal',
-      idx: row.dataset.sigId,
-    }
+    ui.showContextMenu(
+      Math.min(e.clientX, window.innerWidth - 180),
+      Math.min(e.clientY, window.innerHeight - 200),
+      'signal',
+      row.dataset.sigId
+    )
   } else if (msgItem) {
     e.preventDefault()
-    store.contextMenu = {
-      visible: true,
-      x: Math.min(e.clientX, window.innerWidth - 180),
-      y: Math.min(e.clientY, window.innerHeight - 200),
-      target: 'message',
-      idx: null,
-    }
+    ui.showContextMenu(
+      Math.min(e.clientX, window.innerWidth - 180),
+      Math.min(e.clientY, window.innerHeight - 200),
+      'message',
+      null
+    )
   }
 }
 </script>

@@ -11,15 +11,15 @@
     <button class="btn btn-accent" @click="exportFile('dbc')">{{ t('topbar.export') }}</button>
     <button class="btn" @click="save">{{ t('topbar.save') }}</button>
     <span class="topbar-spacer"></span>
-    <button class="btn btn-icon" @click="store.toggleLocale" title="切换语言">{{ store.locale === 'zh' ? '中' : 'EN' }}</button>
-    <button class="btn btn-icon" @click="store.toggleTheme" title="切换主题">{{ store.theme === 'dark' ? '☀' : '☾' }}</button>
+    <button class="btn btn-icon" @click="ui.toggleLocale" title="切换语言">{{ ui.locale === 'zh' ? '中' : 'EN' }}</button>
+    <button class="btn btn-icon" @click="ui.toggleTheme" title="切换主题">{{ ui.theme === 'dark' ? '☀' : '☾' }}</button>
     <button
       class="btn btn-icon"
-      :class="{ active: store.showLogPanel }"
-      @click="store.showLogPanel = !store.showLogPanel"
+      :class="{ active: ui.showLogPanel }"
+      @click="ui.showLogPanel = !ui.showLogPanel"
       :title="t('topbar.log')"
     >
-      {{ store.showLogPanel ? '📋' : '📄' }}
+      {{ ui.showLogPanel ? '📋' : '📄' }}
     </button>
     <span class="api-status" :class="store.apiStatus">
       <span class="dot"></span>
@@ -30,7 +30,7 @@
   <!-- New Confirm Dialog -->
   <Teleport to="body">
     <Transition name="fade">
-      <div v-if="store.newConfirmOpen" class="confirm-overlay" @click="store.newConfirmOpen = false">
+      <div v-if="ui.newConfirmOpen" class="confirm-overlay" @click="ui.newConfirmOpen = false">
         <div class="confirm-box" @click.stop>
           <h4>{{ t('topbar.newConfirmTitle') }}</h4>
           <p>{{ t('topbar.newConfirmDesc') }}</p>
@@ -42,7 +42,7 @@
             @keyup.enter="confirmNew"
           />
           <div class="confirm-actions">
-            <button class="btn" @click="store.newConfirmOpen = false">{{ t('topbar.newConfirmCancel') }}</button>
+            <button class="btn" @click="ui.newConfirmOpen = false">{{ t('topbar.newConfirmCancel') }}</button>
             <button class="btn btn-accent" @click="confirmNew">{{ t('topbar.newConfirmCreate') }}</button>
           </div>
         </div>
@@ -54,9 +54,11 @@
 <script setup>
 import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { useEditorStore } from '../stores/editor.js'
+import { useUiStore } from '../stores/uiStore.js'
 import { t } from '../i18n.js'
 
 const store = useEditorStore()
+const ui = useUiStore()
 const fileName = ref(store.currentFileName)
 const newSessionName = ref('')
 
@@ -88,21 +90,21 @@ onUnmounted(() => {
 })
 
 watch(() => store.currentFileName, (v) => { fileName.value = v })
-watch(() => store.newConfirmOpen, (open) => { if (open) newSessionName.value = '' })
+watch(() => ui.newConfirmOpen, (open) => { if (open) newSessionName.value = '' })
 
 function onNew() {
-  store.newConfirmOpen = true
+  ui.newConfirmOpen = true
 }
 
 function confirmNew() {
-  store.newConfirmOpen = false
+  ui.newConfirmOpen = false
   const name = newSessionName.value.trim() || 'Untitled'
   store.createNewSession(name)
 }
 
 function openHistory() {
   store.loadSessionHistory()
-  store.historyModalOpen = true
+  ui.historyModalOpen = true
 }
 
 function rename() {

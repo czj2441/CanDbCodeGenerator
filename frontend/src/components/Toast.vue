@@ -1,14 +1,14 @@
 <template>
   <Transition name="toast">
-    <div v-if="store.toast.visible" class="toast" :class="{ error: store.toast.isError }">
-      {{ store.toast.text }}
+    <div v-if="ui.toast.visible" class="toast" :class="{ error: ui.toast.isError }">
+      {{ ui.toast.text }}
     </div>
   </Transition>
 </template>
 
 <script setup>
-import { useEditorStore } from '../stores/editor.js'
-const store = useEditorStore()
+import { useUiStore } from '../stores/uiStore.js'
+const ui = useUiStore()
 </script>
 
 <style scoped>

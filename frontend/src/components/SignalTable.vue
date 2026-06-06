@@ -10,7 +10,7 @@
       </div>
       <div v-if="msg" class="toolbar">
         <button class="btn" @click="addSignal">{{ t('signal.add') }}</button>
-        <button class="btn btn-accent" @click="store.batchModalOpen = true">{{ t('signal.batch') }}</button>
+        <button class="btn btn-accent" @click="ui.batchModalOpen = true">{{ t('signal.batch') }}</button>
         <button class="btn" @click="store.toggleLayoutView()">{{ t('layout.viewLayout') }}</button>
         <button class="btn btn-danger" @click="deleteMsg">{{ t('signal.deleteMsg') }}</button>
       </div>
@@ -83,10 +83,12 @@
 <script setup>
 import { computed, ref, onMounted, onUnmounted, watch } from 'vue'
 import { useEditorStore } from '../stores/editor.js'
+import { useUiStore } from '../stores/uiStore.js'
 import { toHex } from '../utils/format.js'
 import { t } from '../i18n.js'
 
 const store = useEditorStore()
+const ui = useUiStore()
 
 const msg = computed(() => store.selectedMessage)
 const selectedSigUuid = ref(null)

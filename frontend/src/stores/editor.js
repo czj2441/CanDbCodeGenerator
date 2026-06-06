@@ -3,6 +3,7 @@ import { api, setSessionId, clearSession, addRecentSession, removeRecentSession 
 import { t } from '../i18n.js'
 import { createUndoRedoManager } from '../utils/useUndoRedo.js'
 import { markModified } from '../utils/storeHelpers.js'
+import { useUiStore } from './uiStore.js'
 
 export const useEditorStore = defineStore('editor', {
   state: () => ({
@@ -14,21 +15,12 @@ export const useEditorStore = defineStore('editor', {
     apiStatus: 'connecting',
     modified: false,
     modifiedAt: 0,
-    toast: { text: '', isError: false, visible: false },
-    batchModalOpen: false,
     clipboard: null,
-    contextMenu: { visible: false, x: 0, y: 0, target: null, idx: null },
-    historyModalOpen: false,
     sessionHistory: [],
-    newConfirmOpen: false,
-    theme: localStorage.getItem('canmatrix_theme') || 'dark',
-    locale: localStorage.getItem('canmatrix_locale') || 'zh',
     signalErrors: [],
     layoutViewMode: false,
     selectedSignalUuid: null,
     _undoRedo: null, // 撤销/重做管理器实例
-    showLogPanel: false, // 日志面板显示开关
-    logEntries: [], // 操作日志条目
     // ═══════════════════════════════════════════
     // 响应式撤销计数器（Pinia getter 不会追踪普通对象内部变化）
     // ═══════════════════════════════════════════
@@ -52,48 +44,6 @@ export const useEditorStore = defineStore('editor', {
   },
 
   actions: {
-    showToast(text, isError = false) {
-      this.toast = { text, isError, visible: true }
-      setTimeout(() => { this.toast.visible = false }, 2000)
-    },
-
-    // ── 操作日志 ──
-    addLogEntry(type, description) {
-      const now = new Date()
-      const time = now.toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
-      this.logEntries.unshift({ time, type, description })
-      // 限制日志条数（保留最近 200 条）
-      if (this.logEntries.length > 200) {
-        this.logEntries.pop()
-      }
-    },
-
-    clearLog() {
-      this.logEntries = []
-    },
-
-    setTheme(theme) {
-      this.theme = theme
-      localStorage.setItem('canmatrix_theme', theme)
-      document.documentElement.setAttribute('data-theme', theme)
-    },
-
-    toggleTheme() {
-      const next = this.theme === 'dark' ? 'light' : 'dark'
-      this.setTheme(next)
-    },
-
-    setLocale(locale) {
-      this.locale = locale
-      localStorage.setItem('canmatrix_locale', locale)
-      location.reload()
-    },
-
-    toggleLocale() {
-      const next = this.locale === 'zh' ? 'en' : 'zh'
-      this.setLocale(next)
-    },
-
     // ── 撤销/重做 ──
 
     initUndoRedo() {
@@ -104,8 +54,8 @@ export const useEditorStore = defineStore('editor', {
           await this.loadMessages()
           if (this.selectedMsgId != null) await this.loadSelectedMessage()
         },
-        onToast: (text, isError) => this.showToast(text, isError),
-        onLog: (type, description) => this.addLogEntry(type, description),
+        onToast: (text, isError) => useUiStore().showToast(text, isError),
+        onLog: (type, description) => useUiStore().addLogEntry(type, description),
       })
     },
 
@@ -152,7 +102,7 @@ export const useEditorStore = defineStore('editor', {
             this.clearUndoStack() // 切换会话时清空撤销栈
             await this.loadMessages()
             this.apiStatus = 'connected'
-            this.showToast(t('toast.restored', { name: data.file_name }))
+            useUiStore().showToast(t('toast.restored', { name: data.file_name }))
             return
           }
         } catch (_) {
@@ -193,7 +143,7 @@ export const useEditorStore = defineStore('editor', {
         this.apiStatus = 'connected'
       } catch (e) {
         this.apiStatus = 'offline'
-        this.showToast(t('toast.serverOffline'), true)
+        useUiStore().showToast(t('toast.serverOffline'), true)
       }
     },
 
@@ -209,7 +159,7 @@ export const useEditorStore = defineStore('editor', {
         console.log('[STORE] loadMessages() ALL DONE +', (performance.now() - t0).toFixed(1), 'ms)')
         await this._checkModifiedStatus()
       } catch (e) {
-        this.showToast(e.message, true)
+        useUiStore().showToast(e.message, true)
       }
     },
 
@@ -251,7 +201,7 @@ export const useEditorStore = defineStore('editor', {
         console.log('[STORE] loadSelectedMessage() DONE +', (performance.now() - t0).toFixed(1), 'ms)')
         this.loadSignalErrors()
       } catch (e) {
-        this.showToast(e.message, true)
+        useUiStore().showToast(e.message, true)
       }
     },
 
@@ -326,12 +276,12 @@ export const useEditorStore = defineStore('editor', {
           data: { id, name, dlc: 8, cycle_time: 0, sender: '', signals: [] }
         })
 
-        this.showToast(t('toast.messageAdded'))
+        useUiStore().showToast(t('toast.messageAdded'))
       } catch (e) {
         // 失败时回滚
         this.messages = this.messages.filter(m => m.id !== id)
         delete this.messageCache[id]
-        this.showToast(e.message, true)
+        useUiStore().showToast(e.message, true)
       }
     },
 
@@ -349,14 +299,14 @@ export const useEditorStore = defineStore('editor', {
       // 异步发送
       try {
         await api('DELETE', `/api/messages/${id}`)
-        this.showToast(t('toast.messageDeleted'))
+        useUiStore().showToast(t('toast.messageDeleted'))
       } catch (e) {
         // 失败时回滚
         if (msg) {
           this.messages.push({ id: msg.id, name: msg.name, signal_count: msg.signals.length, id_hex: `0x${msg.id.toString(16).toUpperCase()}` })
           this.messageCache[id] = msg
         }
-        this.showToast(e.message, true)
+        useUiStore().showToast(e.message, true)
       }
     },
 
@@ -401,7 +351,7 @@ export const useEditorStore = defineStore('editor', {
         // 回滚
         this.messages = oldMessages
         this.messageCache[this.selectedMsgId] = oldCache
-        this.showToast(e.message, true)
+        useUiStore().showToast(e.message, true)
       }
     },
 
@@ -462,7 +412,7 @@ export const useEditorStore = defineStore('editor', {
           })
         }
 
-        this.showToast(t('toast.signalAdded'))
+        useUiStore().showToast(t('toast.signalAdded'))
         this.loadSignalErrors()
       } catch (e) {
         // 回滚（仅针对真正的 API 失败，如网络/404；验证错误不再被后端拒绝）
@@ -470,7 +420,7 @@ export const useEditorStore = defineStore('editor', {
         if (oldMsgEntry) {
           this.messages[idx] = oldMsgEntry
         }
-        this.showToast(e.message, true)
+        useUiStore().showToast(e.message, true)
       }
     },
 
@@ -514,7 +464,7 @@ export const useEditorStore = defineStore('editor', {
         // 回滚（仅针对真正的 API 失败；验证错误不再被后端拒绝）
         sig[field] = oldVal
         console.log('[STORE] updateSignal() API DONE +', (performance.now() - t0).toFixed(1), 'ms)')
-        this.showToast(e.message, true)
+        useUiStore().showToast(e.message, true)
       }
     },
 
@@ -545,7 +495,7 @@ export const useEditorStore = defineStore('editor', {
       try {
         await api('DELETE', `/api/messages/${this.selectedMsgId}/signals/${sigUuid}`)
         console.log('[STORE] deleteSignal() API DONE +', (performance.now() - t0).toFixed(1), 'ms)')
-        this.showToast(t('toast.signalDeleted'))
+        useUiStore().showToast(t('toast.signalDeleted'))
         this.loadSignalErrors()
       } catch (e) {
         // 回滚
@@ -553,7 +503,7 @@ export const useEditorStore = defineStore('editor', {
           msg.signals.push(sig)
           this.messages[idx] = { ...this.messages[idx], signal_count: msg.signals.length }
         }
-        this.showToast(e.message, true)
+        useUiStore().showToast(e.message, true)
       }
     },
 
@@ -566,7 +516,7 @@ export const useEditorStore = defineStore('editor', {
       const lastEnd = startBit + (count - 1) * bitStep + length
       // 简单预检查（Intel 格式估算；Motorola 的实际边界由后端验证）
       if (lastEnd > maxBits) {
-        this.showToast(`Last signal ends at bit ${lastEnd - 1}, exceeds ${maxBits - 1}`, true)
+        useUiStore().showToast(`Last signal ends at bit ${lastEnd - 1}, exceeds ${maxBits - 1}`, true)
         return
       }
 
@@ -628,9 +578,9 @@ export const useEditorStore = defineStore('editor', {
           })
         }
 
-        this.showToast(t('toast.batchCreated', { count: created }))
+        useUiStore().showToast(t('toast.batchCreated', { count: created }))
       } catch (e) {
-        this.showToast(t('toast.batchFailed', { idx: created + 1, msg: e.message }), true)
+        useUiStore().showToast(t('toast.batchFailed', { idx: created + 1, msg: e.message }), true)
       } finally {
         this.isLoading = false
         this.loadSignalErrors()
@@ -653,7 +603,7 @@ export const useEditorStore = defineStore('editor', {
         const data = await api('GET', '/api/sessions')
         this.sessionHistory = data || []
       } catch (e) {
-        this.showToast(e.message, true)
+        useUiStore().showToast(e.message, true)
       }
     },
 
@@ -673,9 +623,9 @@ export const useEditorStore = defineStore('editor', {
 
         // 异步加载消息列表，不阻塞 UI
         this.loadMessages()
-        this.showToast(t('toast.sessionLoaded'))
+        useUiStore().showToast(t('toast.sessionLoaded'))
       } catch (e) {
-        this.showToast(e.message, true)
+        useUiStore().showToast(e.message, true)
       } finally {
         this.isLoading = false
       }
@@ -686,9 +636,9 @@ export const useEditorStore = defineStore('editor', {
         await api('DELETE', `/api/session/${sessionId}`)
         this.sessionHistory = this.sessionHistory.filter(s => s.session_id !== sessionId)
         removeRecentSession(sessionId)
-        this.showToast(t('toast.sessionDeleted'))
+        useUiStore().showToast(t('toast.sessionDeleted'))
       } catch (e) {
-        this.showToast(e.message, true)
+        useUiStore().showToast(e.message, true)
       }
     },
 
@@ -697,9 +647,9 @@ export const useEditorStore = defineStore('editor', {
         const data = await api('PUT', '/api/session', { name })
         this.currentFileName = data.file_name || ''
         this._scheduleModifiedCheck()
-        this.showToast(t('toast.renamed'))
+        useUiStore().showToast(t('toast.renamed'))
       } catch (e) {
-        this.showToast(e.message, true)
+        useUiStore().showToast(e.message, true)
       }
     },
 
@@ -714,9 +664,9 @@ export const useEditorStore = defineStore('editor', {
         this.messageCache = {}
         this.messages = []
         this.modified = false
-        this.showToast(t('toast.newSessionCreated'))
+        useUiStore().showToast(t('toast.newSessionCreated'))
       } catch (e) {
-        this.showToast(e.message, true)
+        useUiStore().showToast(e.message, true)
       }
     },
 
@@ -728,13 +678,13 @@ export const useEditorStore = defineStore('editor', {
       const sig = msg.signals.find(s => s.uuid === sigUuid)
       if (!sig) return
       this.clipboard = { type: 'signal', data: JSON.parse(JSON.stringify(sig)) }
-      this.showToast(t('toast.signalCopied'))
+      useUiStore().showToast(t('toast.signalCopied'))
     },
 
     async cutSignal(sigUuid) {
       this.copySignal(sigUuid)
       await this.deleteSignal(sigUuid)
-      this.showToast(t('toast.signalCut'))
+      useUiStore().showToast(t('toast.signalCut'))
     },
 
     async pasteSignal() {
@@ -742,14 +692,14 @@ export const useEditorStore = defineStore('editor', {
       const sig = JSON.parse(JSON.stringify(this.clipboard.data))
       sig.name = sig.name ? sig.name + '_copy' : 'PastedSig'
       await this.addSignal(sig)
-      this.showToast(t('toast.signalPasted'))
+      useUiStore().showToast(t('toast.signalPasted'))
     },
 
     copyMessage() {
       const msg = this.selectedMessage
       if (!msg) return
       this.clipboard = { type: 'message', data: JSON.parse(JSON.stringify(msg)) }
-      this.showToast(t('toast.messageCopied'))
+      useUiStore().showToast(t('toast.messageCopied'))
     },
 
     async pasteMessage() {
@@ -764,9 +714,9 @@ export const useEditorStore = defineStore('editor', {
         await api('POST', '/api/messages', msg)
         this.selectedMsgId = maxId
         await this.loadMessages()
-        this.showToast(t('toast.messagePasted'))
+        useUiStore().showToast(t('toast.messagePasted'))
       } catch (e) {
-        this.showToast(e.message, true)
+        useUiStore().showToast(e.message, true)
       }
     },
 
@@ -788,9 +738,9 @@ export const useEditorStore = defineStore('editor', {
         })
         this.selectedMsgId = maxId
         await this.loadMessages()
-        this.showToast(t('toast.messageDuplicated'))
+        useUiStore().showToast(t('toast.messageDuplicated'))
       } catch (e) {
-        this.showToast(e.message, true)
+        useUiStore().showToast(e.message, true)
       }
     },
   },

@@ -1,11 +1,11 @@
 <template>
   <Teleport to="body">
     <Transition name="fade">
-      <div v-if="store.historyModalOpen" class="modal-overlay" @click="store.historyModalOpen = false">
+      <div v-if="ui.historyModalOpen" class="modal-overlay" @click="ui.historyModalOpen = false">
         <div class="modal-content" @click.stop>
           <div class="modal-header">
             <h3>{{ t('history.title') }}</h3>
-            <button class="close-btn" @click="store.historyModalOpen = false">&times;</button>
+            <button class="close-btn" @click="ui.historyModalOpen = false">&times;</button>
           </div>
           <div class="modal-body">
             <div v-if="store.sessionHistory.length === 0" class="empty">{{ t('history.empty') }}</div>
@@ -32,9 +32,11 @@
 </template>
 
 <script setup>
+import { useUiStore } from '../stores/uiStore.js'
 import { useEditorStore } from '../stores/editor.js'
 import { t } from '../i18n.js'
 
+const ui = useUiStore()
 const store = useEditorStore()
 
 function formatTime(ts) {
@@ -44,7 +46,7 @@ function formatTime(ts) {
 
 async function load(sessionId) {
   await store.loadHistorySession(sessionId)
-  store.historyModalOpen = false
+  ui.historyModalOpen = false
 }
 
 async function del(sessionId) {

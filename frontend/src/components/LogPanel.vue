@@ -1,15 +1,15 @@
 <template>
-  <div v-if="store.showLogPanel" class="log-panel" :style="{ height: panelHeight + 'px' }">
+  <div v-if="ui.showLogPanel" class="log-panel" :style="{ height: panelHeight + 'px' }">
     <div class="log-resize" @mousedown="startResize"></div>
     <div class="log-header">
       <span class="log-title">{{ t('log.title') }}</span>
       <div class="log-actions">
-        <button class="log-btn" @click="store.clearLog()">{{ t('log.clear') }}</button>
+        <button class="log-btn" @click="ui.clearLog()">{{ t('log.clear') }}</button>
       </div>
     </div>
     <div ref="logBody" class="log-body">
       <div
-        v-for="(entry, idx) in store.logEntries"
+        v-for="(entry, idx) in ui.logEntries"
         :key="idx"
         class="log-row"
         :class="'log-' + entry.type"
@@ -18,7 +18,7 @@
         <span class="log-type">{{ typeLabel(entry.type) }}</span>
         <span class="log-desc">{{ entry.description }}</span>
       </div>
-      <div v-if="store.logEntries.length === 0" class="log-empty">
+      <div v-if="ui.logEntries.length === 0" class="log-empty">
         {{ t('log.empty') }}
       </div>
     </div>
@@ -26,18 +26,18 @@
 </template>
 
 <script setup>
-import { ref, watch, nextTick } from 'vue'
-import { useEditorStore } from '../stores/editor.js'
+import { ref, watch, nextTick, computed } from 'vue'
+import { useUiStore } from '../stores/uiStore.js'
 import { t } from '../i18n.js'
 
-const store = useEditorStore()
+const ui = useUiStore()
 const logBody = ref(null)
 const panelHeight = ref(160)
 let isResizing = false
 let startY = 0
 let startHeight = 0
 
-const typeLabels = {
+const typeLabels = computed(() => ({
   undo: t('log.type.undo'),
   redo: t('log.type.redo'),
   update: t('log.type.update'),
@@ -45,10 +45,10 @@ const typeLabels = {
   delete: t('log.type.delete'),
   batch: t('log.type.batch'),
   info: t('log.type.info'),
-}
+}))
 
 function typeLabel(type) {
-  return typeLabels[type] || type
+  return typeLabels.value[type] || type
 }
 
 function startResize(e) {
@@ -72,7 +72,7 @@ function stopResize() {
 }
 
 // 新日志自动滚动到顶部
-watch(() => store.logEntries.length, () => {
+watch(() => ui.logEntries.length, () => {
   nextTick(() => {
     if (logBody.value) {
       logBody.value.scrollTop = 0

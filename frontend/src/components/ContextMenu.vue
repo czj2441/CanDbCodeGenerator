@@ -1,9 +1,9 @@
 <template>
   <Teleport to="body">
     <div
-      v-if="store.contextMenu.visible"
+      v-if="ui.contextMenu.visible"
       class="ctx-menu"
-      :style="{ left: store.contextMenu.x + 'px', top: store.contextMenu.y + 'px' }"
+      :style="{ left: ui.contextMenu.x + 'px', top: ui.contextMenu.y + 'px' }"
     >
       <div
         v-for="(item, i) in items"
@@ -19,9 +19,9 @@
 </template>
 
 <script setup>
-import { useEditorStore } from '../stores/editor.js'
+import { useUiStore } from '../stores/uiStore.js'
 
-const store = useEditorStore()
+const ui = useUiStore()
 
 const props = defineProps({
   items: { type: Array, default: () => [] },
@@ -29,7 +29,7 @@ const props = defineProps({
 
 function onClick(item) {
   if (item.disabled) return
-  store.contextMenu.visible = false
+  ui.contextMenu.visible = false
   item.action()
 }
 </script>
