@@ -54,6 +54,12 @@ const newSessionName = ref('')
 
 // 快捷键：Ctrl+Z 撤销，Ctrl+Y 重做
 function handleKeydown(event) {
+  // ⚠️ 维护注意：跳过输入框内的快捷键，避免与浏览器原生撤销冲突
+  const tag = event.target.tagName
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || event.target.isContentEditable) {
+    return
+  }
+
   if (event.ctrlKey || event.metaKey) {
     if (event.key === 'z' || event.key === 'Z') {
       event.preventDefault()

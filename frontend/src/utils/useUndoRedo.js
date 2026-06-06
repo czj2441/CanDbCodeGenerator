@@ -32,6 +32,20 @@ const UNDO_HANDLERS = {
     // 恢复信号修改前的状态
     await api('PUT', `/api/messages/${snap.msgId}/signals/${snap.sigUuid}`, snap.prev)
   },
+  message_add: async (snap) => {
+    // 撤销添加报文 = 删除该报文
+    await api('DELETE', `/api/messages/${snap.msgId}`)
+  },
+  signal_add: async (snap) => {
+    // 撤销添加信号 = 删除该信号
+    await api('DELETE', `/api/messages/${snap.msgId}/signals/${snap.sigUuid}`)
+  },
+  batch_signal_add: async (snap) => {
+    // 撤销批量添加信号 = 逐个删除所有信号
+    for (const sig of snap.signals) {
+      await api('DELETE', `/api/messages/${snap.msgId}/signals/${sig.uuid}`)
+    }
+  },
 }
 
 // ── 重做操作处理器映射 ──
@@ -53,6 +67,20 @@ const REDO_HANDLERS = {
     // 重做信号修改（恢复到修改后的状态）
     await api('PUT', `/api/messages/${snap.msgId}/signals/${snap.sigUuid}`, snap.next)
   },
+  message_add: async (snap) => {
+    // 重做添加报文 = 重新创建
+    await api('POST', '/api/messages', snap.data)
+  },
+  signal_add: async (snap) => {
+    // 重做添加信号 = 重新创建
+    await api('POST', `/api/messages/${snap.msgId}/signals`, snap.data)
+  },
+  batch_signal_add: async (snap) => {
+    // 重做批量添加信号 = 逐个重新创建
+    for (const sig of snap.signals) {
+      await api('POST', `/api/messages/${snap.msgId}/signals`, sig.data)
+    }
+  },
 }
 
 /**
@@ -66,6 +94,7 @@ const REDO_HANDLERS = {
 export function createUndoRedoManager({ maxSize = 50, onReload, onToast } = {}) {
   const undoStack = []
   const redoStack = []
+  let isExecuting = false // ⚠️ 并发保护：防止快速连按导致重复执行
 
   /**
    * 推送撤销快照
@@ -88,16 +117,24 @@ export function createUndoRedoManager({ maxSize = 50, onReload, onToast } = {}) 
    * 执行撤销
    */
   async function undo() {
+    // ⚠️ 并发保护：正在执行时忽略新的撤销请求
+    if (isExecuting) {
+      if (onToast) onToast('操作执行中，请稍后再试', false)
+      return
+    }
+
     if (undoStack.length === 0) {
       if (onToast) onToast('无操作可撤销', false)
       return
     }
 
+    isExecuting = true
     const snap = undoStack.pop()
     const handler = UNDO_HANDLERS[snap.type]
 
     if (!handler) {
       console.warn(`[UndoRedo] 未定义的操作类型: ${snap.type}`)
+      isExecuting = false
       return
     }
 
@@ -117,6 +154,8 @@ export function createUndoRedoManager({ maxSize = 50, onReload, onToast } = {}) 
       if (onToast) onToast(e.message || '撤销失败', true)
       // 回滚失败，恢复 undo 栈
       undoStack.push(snap)
+    } finally {
+      isExecuting = false // 释放执行锁
     }
   }
 
@@ -124,16 +163,24 @@ export function createUndoRedoManager({ maxSize = 50, onReload, onToast } = {}) 
    * 执行重做
    */
   async function redo() {
+    // ⚠️ 并发保护：正在执行时忽略新的重做请求
+    if (isExecuting) {
+      if (onToast) onToast('操作执行中，请稍后再试', false)
+      return
+    }
+
     if (redoStack.length === 0) {
       if (onToast) onToast('无操作可重做', false)
       return
     }
 
+    isExecuting = true
     const snap = redoStack.pop()
     const handler = REDO_HANDLERS[snap.type]
 
     if (!handler) {
       console.warn(`[UndoRedo] 未定义的重做操作类型: ${snap.type}`)
+      isExecuting = false
       return
     }
 
@@ -153,6 +200,8 @@ export function createUndoRedoManager({ maxSize = 50, onReload, onToast } = {}) 
       if (onToast) onToast(e.message || '重做失败', true)
       // 回滚失败，恢复 redo 栈
       redoStack.push(snap)
+    } finally {
+      isExecuting = false // 释放执行锁
     }
   }
 

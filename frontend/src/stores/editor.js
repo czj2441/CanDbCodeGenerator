@@ -277,6 +277,14 @@ export const useEditorStore = defineStore('editor', {
         })
         const t2 = performance.now()
         console.log(`[STORE] addMessage() API response DONE (+${(t2 - t0).toFixed(1)}ms)`)
+
+        // API 成功后入栈（用于撤销删除）
+        this.pushUndo({
+          type: 'message_add',
+          msgId: id,
+          data: { id, name, dlc: 8, cycle_time: 0, sender: '', signals: [] }
+        })
+
         this.showToast(t('toast.messageAdded'))
       } catch (e) {
         // 失败时回滚
@@ -313,6 +321,24 @@ export const useEditorStore = defineStore('editor', {
 
     async updateMessageField(field, value) {
       if (this.selectedMsgId == null) return
+
+      const msg = this.messageCache[this.selectedMsgId]
+      if (!msg) return
+
+      // 获取旧值（统一为字符串比较，避免类型差异）
+      const oldValue = msg[field]
+      const oldValueStr = oldValue != null ? String(oldValue) : ''
+      const newValueStr = value != null ? String(value) : ''
+
+      // 值变化时入栈（乐观更新之前）
+      if (oldValueStr !== newValueStr) {
+        this.pushUndo({
+          type: 'message_update',
+          msgId: this.selectedMsgId,
+          prev: { [field]: oldValue },
+          next: { [field]: value }
+        })
+      }
 
       // 乐观更新
       const oldMessages = [...this.messages]
@@ -385,6 +411,17 @@ export const useEditorStore = defineStore('editor', {
         if (sigIdx >= 0 && result) {
           msg.signals[sigIdx] = result
         }
+
+        // API 成功后入栈（使用后端返回的真实 UUID）
+        if (result && result.uuid) {
+          this.pushUndo({
+            type: 'signal_add',
+            msgId: this.selectedMsgId,
+            sigUuid: result.uuid,
+            data: result
+          })
+        }
+
         this.showToast(t('toast.signalAdded'))
         this.loadSignalErrors()
       } catch (e) {
@@ -408,6 +445,22 @@ export const useEditorStore = defineStore('editor', {
       const sig = msg.signals.find(s => s.uuid === sigUuid)
       if (!sig) return
       const oldVal = sig[field]
+
+      // 统一为字符串比较，避免类型差异（如输入框返回字符串 "16"，旧值是数字 16）
+      const oldValStr = oldVal != null ? String(oldVal) : ''
+      const newValStr = value != null ? String(value) : ''
+
+      // 值变化时入栈（乐观更新之前）
+      if (oldValStr !== newValStr) {
+        this.pushUndo({
+          type: 'signal_update',
+          msgId: this.selectedMsgId,
+          sigUuid,
+          prev: { [field]: oldVal },
+          next: { [field]: value }
+        })
+      }
+
       sig[field] = value
       this.modified = true
       this.modifiedAt = Date.now()
@@ -506,15 +559,38 @@ export const useEditorStore = defineStore('editor', {
 
       // 异步批量发送
       let created = 0
+      const results = [] // 收集后端返回的完整信号数据（含真实 UUID）
       try {
         const promises = newSigs.map(sig =>
           api('POST', `/api/messages/${this.selectedMsgId}/signals`, {
             name: sig.name, start_bit: sig.start_bit, length: sig.length,
             byte_order: sig.byte_order, factor: sig.factor, offset: sig.offset,
             min_val: sig.min_val, max_val: sig.max_val, unit: sig.unit, comment: sig.comment,
-          }).then(() => { created++ }).catch(() => {})
+          }).then(result => {
+            created++
+            if (result && result.uuid) {
+              results.push({ uuid: result.uuid, data: result })
+              // 替换乐观更新中的 clientUuid 为真实 UUID
+              const idxInMsg = msg.signals.findIndex(s => s.uuid === sig.uuid)
+              if (idxInMsg >= 0) {
+                msg.signals[idxInMsg] = result
+              }
+            }
+          }).catch(e => {
+            console.error('[STORE] batchAddSignals() 单个信号创建失败:', sig.name, e)
+          })
         )
         await Promise.all(promises)
+
+        // API 成功后入栈（仅对成功创建的信号）
+        if (results.length > 0) {
+          this.pushUndo({
+            type: 'batch_signal_add',
+            msgId: this.selectedMsgId,
+            signals: results
+          })
+        }
+
         this.showToast(t('toast.batchCreated', { count: created }))
       } catch (e) {
         this.showToast(t('toast.batchFailed', { idx: created + 1, msg: e.message }), true)
