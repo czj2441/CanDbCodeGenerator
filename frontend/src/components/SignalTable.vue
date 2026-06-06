@@ -41,21 +41,21 @@
         <tbody>
           <tr v-for="(sig, idx) in msg.signals" :key="sig.uuid" :data-sig-id="sig.uuid" :class="{ 'has-error': errorUuids.has(sig.uuid), 'selected': selectedSigUuid === sig.uuid }" @mousedown="handleRowMouseDown(sig.uuid, $event)">
             <td><input class="hex" :value="idx" readonly></td>
-            <td><input v-model="sig.name" @blur="update(sig.uuid, 'name', sig.name)"></td>
-            <td><input class="mono" type="number" v-model.number="sig.start_bit" @blur="update(sig.uuid, 'start_bit', sig.start_bit)"></td>
-            <td><input class="mono" type="number" v-model.number="sig.length" @blur="update(sig.uuid, 'length', sig.length)"></td>
+            <td><input :value="sig.name" @blur="e => update(sig.uuid, 'name', e.target.value)"></td>
+            <td><input class="mono" type="number" :value="sig.start_bit" @blur="e => update(sig.uuid, 'start_bit', parseInt(e.target.value)||0)"></td>
+            <td><input class="mono" type="number" :value="sig.length" @blur="e => update(sig.uuid, 'length', parseInt(e.target.value)||8)"></td>
             <td>
-              <select v-model="sig.byte_order" @change="update(sig.uuid, 'byte_order', sig.byte_order)">
+              <select :value="sig.byte_order" @change="e => update(sig.uuid, 'byte_order', e.target.value)">
                 <option value="intel">Intel</option>
                 <option value="motorola">Motorola</option>
               </select>
             </td>
-            <td><input class="mono" type="number" step="any" v-model.number="sig.factor" @blur="update(sig.uuid, 'factor', sig.factor)"></td>
-            <td><input class="mono" type="number" step="any" v-model.number="sig.offset" @blur="update(sig.uuid, 'offset', sig.offset)"></td>
-            <td><input class="mono" type="number" step="any" v-model.number="sig.min_val" @blur="update(sig.uuid, 'min_val', sig.min_val)"></td>
-            <td><input class="mono" type="number" step="any" v-model.number="sig.max_val" @blur="update(sig.uuid, 'max_val', sig.max_val)"></td>
-            <td><input v-model="sig.unit" @blur="update(sig.uuid, 'unit', sig.unit)"></td>
-            <td><input v-model="sig.comment" @blur="update(sig.uuid, 'comment', sig.comment)"></td>
+            <td><input class="mono" type="number" step="any" :value="sig.factor" @blur="e => update(sig.uuid, 'factor', parseFloat(e.target.value)||1)"></td>
+            <td><input class="mono" type="number" step="any" :value="sig.offset" @blur="e => update(sig.uuid, 'offset', parseFloat(e.target.value)||0)"></td>
+            <td><input class="mono" type="number" step="any" :value="sig.min_val" @blur="e => update(sig.uuid, 'min_val', parseFloat(e.target.value)||0)"></td>
+            <td><input class="mono" type="number" step="any" :value="sig.max_val" @blur="e => update(sig.uuid, 'max_val', parseFloat(e.target.value)||0)"></td>
+            <td><input :value="sig.unit" @blur="e => update(sig.uuid, 'unit', e.target.value)"></td>
+            <td><input :value="sig.comment" @blur="e => update(sig.uuid, 'comment', e.target.value)"></td>
             <td><button class="action-delete" @click.stop="store.deleteSignal(sig.uuid)" title="删除">×</button></td>
           </tr>
         </tbody>
