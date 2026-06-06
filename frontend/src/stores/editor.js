@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { api, setSessionId, clearSession, addRecentSession, removeRecentSession } from '../api/client.js'
 import { t } from '../i18n.js'
+import { createUndoRedoManager } from '../utils/useUndoRedo.js'
 
 export const useEditorStore = defineStore('editor', {
   state: () => ({
@@ -21,10 +22,10 @@ export const useEditorStore = defineStore('editor', {
     newConfirmOpen: false,
     theme: localStorage.getItem('canmatrix_theme') || 'dark',
     locale: localStorage.getItem('canmatrix_locale') || 'zh',
-    undoStack: [],
     signalErrors: [],
     layoutViewMode: false,
     selectedSignalUuid: null,
+    _undoRedo: null, // 撤销/重做管理器实例
   }),
 
   getters: {
@@ -67,35 +68,37 @@ export const useEditorStore = defineStore('editor', {
       this.setLocale(next)
     },
 
-    // ── Undo ──
+    // ── 撤销/重做 ──
+
+    initUndoRedo() {
+      if (this._undoRedo) return // 已初始化
+      this._undoRedo = createUndoRedoManager({
+        maxSize: 50,
+        onReload: async () => {
+          await this.loadMessages()
+          if (this.selectedMsgId != null) await this.loadSelectedMessage()
+        },
+        onToast: (text, isError) => this.showToast(text, isError),
+      })
+    },
 
     pushUndo(snapshot) {
-      this.undoStack.push(snapshot)
-      if (this.undoStack.length > 50) this.undoStack.shift()
+      this.initUndoRedo()
+      this._undoRedo.pushUndo(snapshot)
     },
 
     async undo() {
-      if (this.undoStack.length === 0) {
-        this.showToast(t('toast.undoEmpty'))
-        return
-      }
-      const snap = this.undoStack.pop()
-      try {
-        if (snap.type === 'message_delete') {
-          await api('POST', '/api/messages', snap.data)
-        } else if (snap.type === 'signal_delete') {
-          await api('POST', `/api/messages/${snap.msgId}/signals`, snap.data)
-        } else if (snap.type === 'message_update') {
-          await api('PUT', `/api/messages/${snap.msgId}`, snap.prev)
-        } else if (snap.type === 'signal_update') {
-          await api('PUT', `/api/messages/${snap.msgId}/signals/${snap.sigIdx}`, snap.prev)
-        }
-        await this.loadMessages()
-        if (this.selectedMsgId != null) await this.loadSelectedMessage()
-        this.showToast(t('toast.undoSuccess'))
-      } catch (e) {
-        this.showToast(e.message, true)
-      }
+      this.initUndoRedo()
+      await this._undoRedo.undo()
+    },
+
+    async redo() {
+      this.initUndoRedo()
+      await this._undoRedo.redo()
+    },
+
+    clearUndoStack() {
+      if (this._undoRedo) this._undoRedo.clear()
     },
 
     async initSession() {
@@ -105,6 +108,7 @@ export const useEditorStore = defineStore('editor', {
           const data = await api('GET', `/api/session/${sid}`)
           if (data && data.session_id) {
             this.currentFileName = data.file_name || ''
+            this.clearUndoStack() // 切换会话时清空撤销栈
             await this.loadMessages()
             this.apiStatus = 'connected'
             this.showToast(t('toast.restored', { name: data.file_name }))
@@ -123,6 +127,7 @@ export const useEditorStore = defineStore('editor', {
         setSessionId(session.session_id)
         addRecentSession(session.session_id, session.file_name || '')
         this.currentFileName = session.file_name || ''
+        this.clearUndoStack() // 新会话初始化时清空撤销栈
 
         await api('POST', '/api/messages', {
           id: '0x100', name: 'EngineStatus', dlc: 8, cycle_time: 10, sender: 'ECU1',
