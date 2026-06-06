@@ -144,10 +144,10 @@
     <!-- Debug 拖拽信息（悬浮覆盖，不影响 canvas 布局） -->
     <div v-if="debugInfo" class="debug-overlay">
       <div class="debug-row"><span class="debug-label">按下网格位置</span><span class="debug-val">{{ debugInfo.mousedownGrid }}</span></div>
-      <div class="debug-row"><span class="debug-label">按下信号名</span><span class="debug-val">{{ debugInfo.signalName }}</span></div>
+      <div class="debug-row"><span class="debug-label">信号名 / startBit</span><span class="debug-val">{{ debugInfo.signalName }} / {{ debugInfo.sigStartBit }}</span></div>
       <div class="debug-row"><span class="debug-label">按下偏移</span><span class="debug-val">{{ debugInfo.offset }}</span></div>
       <div class="debug-row"><span class="debug-label">松开网格位置</span><span class="debug-val">{{ debugInfo.mouseupGrid || '—' }}</span></div>
-      <div class="debug-row"><span class="debug-label">新起始位</span><span class="debug-val">{{ debugInfo.newStartBit || '—' }}</span></div>
+      <div class="debug-row"><span class="debug-label">计算链</span><span class="debug-val">{{ debugInfo.computation || '—' }}</span></div>
     </div>
 
     <!-- Error panel -->
@@ -348,9 +348,10 @@ function onCellMouseDown(cell, konvaEvent) {
   debugInfo.value = {
     mousedownGrid: `(row=${grabRow}, col=${grabCol})  bit=${cell.bit}`,
     signalName: cell.name,
+    sigStartBit: cell.startBit,
     offset: `(dRow=${offsetRow}, dCol=${offsetCol})`,
     mouseupGrid: '',
-    mouseupBit: '',
+    computation: '',
   }
 
   store.selectLayoutSignal(cell.uuid)
@@ -394,7 +395,12 @@ function onStageMouseUp(konvaEvent) {
   const newStartBit = clampStartBit(targetStartBit, ds.sigLength, ds.sigByteOrder, maxBit)
 
   if (debugInfo.value) {
-    debugInfo.value.newStartBit = `newStartBit=${newStartBit}`
+    debugInfo.value.computation = [
+      `松开(${clampedRow},${clampedCol}) − 偏移(${ds.offsetRow},${ds.offsetCol}) = (${targetStartRow},${targetStartCol})`,
+      `→ 目标bit=${targetStartBit} → clamp(${ds.sigByteOrder}) → ${newStartBit}`,
+      newStartBit === ds.sigStartBit ? '结果=原值, 未移动' : `结果≠${ds.sigStartBit}, 执行移动`,
+    ].join('\n')
+    debugInfo.value.mouseupGrid = `(row=${clampedRow}, col=${clampedCol})  bit=${dropBit}`
   }
 
   if (newStartBit < 0 || newStartBit === ds.sigStartBit) return
@@ -513,6 +519,8 @@ watch(() => store.selectedMsgId, () => {
 .debug-val {
   color: oklch(0.72 0.14 40);
   font-weight: bold;
+  white-space: pre-wrap;
+  max-width: 420px;
 }
 
 [data-theme="light"] .debug-val {

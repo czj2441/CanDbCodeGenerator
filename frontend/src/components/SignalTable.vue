@@ -87,7 +87,10 @@ const msg = computed(() => store.selectedMessage)
 const selectedSigUuid = ref(null)
 
 // 切换报文时清除选中
-watch(msg, () => { selectedSigUuid.value = null })
+watch(msg, () => {
+  selectedSigUuid.value = null
+  store.selectedSignalUuid = null
+})
 
 const errorUuids = computed(() => {
   const set = new Set()
@@ -100,6 +103,8 @@ const errorUuids = computed(() => {
 
 function selectRow(uuid) {
   selectedSigUuid.value = selectedSigUuid.value === uuid ? null : uuid
+  // 同步选中状态到 Store，供 MessagePanel 显示信号属性
+  store.selectedSignalUuid = selectedSigUuid.value
 }
 
 function onKeyDown(e) {

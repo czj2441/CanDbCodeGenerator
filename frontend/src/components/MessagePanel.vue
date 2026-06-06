@@ -1,8 +1,68 @@
 <template>
   <div class="panel">
-    <div v-if="!msg" class="panel-empty" v-html="t('panel.empty')">
-    </div>
-    <template v-else>
+    <!-- 信号属性区域 -->
+    <template v-if="selectedSig">
+      <div class="panel-section">
+        <div class="panel-section-title">{{ t('panel.signalProperties') }}</div>
+        <div class="field">
+          <label>{{ t('panel.signalName') }}</label>
+          <input :value="selectedSig.name" @blur="e => updateSignal('name', e.target.value)">
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label>{{ t('panel.signalStart') }}</label>
+            <input class="mono" type="number" min="0" :value="selectedSig.start_bit" @blur="e => updateSignal('start_bit', parseInt(e.target.value)||0)">
+          </div>
+          <div class="field">
+            <label>{{ t('panel.signalLength') }}</label>
+            <input class="mono" type="number" min="1" max="64" :value="selectedSig.length" @blur="e => updateSignal('length', parseInt(e.target.value)||8)">
+          </div>
+        </div>
+        <div class="field">
+          <label>{{ t('panel.signalByteOrder') }}</label>
+          <select :value="selectedSig.byte_order" @change="e => updateSignal('byte_order', e.target.value)">
+            <option value="little_endian">{{ t('panel.littleEndian') }}</option>
+            <option value="big_endian">{{ t('panel.bigEndian') }}</option>
+          </select>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label>{{ t('panel.signalFactor') }}</label>
+            <input class="mono" type="number" step="any" :value="selectedSig.factor" @blur="e => updateSignal('factor', parseFloat(e.target.value)||1)">
+          </div>
+          <div class="field">
+            <label>{{ t('panel.signalOffset') }}</label>
+            <input class="mono" type="number" step="any" :value="selectedSig.offset" @blur="e => updateSignal('offset', parseFloat(e.target.value)||0)">
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label>{{ t('panel.signalMin') }}</label>
+            <input class="mono" type="number" step="any" :value="selectedSig.min_val" @blur="e => updateSignal('min_val', parseFloat(e.target.value)||0)">
+          </div>
+          <div class="field">
+            <label>{{ t('panel.signalMax') }}</label>
+            <input class="mono" type="number" step="any" :value="selectedSig.max_val" @blur="e => updateSignal('max_val', parseFloat(e.target.value)||0)">
+          </div>
+        </div>
+        <div class="field">
+          <label>{{ t('panel.signalUnit') }}</label>
+          <input :value="selectedSig.unit" @blur="e => updateSignal('unit', e.target.value)">
+        </div>
+        <div class="field">
+          <label>{{ t('panel.signalComment') }}</label>
+          <textarea rows="3" :value="selectedSig.comment" @blur="e => updateSignal('comment', e.target.value)"></textarea>
+        </div>
+      </div>
+      <div class="panel-section">
+        <div class="panel-section-title">{{ t('panel.signalActions') }}</div>
+        <button class="btn" @click="copySig" style="width:100%;margin-bottom:6px">{{ t('panel.copySignal') }}</button>
+        <button class="btn btn-danger" @click="deleteSig" style="width:100%">{{ t('panel.deleteSignal') }}</button>
+      </div>
+    </template>
+
+    <!-- 报文属性区域 -->
+    <template v-else-if="msg">
       <div class="panel-section">
         <div class="panel-section-title">{{ t('panel.properties') }}</div>
         <div class="field">
@@ -37,6 +97,10 @@
         <button class="btn" @click="duplicate" style="width:100%">{{ t('panel.duplicate') }}</button>
       </div>
     </template>
+
+    <!-- 空状态 -->
+    <div v-else class="panel-empty" v-html="t('panel.empty')">
+    </div>
   </div>
 </template>
 
@@ -48,13 +112,35 @@ import { t } from '../i18n.js'
 
 const store = useEditorStore()
 const msg = computed(() => store.selectedMessage)
+const selectedSig = computed(() => {
+  if (!msg.value || !store.selectedSignalUuid) return null
+  return msg.value.signals.find(s => s.uuid === store.selectedSignalUuid) || null
+})
 
 function update(field, value) {
   store.updateMessageField(field, value)
 }
 
+function updateSignal(field, value) {
+  if (store.selectedSignalUuid) {
+    store.updateSignal(store.selectedSignalUuid, field, value)
+  }
+}
+
 function duplicate() {
   store.duplicateMessage()
+}
+
+function copySig() {
+  if (store.selectedSignalUuid) {
+    store.copySignal(store.selectedSignalUuid)
+  }
+}
+
+function deleteSig() {
+  if (store.selectedSignalUuid) {
+    store.deleteSignal(store.selectedSignalUuid)
+  }
 }
 </script>
 
@@ -96,7 +182,7 @@ function duplicate() {
   color: var(--text-muted);
   margin-bottom: 3px;
 }
-.field input, .field textarea {
+.field input, .field textarea, .field select {
   width: 100%;
   background: var(--bg-raised);
   border: 1px solid var(--border);
@@ -107,9 +193,10 @@ function duplicate() {
   outline: none;
   font-family: var(--font-sans);
 }
-.field input:focus, .field textarea:focus { border-color: var(--accent-dim); }
+.field input:focus, .field textarea:focus, .field select:focus { border-color: var(--accent-dim); }
 .field input.mono { font-family: var(--font-mono); }
 .field textarea { resize: vertical; }
+.field select { cursor: pointer; }
 
 .field-row { display: flex; gap: 10px; }
 .field-row .field { flex: 1; }
