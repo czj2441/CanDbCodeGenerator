@@ -126,6 +126,13 @@ const dict = {
     'signal.errorOverlap': '{name} 与 {other}：重叠（位 {bits}）',
     'signal.fixBtn': '自动修复',
     'signal.noErrors': '无布局错误',
+
+    // Layout view
+    'layout.backToTable': '返回表格',
+    'layout.viewLayout': '布局视图',
+    'layout.noSignals': '未定义信号。',
+    'layout.byteLabel': '字节',
+    'layout.bitHeader': '位',
   },
   en: {
     // TopBar
@@ -254,6 +261,13 @@ const dict = {
     'signal.errorOverlap': '{name} vs {other}: overlap at bits {bits}',
     'signal.fixBtn': 'Auto Fix',
     'signal.noErrors': 'No layout errors',
+
+    // Layout view
+    'layout.backToTable': 'Back to Table',
+    'layout.viewLayout': 'Layout View',
+    'layout.noSignals': 'No signals defined.',
+    'layout.byteLabel': 'Byte',
+    'layout.bitHeader': 'Bit',
   }
 }
 

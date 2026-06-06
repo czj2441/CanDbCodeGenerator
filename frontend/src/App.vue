@@ -4,7 +4,8 @@
     <div class="main">
       <MessageList />
       <div class="center">
-        <SignalTable />
+        <SignalLayoutVisualizer v-if="store.layoutViewMode" />
+        <SignalTable v-else />
       </div>
       <MessagePanel />
     </div>
@@ -24,6 +25,7 @@ import { t } from './i18n.js'
 import TopBar from './components/TopBar.vue'
 import MessageList from './components/MessageList.vue'
 import SignalTable from './components/SignalTable.vue'
+import SignalLayoutVisualizer from './components/SignalLayoutVisualizer.vue'
 import MessagePanel from './components/MessagePanel.vue'
 import StatusBar from './components/StatusBar.vue'
 import BatchModal from './components/BatchModal.vue'
@@ -128,6 +130,8 @@ function onContextMenu(e) {
   --signal-bg-alt: oklch(0.20 0.02 155 / 0.08);
   --shadow-sm: 0 1px 2px oklch(0 0 0 / 0.3);
   --shadow: 0 4px 12px oklch(0 0 0 / 0.4);
+  --layout-grid: oklch(0.28 0.005 260);
+  --layout-oob: oklch(0.25 0.08 25 / 0.3);
 }
 
 [data-theme="light"] {
@@ -150,6 +154,8 @@ function onContextMenu(e) {
   --signal-bg-alt: oklch(0.55 0.02 155 / 0.04);
   --shadow-sm: 0 1px 2px oklch(0 0 0 / 0.08);
   --shadow: 0 4px 12px oklch(0 0 0 / 0.12);
+  --layout-grid: oklch(0.78 0.005 260);
+  --layout-oob: oklch(0.88 0.08 25 / 0.25);
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }

@@ -11,6 +11,7 @@
       <div v-if="msg" class="toolbar">
         <button class="btn" @click="addSignal">{{ t('signal.add') }}</button>
         <button class="btn btn-accent" @click="store.batchModalOpen = true">{{ t('signal.batch') }}</button>
+        <button class="btn" @click="store.toggleLayoutView()">{{ t('layout.viewLayout') }}</button>
         <button class="btn btn-danger" @click="deleteMsg">{{ t('signal.deleteMsg') }}</button>
       </div>
     </div>

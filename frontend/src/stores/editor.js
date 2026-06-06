@@ -23,6 +23,8 @@ export const useEditorStore = defineStore('editor', {
     locale: localStorage.getItem('canmatrix_locale') || 'zh',
     undoStack: [],
     signalErrors: [],
+    layoutViewMode: false,
+    selectedSignalUuid: null,
   }),
 
   getters: {
@@ -220,6 +222,25 @@ export const useEditorStore = defineStore('editor', {
     async autoFixSignal(sigUuid, newStartBit) {
       if (this.selectedMsgId == null) return
       await this.updateSignal(sigUuid, 'start_bit', newStartBit)
+    },
+
+    // ── Layout View ──
+
+    toggleLayoutView() {
+      this.layoutViewMode = !this.layoutViewMode
+      this.selectedSignalUuid = null
+    },
+
+    selectLayoutSignal(uuid) {
+      this.selectedSignalUuid = this.selectedSignalUuid === uuid ? null : uuid
+    },
+
+    async moveSignalByLayout(sigUuid, newStartBit) {
+      await this.updateSignal(sigUuid, 'start_bit', newStartBit)
+    },
+
+    async resizeSignalByLayout(sigUuid, newLength) {
+      await this.updateSignal(sigUuid, 'length', newLength)
     },
 
     async addMessage() {
