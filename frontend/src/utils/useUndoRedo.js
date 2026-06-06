@@ -94,6 +94,18 @@ const TYPE_LABELS = {
   batch_signal_add: '批量信号',
 }
 
+/**
+ * 深度克隆快照（避免引用污染撤销栈）
+ */
+function cloneSnapshot(snapshot) {
+  try {
+    return JSON.parse(JSON.stringify(snapshot))
+  } catch (e) {
+    console.warn('[UndoRedo] 快照序列化失败，使用浅拷贝', e)
+    return { ...snapshot }
+  }
+}
+
 function getLogDescription(snap, action) {
   const label = TYPE_LABELS[snap.type] || snap.type
   const actionText = action === 'undo' ? '撤销' : '重做'
@@ -149,7 +161,7 @@ export function createUndoRedoManager({ maxSize = 50, onReload, onToast, onLog }
    * @param {object} [snapshot.next] - 修改后的状态（用于 redo）
    */
   function pushUndo(snapshot) {
-    undoStack.push(snapshot)
+    undoStack.push(cloneSnapshot(snapshot))
     if (undoStack.length > maxSize) {
       undoStack.shift() // 超出限制时移除最早的记录
     }

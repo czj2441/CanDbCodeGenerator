@@ -3,8 +3,8 @@
     <div class="topbar-logo">Can<span>Matrix</span></div>
     <input class="topbar-filename" v-model="fileName" spellcheck="false" @blur="rename">
     <span class="topbar-spacer"></span>
-    <button class="btn" @click="store.undo()" title="撤销 (Ctrl+Z)">{{ t('topbar.undo') }}</button>
-    <button class="btn" @click="store.redo()" title="重做 (Ctrl+Y)" :disabled="!store._undoRedo || store._undoRedo.redoCount === 0">{{ t('topbar.redo') || '重做' }}</button>
+    <button class="btn" @click="store.undo()" :disabled="!store.canUndo" title="撤销 (Ctrl+Z)">{{ t('topbar.undo') }}</button>
+    <button class="btn" @click="store.redo()" :disabled="!store.canRedo" title="重做 (Ctrl+Y)">{{ t('topbar.redo') || '重做' }}</button>
     <button class="btn" @click="onNew">{{ t('topbar.new') }}</button>
     <button class="btn" @click="openHistory">{{ t('topbar.history') }}</button>
     <button class="btn" @click="importFile">{{ t('topbar.import') }}</button>

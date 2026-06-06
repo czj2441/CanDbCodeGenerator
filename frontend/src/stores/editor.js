@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { api, setSessionId, clearSession, addRecentSession, removeRecentSession } from '../api/client.js'
 import { t } from '../i18n.js'
 import { createUndoRedoManager } from '../utils/useUndoRedo.js'
+import { markModified } from '../utils/storeHelpers.js'
 
 export const useEditorStore = defineStore('editor', {
   state: () => ({
@@ -28,6 +29,11 @@ export const useEditorStore = defineStore('editor', {
     _undoRedo: null, // 撤销/重做管理器实例
     showLogPanel: false, // 日志面板显示开关
     logEntries: [], // 操作日志条目
+    // ═══════════════════════════════════════════
+    // 响应式撤销计数器（Pinia getter 不会追踪普通对象内部变化）
+    // ═══════════════════════════════════════════
+    undoCount: 0,
+    redoCount: 0,
   }),
 
   getters: {
@@ -40,6 +46,9 @@ export const useEditorStore = defineStore('editor', {
     signalCount(state) {
       return state.messages.reduce((sum, m) => sum + (m.signal_count || 0), 0)
     },
+    // ✅ 使用响应式计数器，确保按钮状态正确更新
+    canUndo: (state) => state.undoCount > 0,
+    canRedo: (state) => state.redoCount > 0,
   },
 
   actions: {
@@ -103,20 +112,34 @@ export const useEditorStore = defineStore('editor', {
     pushUndo(snapshot) {
       this.initUndoRedo()
       this._undoRedo.pushUndo(snapshot)
+      // ✅ 同步响应式计数器（pushUndo 会清空 redoStack）
+      this.undoCount = this._undoRedo.undoCount
+      this.redoCount = 0
     },
 
     async undo() {
       this.initUndoRedo()
       await this._undoRedo.undo()
+      // ✅ 同步响应式计数器
+      this.undoCount = this._undoRedo.undoCount
+      this.redoCount = this._undoRedo.redoCount
     },
 
     async redo() {
       this.initUndoRedo()
       await this._undoRedo.redo()
+      // ✅ 同步响应式计数器
+      this.undoCount = this._undoRedo.undoCount
+      this.redoCount = this._undoRedo.redoCount
     },
 
     clearUndoStack() {
-      if (this._undoRedo) this._undoRedo.clear()
+      if (this._undoRedo) {
+        this._undoRedo.clear()
+        // ✅ 同步响应式计数器
+        this.undoCount = 0
+        this.redoCount = 0
+      }
     },
 
     async initSession() {
@@ -415,8 +438,7 @@ export const useEditorStore = defineStore('editor', {
       if (idx >= 0) {
         this.messages[idx] = { ...this.messages[idx], signal_count: msg.signals.length }
       }
-      this.modified = true
-      this.modifiedAt = Date.now()
+      markModified(this)
 
       console.log('[STORE] addSignal() optimistic DONE +', (performance.now() - t0).toFixed(1), 'ms)')
 
@@ -480,8 +502,7 @@ export const useEditorStore = defineStore('editor', {
       }
 
       sig[field] = value
-      this.modified = true
-      this.modifiedAt = Date.now()
+      markModified(this)
 
       console.log('[STORE] updateSignal() optimistic DONE +', (performance.now() - t0).toFixed(1), 'ms)')
 
@@ -516,8 +537,7 @@ export const useEditorStore = defineStore('editor', {
       if (idx >= 0 && msg) {
         this.messages[idx] = { ...this.messages[idx], signal_count: msg.signals.length }
       }
-      this.modified = true
-      this.modifiedAt = Date.now()
+      markModified(this)
 
       console.log('[STORE] deleteSignal() optimistic DONE +', (performance.now() - t0).toFixed(1), 'ms)')
 
@@ -571,8 +591,7 @@ export const useEditorStore = defineStore('editor', {
       if (idx >= 0) {
         this.messages[idx] = { ...this.messages[idx], signal_count: msg.signals.length }
       }
-      this.modified = true
-      this.modifiedAt = Date.now()
+      markModified(this)
       this.isLoading = true
 
       // 异步批量发送
