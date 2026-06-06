@@ -45,7 +45,7 @@ class Signal:
         self.name: str = data.get("name", "")
         self.start_bit: int = data.get("start_bit", 0)
         self.length: int = data.get("length", 8)
-        self.byte_order: str = data.get("byte_order", "little_endian")
+        self.byte_order: str = data.get("byte_order", "motorola")
         self.is_signed: bool = data.get("is_signed", False)
         self.factor: float = data.get("factor", 1.0)
         self.offset: float = data.get("offset", 0.0)
@@ -195,8 +195,8 @@ class CanDatabase:
             字节内从高位向低位填充，到达 bit0 后跳到下一字节的 bit7。
         """
         bits: set[int] = set()
-        bo = str(byte_order).lower() if byte_order else "little_endian"
-        if bo in ("big_endian", "motorola"):
+        bo = str(byte_order).lower() if byte_order else "motorola"
+        if bo == "motorola":
             current = start_bit
             for _ in range(length):
                 bits.add(current)
@@ -497,7 +497,7 @@ class CanDatabase:
                 # 信号定义
                 for sig in msg.signals:
                     # SG_ <name> : <start_bit>|<length>@<byte_order><sign> (<factor>,<offset>) [<min>|<max>] "<unit>" <receivers>
-                    byte_order = 1 if sig.byte_order == "big_endian" else 0
+                    byte_order = 1 if sig.byte_order == "motorola" else 0
                     sign = "-" if sig.is_signed else "+"
                     factor = sig.factor if sig.factor != 1.0 else 1
                     offset = sig.offset if sig.offset != 0.0 else 0
@@ -566,7 +566,7 @@ _SIGNAL_DEFAULTS = {
     "name": "",
     "start_bit": 0,
     "length": 8,
-    "byte_order": "little_endian",
+    "byte_order": "motorola",
     "is_signed": False,
     "factor": 1.0,
     "offset": 0.0,

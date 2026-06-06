@@ -21,8 +21,8 @@
         <div class="field">
           <label>{{ t('panel.signalByteOrder') }}</label>
           <select :value="selectedSig.byte_order" @change="e => updateSignal('byte_order', e.target.value)">
-            <option value="little_endian">{{ t('panel.littleEndian') }}</option>
-            <option value="big_endian">{{ t('panel.bigEndian') }}</option>
+            <option value="intel">{{ t('panel.intel') }}</option>
+            <option value="motorola">{{ t('panel.motorola') }}</option>
           </select>
         </div>
         <div class="field-row">

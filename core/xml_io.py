@@ -92,7 +92,7 @@ def load_xml(filepath: str) -> CanDatabase:
                 name=str(sig_elem.get("name", "")),
                 start_bit=int(sig_elem.get("start_bit", "0")),
                 length=int(sig_elem.get("length", "8")),
-                byte_order=str(sig_elem.get("byte_order", "little_endian")),
+                byte_order=str(sig_elem.get("byte_order", "intel")),
                 is_signed=sig_elem.get("is_signed", "false").lower() == "true",
                 factor=float(sig_elem.get("factor", "1.0")),
                 offset=float(sig_elem.get("offset", "0.0")),

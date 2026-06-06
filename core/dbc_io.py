@@ -48,16 +48,17 @@ def import_dbc(filepath: str) -> CanDatabase:
         )
 
         for can_sig in can_msg.signals:
-            # Map cantools byte_order string
+            # Map cantools byte_order (may be 'little_endian'/'big_endian' or enum) to our format
             byte_order = can_sig.byte_order
             if hasattr(byte_order, "name"):
                 order_str = byte_order.name.lower()
             else:
                 order_str = str(byte_order).lower()
+            # Normalize to our internal format: intel/motorola
             if order_str in ("little", "little_endian", "intel"):
-                order_str = "little_endian"
+                order_str = "intel"
             elif order_str in ("big", "big_endian", "motorola"):
-                order_str = "big_endian"
+                order_str = "motorola"
 
             # Multiplexer info
             mux_mode = "none"
@@ -118,7 +119,8 @@ def export_dbc(database: CanDatabase, filepath: str) -> None:
                 name=sig.name,
                 start=sig.start_bit,
                 length=sig.length,
-                byte_order="big_endian" if sig.byte_order == "big_endian" else "little_endian",
+                # cantools 要求 byte_order 为 'little_endian' 或 'big_endian'
+                byte_order="big_endian" if sig.byte_order == "motorola" else "little_endian",
                 is_signed=sig.is_signed,
                 unit=sig.unit,
                 minimum=sig.min_val if sig.min_val != 0.0 else None,

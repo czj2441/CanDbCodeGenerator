@@ -343,7 +343,7 @@ export const useEditorStore = defineStore('editor', {
         name: 'NewSignal',
         start_bit: 0,
         length: 8,
-        byte_order: 'little_endian',
+        byte_order: 'motorola',
         factor: 1.0,
         offset: 0.0,
         min_val: 0.0,

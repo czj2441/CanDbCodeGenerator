@@ -8,20 +8,20 @@
 /**
  * Compute the set of absolute bit positions occupied by a signal.
  *
- * Intel (little_endian): bits are a contiguous block [start_bit, start_bit+length-1].
- * Motorola (big_endian): start_bit is the MSB; traversal zigzags within bytes:
+ * Intel: bits are a contiguous block [start_bit, start_bit+length-1].
+ * Motorola: start_bit is the MSB; traversal zigzags within bytes:
  *   decrement within byte, when reaching bit 0 jump to bit 7 of the next byte (+15).
  *
  * This is an exact JS port of api_server.py:_get_signal_bits().
  *
  * @param {number} startBit
  * @param {number} length
- * @param {string} byteOrder - "little_endian" | "big_endian"
+ * @param {string} byteOrder - "intel" | "motorola"
  * @returns {Set<number>}
  */
 export function getSignalBits(startBit, length, byteOrder) {
   const bits = new Set()
-  if (byteOrder === 'big_endian' || byteOrder === 'motorola') {
+  if (byteOrder === 'motorola') {
     let current = startBit
     for (let i = 0; i < length; i++) {
       bits.add(current)
@@ -132,7 +132,7 @@ export function signalExtents(signal, dlc) {
  * use clampStartBit() to snap a candidate to the nearest valid value.
  *
  * @param {number} length
- * @param {string} byteOrder - "little_endian" | "big_endian"
+ * @param {string} byteOrder - "intel" | "motorola"
  * @param {number} maxBit
  * @returns {{minStart: number, maxStart: number}}  (-1, -1) when impossible
  */
@@ -141,7 +141,7 @@ export function validStartBitRangeOptimized(length, byteOrder, maxBit) {
     return { minStart: -1, maxStart: -1 }
   }
 
-  if (byteOrder === 'little_endian') {
+  if (byteOrder === 'intel') {
     return { minStart: 0, maxStart: maxBit - length + 1 }
   }
 
@@ -182,7 +182,7 @@ export function validStartBitRangeOptimized(length, byteOrder, maxBit) {
 export function clampStartBit(candidate, length, byteOrder, maxBit) {
   if (length > maxBit + 1) return -1
 
-  if (byteOrder === 'little_endian') {
+  if (byteOrder === 'intel') {
     return Math.max(0, Math.min(maxBit - length + 1, candidate))
   }
 

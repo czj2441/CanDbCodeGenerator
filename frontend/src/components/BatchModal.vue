@@ -38,8 +38,8 @@
               <div class="field">
                 <label>{{ t('batch.byteOrder') }}</label>
                 <select v-model="form.byteOrder">
-                  <option value="little_endian">{{ t('batch.littleEndian') }}</option>
-                  <option value="big_endian">{{ t('batch.bigEndian') }}</option>
+                  <option value="intel">{{ t('batch.intel') }}</option>
+                  <option value="motorola">{{ t('batch.motorola') }}</option>
                 </select>
               </div>
             </div>
@@ -87,7 +87,7 @@ const form = reactive({
   startBit: 0,
   bitStep: 8,
   length: 8,
-  byteOrder: 'little_endian',
+  byteOrder: 'motorola',
   factor: 1.0,
   offset: 0.0,
   minVal: 0.0,

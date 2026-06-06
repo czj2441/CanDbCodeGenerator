@@ -44,7 +44,12 @@
             <td><input v-model="sig.name" @blur="update(sig.uuid, 'name', sig.name)"></td>
             <td><input class="mono" type="number" v-model.number="sig.start_bit" @blur="update(sig.uuid, 'start_bit', sig.start_bit)"></td>
             <td><input class="mono" type="number" v-model.number="sig.length" @blur="update(sig.uuid, 'length', sig.length)"></td>
-            <td><input class="mono" v-model="sig.byte_order" @blur="update(sig.uuid, 'byte_order', sig.byte_order)"></td>
+            <td>
+              <select v-model="sig.byte_order" @change="update(sig.uuid, 'byte_order', sig.byte_order)">
+                <option value="intel">Intel</option>
+                <option value="motorola">Motorola</option>
+              </select>
+            </td>
             <td><input class="mono" type="number" step="any" v-model.number="sig.factor" @blur="update(sig.uuid, 'factor', sig.factor)"></td>
             <td><input class="mono" type="number" step="any" v-model.number="sig.offset" @blur="update(sig.uuid, 'offset', sig.offset)"></td>
             <td><input class="mono" type="number" step="any" v-model.number="sig.min_val" @blur="update(sig.uuid, 'min_val', sig.min_val)"></td>
@@ -218,7 +223,19 @@ function fixSignal(uuid, newStartBit) {
   border-radius: var(--radius-sm);
   outline: none;
 }
-.signal-table input:focus {
+.signal-table select {
+  width: 100%;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text);
+  padding: 3px 5px;
+  font-size: 12px;
+  border-radius: var(--radius-sm);
+  outline: none;
+  cursor: pointer;
+}
+.signal-table input:focus,
+.signal-table select:focus {
   background: var(--bg-raised);
   border-color: var(--accent-dim);
 }

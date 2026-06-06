@@ -22,7 +22,7 @@ class Signal:
     name: str = ""
     start_bit: int = 0
     length: int = 8
-    byte_order: str = "little_endian"  # "little_endian" | "big_endian"
+    byte_order: str = "motorola"  # "intel" | "motorola"
     is_signed: bool = False
     factor: float = 1.0
     offset: float = 0.0
@@ -60,7 +60,7 @@ class Signal:
             name=str(data.get("name", "")),
             start_bit=int(data.get("start_bit", 0)),
             length=int(data.get("length", 8)),
-            byte_order=str(data.get("byte_order", "little_endian")),
+            byte_order=str(data.get("byte_order", "motorola")),
             is_signed=bool(data.get("is_signed", False)),
             factor=float(data.get("factor", 1.0)),
             offset=float(data.get("offset", 0.0)),
