@@ -4,12 +4,12 @@
     <div class="log-header">
       <span class="log-title">{{ t('log.title') }}</span>
       <div class="log-actions">
-        <button class="log-btn" @click="ui.clearLog()">{{ t('log.clear') }}</button>
+        <button class="log-btn" @click="store.clearLog()">{{ t('log.clear') }}</button>
       </div>
     </div>
     <div ref="logBody" class="log-body">
       <div
-        v-for="(entry, idx) in ui.logEntries"
+        v-for="(entry, idx) in store.logEntries"
         :key="idx"
         class="log-row"
         :class="'log-' + entry.type"
@@ -18,7 +18,7 @@
         <span class="log-type">{{ typeLabel(entry.type) }}</span>
         <span class="log-desc">{{ entry.description }}</span>
       </div>
-      <div v-if="ui.logEntries.length === 0" class="log-empty">
+      <div v-if="store.logEntries.length === 0" class="log-empty">
         {{ t('log.empty') }}
       </div>
     </div>
@@ -27,9 +27,11 @@
 
 <script setup>
 import { ref, watch, nextTick, computed } from 'vue'
+import { useEditorStore } from '../stores/editor.js'
 import { useUiStore } from '../stores/uiStore.js'
 import { t } from '../i18n.js'
 
+const store = useEditorStore()
 const ui = useUiStore()
 const logBody = ref(null)
 const panelHeight = ref(160)
@@ -72,7 +74,7 @@ function stopResize() {
 }
 
 // 新日志自动滚动到顶部
-watch(() => ui.logEntries.length, () => {
+watch(() => store.logEntries.length, () => {
   nextTick(() => {
     if (logBody.value) {
       logBody.value.scrollTop = 0

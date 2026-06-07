@@ -22,10 +22,8 @@ export const useEditorStore = defineStore('editor', {
     modified: false,
     modifiedAt: 0,
     signalErrors: [],
-
-    // ── 视图状态 ──
-    layoutViewMode: false,
-    selectedSignalUuid: null,
+    _modifiedTimer: null,
+    logEntries: [],
 
     // ── 剪贴板 ──
     clipboard: null,
@@ -62,47 +60,56 @@ export const useEditorStore = defineStore('editor', {
      */
     initUndoRedo() {
       if (this._undoRedo) return // 已初始化
+      // 在初始化时捕获 uiStore 引用，避免回调中每次调用 useUiStore()
+      const ui = useUiStore()
       this._undoRedo = createUndoRedoManager({
         maxSize: 50,
         onReload: async () => {
           await this.loadMessages()
           if (this.selectedMsgId != null) await this.loadSelectedMessage()
         },
-        onToast: (text, isError) => useUiStore().showToast(text, isError),
-        onLog: (type, description) => useUiStore().addLogEntry(type, description),
+        onToast: (text, isError) => ui.showToast(text, isError),
+        onLog: (type, description) => this.addLogEntry(type, description),
       })
+    },
+
+    _syncUndoRedoCounts() {
+      if (this._undoRedo) {
+        this.undoCount = this._undoRedo.undoCount
+        this.redoCount = this._undoRedo.redoCount
+      } else {
+        this.undoCount = 0
+        this.redoCount = 0
+      }
     },
 
     pushUndo(snapshot) {
       this.initUndoRedo()
       this._undoRedo.pushUndo(snapshot)
-      // ✅ 同步响应式计数器（pushUndo 会清空 redoStack）
-      this.undoCount = this._undoRedo.undoCount
-      this.redoCount = 0
+      this._syncUndoRedoCounts()
     },
 
     async undo() {
       this.initUndoRedo()
       await this._undoRedo.undo()
-      // ✅ 同步响应式计数器
-      this.undoCount = this._undoRedo.undoCount
-      this.redoCount = this._undoRedo.redoCount
+      this._syncUndoRedoCounts()
     },
 
     async redo() {
       this.initUndoRedo()
       await this._undoRedo.redo()
-      // ✅ 同步响应式计数器
-      this.undoCount = this._undoRedo.undoCount
-      this.redoCount = this._undoRedo.redoCount
+      this._syncUndoRedoCounts()
     },
 
     clearUndoStack() {
       if (this._undoRedo) {
         this._undoRedo.clear()
-        // ✅ 同步响应式计数器
-        this.undoCount = 0
-        this.redoCount = 0
+      }
+      this._syncUndoRedoCounts()
+      // 切换会话时清理 modified 定时器
+      if (this._modifiedTimer) {
+        clearTimeout(this._modifiedTimer)
+        this._modifiedTimer = null
       }
     },
 
@@ -199,7 +206,12 @@ export const useEditorStore = defineStore('editor', {
     _scheduleModifiedCheck() {
       this.modified = true
       this.modifiedAt = Date.now()
-      setTimeout(() => this._checkModifiedStatus(), 2000)
+      // 清除之前的定时器，避免积累多个未执行的检查
+      if (this._modifiedTimer) clearTimeout(this._modifiedTimer)
+      this._modifiedTimer = setTimeout(() => {
+        this._modifiedTimer = null
+        this._checkModifiedStatus()
+      }, 2000)
     },
 
     async selectMessage(id) {
@@ -236,15 +248,6 @@ export const useEditorStore = defineStore('editor', {
     async autoFixSignal(sigUuid, newStartBit) {
       if (this.selectedMsgId == null) return
       await this.updateSignal(sigUuid, 'start_bit', newStartBit)
-    },
-
-    toggleLayoutView() {
-      this.layoutViewMode = !this.layoutViewMode
-      this.selectedSignalUuid = null
-    },
-
-    selectLayoutSignal(uuid) {
-      this.selectedSignalUuid = this.selectedSignalUuid === uuid ? null : uuid
     },
 
     async moveSignalByLayout(sigUuid, newStartBit) {
@@ -612,6 +615,20 @@ export const useEditorStore = defineStore('editor', {
       } catch (_) {
         this.apiStatus = 'offline'
       }
+    },
+
+    // ── 操作日志 ──
+
+    addLogEntry(type, description) {
+      const time = new Date().toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      this.logEntries.unshift({ time, type, description })
+      if (this.logEntries.length > 200) {
+        this.logEntries.pop()
+      }
+    },
+
+    clearLog() {
+      this.logEntries = []
     },
 
     // ── Session History ──

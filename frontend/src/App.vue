@@ -4,7 +4,7 @@
     <div class="main">
       <MessageList />
       <div class="center">
-        <SignalLayoutVisualizer v-if="store.layoutViewMode" />
+        <SignalLayoutVisualizer v-if="ui.layoutViewMode" />
         <SignalTable v-else />
         <LogPanel />
       </div>

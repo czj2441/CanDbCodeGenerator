@@ -107,14 +107,16 @@
 <script setup>
 import { computed } from 'vue'
 import { useEditorStore } from '../stores/editor.js'
+import { useUiStore } from '../stores/uiStore.js'
 import { toHex, parseHex } from '../utils/format.js'
 import { t } from '../i18n.js'
 
 const store = useEditorStore()
+const ui = useUiStore()
 const msg = computed(() => store.selectedMessage)
 const selectedSig = computed(() => {
-  if (!msg.value || !store.selectedSignalUuid) return null
-  return msg.value.signals.find(s => s.uuid === store.selectedSignalUuid) || null
+  if (!msg.value || !ui.selectedSignalUuid) return null
+  return msg.value.signals.find(s => s.uuid === ui.selectedSignalUuid) || null
 })
 
 function update(field, value) {
@@ -122,8 +124,8 @@ function update(field, value) {
 }
 
 function updateSignal(field, value) {
-  if (store.selectedSignalUuid) {
-    store.updateSignal(store.selectedSignalUuid, field, value)
+  if (ui.selectedSignalUuid) {
+    store.updateSignal(ui.selectedSignalUuid, field, value)
   }
 }
 
@@ -132,14 +134,14 @@ function duplicate() {
 }
 
 function copySig() {
-  if (store.selectedSignalUuid) {
-    store.copySignal(store.selectedSignalUuid)
+  if (ui.selectedSignalUuid) {
+    store.copySignal(ui.selectedSignalUuid)
   }
 }
 
 function deleteSig() {
-  if (store.selectedSignalUuid) {
-    store.deleteSignal(store.selectedSignalUuid)
+  if (ui.selectedSignalUuid) {
+    store.deleteSignal(ui.selectedSignalUuid)
   }
 }
 </script>

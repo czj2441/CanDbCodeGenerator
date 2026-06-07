@@ -11,7 +11,7 @@
       <div v-if="msg" class="toolbar">
         <button class="btn" @click="addSignal">{{ t('signal.add') }}</button>
         <button class="btn btn-accent" @click="ui.batchModalOpen = true">{{ t('signal.batch') }}</button>
-        <button class="btn" @click="store.toggleLayoutView()">{{ t('layout.viewLayout') }}</button>
+        <button class="btn" @click="ui.toggleLayoutView()">{{ t('layout.viewLayout') }}</button>
         <button class="btn btn-danger" @click="deleteMsg">{{ t('signal.deleteMsg') }}</button>
       </div>
     </div>
@@ -91,12 +91,15 @@ const store = useEditorStore()
 const ui = useUiStore()
 
 const msg = computed(() => store.selectedMessage)
-const selectedSigUuid = ref(null)
+// ✅ 使用单一数据源：直接代理 ui.selectedSignalUuid，避免双写
+const selectedSigUuid = computed({
+  get: () => ui.selectedSignalUuid,
+  set: (val) => { ui.selectedSignalUuid = val }
+})
 
 // 切换报文时清除选中
 watch(msg, () => {
-  selectedSigUuid.value = null
-  store.selectedSignalUuid = null
+  ui.selectedSignalUuid = null
 })
 
 const errorUuids = computed(() => {
@@ -116,14 +119,12 @@ function handleRowMouseDown(uuid, event) {
 
   if (isInteractive) {
     // 点击交互元素：确保选中该信号（已选中则保持，不切换）
-    if (selectedSigUuid.value !== uuid) {
-      selectedSigUuid.value = uuid
-      store.selectedSignalUuid = uuid
+    if (ui.selectedSignalUuid !== uuid) {
+      ui.selectedSignalUuid = uuid
     }
   } else {
     // 点击空白区域：切换选中状态
-    selectedSigUuid.value = selectedSigUuid.value === uuid ? null : uuid
-    store.selectedSignalUuid = selectedSigUuid.value
+    ui.selectedSignalUuid = ui.selectedSignalUuid === uuid ? null : uuid
   }
 }
 
@@ -134,8 +135,8 @@ function onKeyDown(e) {
 
   if (e.key === 'c' && !isInput) {
     e.preventDefault()
-    if (selectedSigUuid.value) {
-      store.copySignal(selectedSigUuid.value)
+    if (ui.selectedSignalUuid) {
+      store.copySignal(ui.selectedSignalUuid)
     }
   } else if (e.key === 'v' && !isInput) {
     e.preventDefault()

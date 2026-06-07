@@ -8,7 +8,7 @@
         </template>
       </div>
       <div class="toolbar">
-        <button class="btn" @click="store.layoutViewMode = false">{{ t('layout.backToTable') }}</button>
+        <button class="btn" @click="ui.toggleLayoutView()">{{ t('layout.backToTable') }}</button>
       </div>
     </div>
 
@@ -176,11 +176,13 @@
 <script setup>
 import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
 import { useEditorStore } from '../stores/editor.js'
+import { useUiStore } from '../stores/uiStore.js'
 import { t } from '../i18n.js'
 import { getSignalBits, bitToGridCell, gridCellToBit, pixelToGridCell, clampStartBit, getSignalColor } from '../utils/signalLayout.js'
 import { toHex } from '../utils/format.js'
 
 const store = useEditorStore()
+const ui = useUiStore()
 
 // ── Layout constants ──
 const cellSize = 36
@@ -319,8 +321,8 @@ const signalLabels = computed(() => {
 
 // selectedCells: 选中信号的所有方格
 const selectedCells = computed(() => {
-  if (!store.selectedSignalUuid) return []
-  return coloredCells.value.filter(c => c.uuid === store.selectedSignalUuid)
+  if (!ui.selectedSignalUuid) return []
+  return coloredCells.value.filter(c => c.uuid === ui.selectedSignalUuid)
 })
 
 // ── 拖拽交互 ──
@@ -354,12 +356,12 @@ function onCellMouseDown(cell, konvaEvent) {
     computation: '',
   }
 
-  store.selectLayoutSignal(cell.uuid)
+  ui.selectLayoutSignal(cell.uuid)
 }
 
 function onCellClick(cell) {
   if (dragState.value) return
-  store.selectLayoutSignal(cell.uuid)
+  ui.selectLayoutSignal(cell.uuid)
 }
 
 function onStageMouseUp(konvaEvent) {
@@ -410,7 +412,7 @@ function onStageMouseUp(konvaEvent) {
 
 // ── Watch selectedMsgId → clear selection ──
 watch(() => store.selectedMsgId, () => {
-  store.selectedSignalUuid = null
+  ui.selectedSignalUuid = null
 })
 </script>
 
