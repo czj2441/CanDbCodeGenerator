@@ -1,7 +1,7 @@
 <template>
   <div class="topbar">
     <div class="topbar-logo">Can<span>Matrix</span></div>
-    <input class="topbar-filename" v-model="fileName" spellcheck="false" @blur="rename">
+    <input class="topbar-filename" :value="store.currentFileName" spellcheck="false" @blur="rename">
     <span class="topbar-spacer"></span>
     <button class="btn" @click="store.undo()" :disabled="!store.canUndo" title="撤销 (Ctrl+Z)">{{ t('topbar.undo') }}</button>
     <button class="btn" @click="store.redo()" :disabled="!store.canRedo" title="重做 (Ctrl+Y)">{{ t('topbar.redo') || '重做' }}</button>
@@ -59,10 +59,9 @@ import { t } from '../i18n.js'
 
 const store = useEditorStore()
 const ui = useUiStore()
-const fileName = ref(store.currentFileName)
 const newSessionName = ref('')
 
-// 快捷键：Ctrl+Z 撤销，Ctrl+Y 重做
+// 直接使用 store.currentFileName，避免本地 ref 与 store 状态不一致
 function handleKeydown(event) {
   // ⚠️ 维护注意：跳过输入框内的快捷键，避免与浏览器原生撤销冲突
   const tag = event.target.tagName
@@ -89,7 +88,6 @@ onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown)
 })
 
-watch(() => store.currentFileName, (v) => { fileName.value = v })
 watch(() => ui.newConfirmOpen, (open) => { if (open) newSessionName.value = '' })
 
 function onNew() {
@@ -107,8 +105,8 @@ function openHistory() {
   ui.historyModalOpen = true
 }
 
-function rename() {
-  let name = fileName.value.replace(/\.toml$/i, '').trim()
+function rename(event) {
+  let name = event.target.value.replace(/\.toml$/i, '').trim()
   name = name.replace(/^[a-f0-9]{12}_/i, '').trim()
   if (!name) return
   store.renameSession(name)

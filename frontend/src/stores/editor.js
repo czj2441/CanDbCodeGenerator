@@ -154,6 +154,8 @@ export const useEditorStore = defineStore('editor', {
           const data = await api('GET', `/api/session/${sid}`)
           if (data && data.session_id) {
             this.currentFileName = data.file_name || ''
+            this.modified = false
+            this.modifiedAt = 0
             this.clearUndoStack() // 切换会话时清空撤销栈
             await this.loadMessages()
             this.apiStatus = 'connected'
@@ -776,6 +778,8 @@ export const useEditorStore = defineStore('editor', {
       this.messageCache = {}
       this.messages = []
       this.signalErrors = []
+      this.modified = false
+      this.modifiedAt = 0
       this.clearUndoStack()
       this.isLoading = true
 
