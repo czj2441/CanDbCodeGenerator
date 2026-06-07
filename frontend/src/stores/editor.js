@@ -57,6 +57,7 @@ export const useEditorStore = defineStore('editor', {
     /**
      * 初始化撤销/重做管理器
      * 懒加载模式：首次调用时创建 createUndoRedoManager 实例
+     * 在初始化时捕获 uiStore 引用，避免回调中每次调用 useUiStore()
      */
     initUndoRedo() {
       if (this._undoRedo) return // 已初始化
@@ -73,6 +74,11 @@ export const useEditorStore = defineStore('editor', {
       })
     },
 
+    /**
+     * 同步撤销/重做计数器到响应式 state
+     * 所有操作栈变更后必须调用此方法，确保 UI 按钮状态正确
+     * @private
+     */
     _syncUndoRedoCounts() {
       if (this._undoRedo) {
         this.undoCount = this._undoRedo.undoCount
@@ -83,24 +89,43 @@ export const useEditorStore = defineStore('editor', {
       }
     },
 
+    /**
+     * 推送撤销快照
+     * 自动初始化撤销管理器，并同步响应式计数器
+     * @param {Object} snapshot - 撤销快照
+     */
     pushUndo(snapshot) {
       this.initUndoRedo()
       this._undoRedo.pushUndo(snapshot)
       this._syncUndoRedoCounts()
     },
 
+    /**
+     * 执行撤销操作
+     * 自动初始化撤销管理器，并同步响应式计数器
+     * @returns {Promise<void>}
+     */
     async undo() {
       this.initUndoRedo()
       await this._undoRedo.undo()
       this._syncUndoRedoCounts()
     },
 
+    /**
+     * 执行重做操作
+     * 自动初始化撤销管理器，并同步响应式计数器
+     * @returns {Promise<void>}
+     */
     async redo() {
       this.initUndoRedo()
       await this._undoRedo.redo()
       this._syncUndoRedoCounts()
     },
 
+    /**
+     * 清空撤销/重做栈
+     * 切换会话时调用，同时清理 modified 定时器
+     */
     clearUndoStack() {
       if (this._undoRedo) {
         this._undoRedo.clear()
@@ -117,6 +142,11 @@ export const useEditorStore = defineStore('editor', {
     // 区域 B：会话管理（Session Management）
     // ═══════════════════════════════════════════
 
+    /**
+     * 初始化会话（从 sessionStorage 恢复）
+     * 如果 session 有效，则加载报文数据
+     * @returns {Promise<void>}
+     */
     async initSession() {
       const sid = sessionStorage.getItem('canmatrix_session_id')
       if (sid) {
@@ -137,6 +167,11 @@ export const useEditorStore = defineStore('editor', {
       await this.createDemoSession()
     },
 
+    /**
+     * 创建 Demo 会话（无需后端）
+     * 用于离线演示和测试
+     * @returns {Promise<void>}
+     */
     async createDemoSession() {
       try {
         const session = await api('POST', '/api/session', { name: 'DemoCAN' })
@@ -178,6 +213,11 @@ export const useEditorStore = defineStore('editor', {
 
     // ── 报文加载与选择 ──
 
+    /**
+     * 加载所有报文列表
+     * 如果已选择报文，则同时加载选中报文的详细信息
+     * @returns {Promise<void>}
+     */
     async loadMessages() {
       const t0 = performance.now()
       try {
@@ -191,6 +231,12 @@ export const useEditorStore = defineStore('editor', {
       }
     },
 
+    /**
+     * 检查后端修改状态
+     * 仅在本地修改超过 1.5 秒后才同步后端状态，避免覆盖本地修改
+     * @returns {Promise<void>}
+     * @private
+     */
     async _checkModifiedStatus() {
       try {
         const status = await api('GET', '/api/status')
@@ -203,6 +249,12 @@ export const useEditorStore = defineStore('editor', {
       }
     },
 
+    /**
+     * 调度修改状态检查
+     * 标记本地为已修改，并在 2 秒后检查后端状态
+     * 清除之前的定时器，避免积累多个未执行的检查
+     * @private
+     */
     _scheduleModifiedCheck() {
       this.modified = true
       this.modifiedAt = Date.now()
@@ -214,6 +266,12 @@ export const useEditorStore = defineStore('editor', {
       }, 2000)
     },
 
+    /**
+     * 选中报文（乐观更新模式）
+     * 立即清空旧缓存让 UI 显示加载中，异步加载报文详情
+     * @param {number} id - 报文 ID
+     * @returns {Promise<void>}
+     */
     async selectMessage(id) {
       this.selectedMsgId = id
       // 乐观更新：立即清空旧缓存，让 UI 显示加载中
@@ -222,6 +280,11 @@ export const useEditorStore = defineStore('editor', {
       this.loadSelectedMessage()
     },
 
+    /**
+     * 加载选中报文的详细信息（含信号列表）
+     * 加载完成后检查信号错误状态
+     * @returns {Promise<void>}
+     */
     async loadSelectedMessage() {
       if (this.selectedMsgId == null) return
       try {
@@ -233,6 +296,10 @@ export const useEditorStore = defineStore('editor', {
       }
     },
 
+    /**
+     * 加载当前报文的信号错误列表
+     * @returns {Promise<void>}
+     */
     async loadSignalErrors() {
       if (this.selectedMsgId == null) return
       try {
@@ -245,15 +312,33 @@ export const useEditorStore = defineStore('editor', {
 
     // ── 报文 CRUD ──
 
+    /**
+     * 自动修复信号位置（布局视图调用）
+     * @param {string} sigUuid - 信号 UUID
+     * @param {number} newStartBit - 新的起始位
+     * @returns {Promise<void>}
+     */
     async autoFixSignal(sigUuid, newStartBit) {
       if (this.selectedMsgId == null) return
       await this.updateSignal(sigUuid, 'start_bit', newStartBit)
     },
 
+    /**
+     * 通过布局视图移动信号位置
+     * @param {string} sigUuid - 信号 UUID
+     * @param {number} newStartBit - 新的起始位
+     * @returns {Promise<void>}
+     */
     async moveSignalByLayout(sigUuid, newStartBit) {
       await this.updateSignal(sigUuid, 'start_bit', newStartBit)
     },
 
+    /**
+     * 通过布局视图调整信号长度
+     * @param {string} sigUuid - 信号 UUID
+     * @param {number} newLength - 新的长度
+     * @returns {Promise<void>}
+     */
     async resizeSignalByLayout(sigUuid, newLength) {
       await this.updateSignal(sigUuid, 'length', newLength)
     },
@@ -301,6 +386,12 @@ export const useEditorStore = defineStore('editor', {
       }
     },
 
+    /**
+     * 删除报文（乐观更新模式）
+     * 先更新本地状态再发送 API，失败时回滚
+     * @param {number} id - 报文 ID
+     * @returns {Promise<void>}
+     */
     async deleteMessage(id) {
       const msg = this.messageCache[id]
       if (msg) this.pushUndo({ type: 'message_delete', data: msg })
@@ -326,6 +417,13 @@ export const useEditorStore = defineStore('editor', {
       }
     },
 
+    /**
+     * 更新报文属性（乐观更新模式）
+     * 值变化时先入撤销栈，再更新本地状态，异步发送 API
+     * @param {string} field - 字段名
+     * @param {any} value - 新值
+     * @returns {Promise<void>}
+     */
     async updateMessageField(field, value) {
       if (this.selectedMsgId == null) return
 
@@ -488,6 +586,12 @@ export const useEditorStore = defineStore('editor', {
       }
     },
 
+    /**
+     * 删除信号（乐观更新模式）
+     * 先更新本地状态再发送 API，失败时回滚
+     * @param {string} sigUuid - 信号 UUID
+     * @returns {Promise<void>}
+     */
     async deleteSignal(sigUuid) {
       if (this.selectedMsgId == null) return
 
@@ -525,7 +629,21 @@ export const useEditorStore = defineStore('editor', {
     /**
      * 批量添加信号（乐观更新 + 并发 API）
      * 所有信号先本地乐观更新，然后并发发送 API 请求
+     * API 成功后替换 clientUuid 为真实 UUID，并入撤销栈
      * @param {Object} params - 批量参数
+     * @param {string} params.nameTemplate - 名称模板（如 "Signal_{n}"）
+     * @param {number} params.count - 信号数量
+     * @param {number} params.startNum - 起始编号
+     * @param {number} params.startBit - 起始位
+     * @param {number} params.bitStep - 位步长
+     * @param {number} params.length - 信号长度
+     * @param {string} params.byteOrder - 字节序（motorola/intel）
+     * @param {number} params.factor - 因子
+     * @param {number} params.offset - 偏移
+     * @param {number} params.minVal - 最小值
+     * @param {number} params.maxVal - 最大值
+     * @param {string} params.unit - 单位
+     * @param {string} params.commentTemplate - 注释模板
      * @returns {Promise<void>}
      */
     async batchAddSignals({ nameTemplate, count, startNum, startBit, bitStep, length, byteOrder, factor, offset, minVal, maxVal, unit, commentTemplate }) {
@@ -608,6 +726,11 @@ export const useEditorStore = defineStore('editor', {
       }
     },
 
+    /**
+     * 检查 API 健康状态
+     * 由 App.vue 定时调用（每 15 秒）
+     * @returns {Promise<void>}
+     */
     async checkApiHealth() {
       try {
         await api('GET', '/api/status')
@@ -642,11 +765,18 @@ export const useEditorStore = defineStore('editor', {
       }
     },
 
+    /**
+     * 加载历史会话
+     * @param {string} sessionId - 会话 ID
+     * @returns {Promise<void>}
+     */
     async loadHistorySession(sessionId) {
       // 乐观更新：立即清空状态，显示加载中
       this.selectedMsgId = null
       this.messageCache = {}
       this.messages = []
+      this.signalErrors = []
+      this.clearUndoStack()
       this.isLoading = true
 
       try {
@@ -698,7 +828,9 @@ export const useEditorStore = defineStore('editor', {
         this.selectedMsgId = null
         this.messageCache = {}
         this.messages = []
+        this.signalErrors = []
         this.modified = false
+        this.clearUndoStack()
         useUiStore().showToast(t('toast.newSessionCreated'))
       } catch (e) {
         useUiStore().showToast(e.message, true)
@@ -709,6 +841,10 @@ export const useEditorStore = defineStore('editor', {
     // 区域 D：剪贴板（Clipboard）
     // ═══════════════════════════════════════════
 
+    /**
+     * 复制信号到剪贴板
+     * @param {string} sigUuid - 信号 UUID
+     */
     copySignal(sigUuid) {
       const msg = this.selectedMessage
       if (!msg) return
@@ -718,12 +854,21 @@ export const useEditorStore = defineStore('editor', {
       useUiStore().showToast(t('toast.signalCopied'))
     },
 
+    /**
+     * 剪切信号到剪贴板（复制 + 删除）
+     * @param {string} sigUuid - 信号 UUID
+     * @returns {Promise<void>}
+     */
     async cutSignal(sigUuid) {
       this.copySignal(sigUuid)
       await this.deleteSignal(sigUuid)
       useUiStore().showToast(t('toast.signalCut'))
     },
 
+    /**
+     * 从剪贴板粘贴信号
+     * @returns {Promise<void>}
+     */
     async pasteSignal() {
       if (!this.clipboard || this.clipboard.type !== 'signal' || this.selectedMsgId == null) return
       const sig = JSON.parse(JSON.stringify(this.clipboard.data))

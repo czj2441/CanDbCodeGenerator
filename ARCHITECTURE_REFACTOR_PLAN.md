@@ -170,7 +170,9 @@ export const useUiStore = defineStore('ui', {
     locale: localStorage.getItem('canmatrix_locale') || 'zh',
     // 日志面板
     showLogPanel: false,
-    logEntries: [],
+    // ⚠️ 注意：logEntries 和 addLogEntry 保留在 editor.js 中
+    // 原因：操作日志属于业务数据（与撤销/重做相关），不是纯 UI 状态
+    // initUndoRedo 的 onLog 回调直接使用 this.addLogEntry()
   }),
 
   // ❌ 错误：getters 中引用其他 Store 会导致 getter 返回函数
@@ -188,11 +190,18 @@ export const useUiStore = defineStore('ui', {
 
   actions: {
     showToast(text, isError = false) {
+      // 清除之前的定时器，避免快速连续调用时 Toast 被意外关闭
+      if (this._toastTimer) clearTimeout(this._toastTimer)
       this.toast = { text, isError, visible: true }
-      setTimeout(() => { this.toast.visible = false }, 2000)
+      this._toastTimer = setTimeout(() => {
+        this.toast.visible = false
+        this._toastTimer = null
+      }, 2000)
     },
 
     hideToast() {
+      if (this._toastTimer) clearTimeout(this._toastTimer)
+      this._toastTimer = null
       this.toast.visible = false
     },
 
@@ -226,25 +235,18 @@ export const useUiStore = defineStore('ui', {
       this.setLocale(next)
     },
 
+    toggleLayoutView() {
+      this.layoutViewMode = !this.layoutViewMode
+      this.selectedSignalUuid = null
+    },
+
+    selectLayoutSignal(uuid) {
+      this.selectedSignalUuid = this.selectedSignalUuid === uuid ? null : uuid
+    },
+
     // ── 操作日志 ──
-
-    addLogEntry(type, description) {
-      const now = new Date()
-      const time = now.toLocaleTimeString('zh-CN', {
-        hour12: false,
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit'
-      })
-      this.logEntries.unshift({ time, type, description })
-      if (this.logEntries.length > 200) {
-        this.logEntries.pop()
-      }
-    },
-
-    clearLog() {
-      this.logEntries = []
-    },
+    // ⚠️ logEntries/addLogEntry/clearLog 已迁移至 editor.js（2026-06-06 重构调整）
+    // 原因：操作日志与业务逻辑（撤销/重做）紧密相关，保留在 editor.js 更合理
   },
 })
 ```
@@ -253,10 +255,11 @@ export const useUiStore = defineStore('ui', {
 - ✅ 管理所有 UI 组件的显示/隐藏状态
 - ✅ 管理 Toast 提示
 - ✅ 管理主题、语言偏好
-- ✅ 管理操作日志显示
+- ✅ 管理视图状态（layoutViewMode、selectedSignalUuid）
 - ❌ 不包含业务数据
 - ❌ 不包含 API 调用逻辑
 - ❌ **不包含跨 Store 的 getter（如 canUndo/canRedo）**
+- ❌ **不包含操作日志（logEntries）——已保留在 editor.js**
 
 ---
 
@@ -279,7 +282,7 @@ export const useUiStore = defineStore('ui', {
 export function markModified(store) {
   store.modified = true
   store.modifiedAt = Date.now()
-  setTimeout(() => store._checkModifiedStatus(), 2000)
+  store._scheduleModifiedCheck()
 }
 
 /**
@@ -614,7 +617,8 @@ function handleDeleteMessage() {
 - [ ] 创建 `stores/uiStore.js`
 - [ ] 将 `toast`、`contextMenu`、`batchModalOpen` 等状态迁移到 `uiStore.js`
 - [ ] 将 `theme`、`locale` 管理迁移到 `uiStore.js`
-- [ ] 将 `showLogPanel`、`logEntries` 迁移到 `uiStore.js`
+- [ ] 将 `showLogPanel` 迁移到 `uiStore.js`
+- [ ] 将 `layoutViewMode`、`selectedSignalUuid` 迁移到 `uiStore.js`（2026-06-06 评审后调整）
 - [ ] 更新 **13 个组件**中 UI 相关引用
 - [ ] 删除 `editor.js` 中的对应代码
 
@@ -636,7 +640,7 @@ function handleDeleteMessage() {
 | `Toast.vue` | `store.toast` → `uiStore.toast` |
 | `StatusBar.vue` | 可能不需要修改（需验证） |
 | `LoadingOverlay.vue` | 可能不需要修改（需验证） |
-| `LogPanel.vue` | `store.showLogPanel` → `uiStore.showLogPanel`<br>`store.logEntries` → `uiStore.logEntries` |
+| `LogPanel.vue` | `store.showLogPanel` → `uiStore.showLogPanel`<br>`store.logEntries` → `store.logEntries`（保留在 editor.js） |
 
 **验证方式**：
 - 测试 Toast 提示、主题切换、语言切换
@@ -714,7 +718,8 @@ function handleDeleteMessage() {
 │  - messages          │    │  - toast             │
 │  - messageCache      │    │  - modals            │
 │  - selectedMsgId     │    │  - theme/locale      │
-│  - clipboard         │    │  - logEntries        │
+│  - clipboard         │    │  - layoutViewMode    │
+│  - logEntries        │    │  - selectedSignalUuid│
 │  - _undoRedo         │    └──────────────────────┘
 └──────────────────────┘
           ↓
@@ -865,7 +870,8 @@ test('添加信号失败时回滚', async () => {
 
 ---
 
-**文档版本**：v2.1（简化版）  
+**文档版本**：v2.2（清理版）  
 **创建时间**：2026-06-06  
+**最后更新**：2026-06-06（清理 logEntries 位置、Toast 定时器、layoutViewMode 等）  
 **方案**：渐进式重构（低风险）  
 **审阅结论**：✅ 方案可行，可开始实施
