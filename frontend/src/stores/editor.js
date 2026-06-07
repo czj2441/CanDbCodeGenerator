@@ -745,7 +745,7 @@ export const useEditorStore = defineStore('editor', {
     addLogEntry(type, description) {
       const time = new Date().toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
       this.logEntries.unshift({ time, type, description })
-      if (this.logEntries.length > 200) {
+      if (this.logEntries.length > 500) {
         this.logEntries.pop()
       }
     },

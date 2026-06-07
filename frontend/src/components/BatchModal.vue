@@ -72,7 +72,7 @@
 </template>
 
 <script setup>
-import { reactive } from 'vue'
+import { reactive, watch } from 'vue'
 import { useEditorStore } from '../stores/editor.js'
 import { t } from '../i18n.js'
 
@@ -80,7 +80,7 @@ const store = useEditorStore()
 
 const visible = defineModel('visible', { type: Boolean, default: false })
 
-const form = reactive({
+const createDefaultForm = () => ({
   nameTemplate: 'PTA{n:02d}_AdVal',
   count: 8,
   startNum: 1,
@@ -94,6 +94,15 @@ const form = reactive({
   maxVal: 0.0,
   unit: '',
   commentTemplate: '',
+})
+
+const form = reactive(createDefaultForm())
+
+// 每次打开模态框时重置表单
+watch(visible, (newVal) => {
+  if (newVal) {
+    Object.assign(form, createDefaultForm())
+  }
 })
 
 function close() {
