@@ -1,5 +1,6 @@
 <template>
   <div class="topbar">
+    <button class="btn btn-icon btn-back" @click="$emit('back')" :title="t('topbar.back')">←</button>
     <div class="topbar-logo">Can<span>Matrix</span></div>
     <input class="topbar-filename" :value="store.currentFileName" spellcheck="false" @blur="rename">
     <span class="topbar-spacer"></span>
@@ -57,6 +58,8 @@ import { useEditorStore } from '../stores/editor.js'
 import { useUiStore } from '../stores/uiStore.js'
 import { t } from '../i18n.js'
 
+defineEmits(['back'])
+
 const store = useEditorStore()
 const ui = useUiStore()
 const newSessionName = ref('')
@@ -113,15 +116,18 @@ function rename(event) {
 }
 
 function importFile() {
-  // TODO
+  const ui = useUiStore()
+  ui.showToast('导入功能开发中', true)
 }
 
 function exportFile(fmt) {
-  // TODO
+  const ui = useUiStore()
+  ui.showToast('导出功能开发中', true)
 }
 
 function save() {
-  // TODO
+  const ui = useUiStore()
+  ui.showToast('保存功能开发中', true)
 }
 </script>
 
@@ -189,6 +195,11 @@ function save() {
   transition: var(--transition);
 }
 .btn:hover { background: var(--bg-hover); }
+.btn-back {
+  font-size: 18px;
+  padding: 5px 10px;
+  margin-right: 4px;
+}
 .btn-accent {
   background: var(--accent);
   color: oklch(0.12 0.01 155);

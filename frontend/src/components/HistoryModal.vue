@@ -14,11 +14,13 @@
                 v-for="item in store.sessionHistory"
                 :key="item.session_id"
                 class="history-item"
+                :class="{ locked: item.is_locked }"
               >
                 <div class="history-info" @click="load(item.session_id)">
                   <div class="history-name">{{ item.name }}</div>
                   <div class="history-meta">
                     {{ item.message_count }} messages · {{ item.signal_count }} signals · {{ formatTime(item.mtime) }}
+                    <span v-if="item.is_locked" class="lock-badge">{{ t('browser.locked') }}</span>
                   </div>
                 </div>
                 <button class="delete-btn" @click.stop="del(item.session_id)">{{ t('history.delete') }}</button>
@@ -45,8 +47,13 @@ function formatTime(ts) {
 }
 
 async function load(sessionId) {
-  await store.loadHistorySession(sessionId)
-  ui.historyModalOpen = false
+  try {
+    await store.loadHistorySession(sessionId)
+    ui.historyModalOpen = false
+  } catch (e) {
+    // loadHistorySession 内部已显示 Toast，这里只需阻止关闭弹窗
+    console.error('Failed to load session:', e)
+  }
 }
 
 async function del(sessionId) {
@@ -140,6 +147,10 @@ async function del(sessionId) {
   cursor: pointer;
   min-width: 0;
 }
+.history-item.locked .history-info {
+  opacity: 0.5;
+  pointer-events: none;
+}
 
 .history-name {
   font-weight: 500;
@@ -150,6 +161,18 @@ async function del(sessionId) {
 .history-meta {
   font-size: 11px;
   color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lock-badge {
+  background: var(--warn);
+  color: oklch(0.15 0.01 80);
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  font-size: 10px;
+  font-weight: 600;
 }
 
 .delete-btn {

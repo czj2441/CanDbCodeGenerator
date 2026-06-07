@@ -16,6 +16,14 @@ const dict = {
     'topbar.newConfirmCancel': '取消',
     'topbar.newConfirmCreate': '创建新会话',
     'topbar.newNamePlaceholder': '输入会话名称...',
+    'topbar.back': '返回文件列表',
+
+    // FileBrowser
+    'browser.title': '选择文件',
+    'browser.newFile': '新建文件',
+    'browser.locked': '已在其他标签页打开',
+    'browser.open': '打开',
+    'toast.fileLocked': '文件已被其他标签页打开',
 
     // StatusBar
     'status.message': '报文',
@@ -138,6 +146,7 @@ const dict = {
     'toast.signalOutOfBounds': '信号 "{name}" 超出范围（DLC={dlc}，最大位 {max}）',
     'toast.signalOverlap': '信号 "{name}" 与 "{other}" 在位 {bits} 重叠',
     'toast.signalAutoFixed': '已自动调整 "{name}" 的起始位为 {start}',
+    'toast.multiTabConflict': '⚠️ 检测到多标签页编辑不同会话，请注意数据同步',
     // Signal validation errors
     'signal.errorsTitle': '信号布局错误',
     'signal.errorOutOfBounds': '{name}：超出范围（位 {bits} > {max}）',
@@ -181,6 +190,14 @@ const dict = {
     'topbar.newConfirmCancel': 'Cancel',
     'topbar.newConfirmCreate': 'Create New',
     'topbar.newNamePlaceholder': 'Enter session name...',
+    'topbar.back': 'Back to file list',
+
+    // FileBrowser
+    'browser.title': 'Select File',
+    'browser.newFile': 'New File',
+    'browser.locked': 'Open in another tab',
+    'browser.open': 'Open',
+    'toast.fileLocked': 'File is opened in another tab',
 
     // StatusBar
     'status.message': 'message',
@@ -303,6 +320,7 @@ const dict = {
     'toast.signalOutOfBounds': 'Signal "{name}" out of bounds (DLC={dlc}, max bit {max})',
     'toast.signalOverlap': 'Signal "{name}" overlaps with "{other}" at bits {bits}',
     'toast.signalAutoFixed': 'Auto-adjusted "{name}" start bit to {start}',
+    'toast.multiTabConflict': '⚠️ Multiple tabs editing different sessions detected, please sync data carefully',
     // Signal validation errors
     'signal.errorsTitle': 'Signal Layout Errors',
     'signal.errorOutOfBounds': '{name}: out of bounds (bits {bits} > {max})',

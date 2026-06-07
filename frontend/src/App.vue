@@ -1,29 +1,37 @@
 <template>
   <div class="app" @contextmenu="onContextMenu">
-    <TopBar />
-    <div class="main">
-      <MessageList />
-      <div class="center">
-        <SignalLayoutVisualizer v-if="ui.layoutViewMode" />
-        <SignalTable v-else />
-        <LogPanel />
+    <!-- 文件浏览器模式 -->
+    <FileBrowser v-if="mode === 'browser'" @open="openFile" @new="createNewFile" />
+    <!-- 编辑器模式 -->
+    <template v-else>
+      <TopBar @back="goBack" />
+      <div class="main">
+        <MessageList />
+        <div class="center">
+          <SignalLayoutVisualizer v-if="ui.layoutViewMode" />
+          <SignalTable v-else />
+          <LogPanel />
+        </div>
+        <MessagePanel />
       </div>
-      <MessagePanel />
-    </div>
-    <StatusBar />
-    <BatchModal v-model:visible="ui.batchModalOpen" />
-    <LoadingOverlay />
+      <StatusBar />
+      <BatchModal v-model:visible="ui.batchModalOpen" />
+      <LoadingOverlay />
+      <ContextMenu :items="contextMenuItems" />
+      <HistoryModal />
+    </template>
+    <!-- Toast 在所有模式下都渲染 -->
     <Toast />
-    <ContextMenu :items="contextMenuItems" />
-    <HistoryModal />
   </div>
 </template>
 
 <script setup>
-import { onMounted, onUnmounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useEditorStore } from './stores/editor.js'
 import { useUiStore } from './stores/uiStore.js'
 import { t } from './i18n.js'
+import { initTabSync, cleanupTabSync } from './api/client.js'
+import FileBrowser from './components/FileBrowser.vue'
 import TopBar from './components/TopBar.vue'
 import MessageList from './components/MessageList.vue'
 import SignalTable from './components/SignalTable.vue'
@@ -41,17 +49,90 @@ const store = useEditorStore()
 const ui = useUiStore()
 let healthTimer = null
 
+// 应用模式：'browser' | 'editor'
+const mode = ref('browser')
+
+function handleTabConflict(e) {
+  // 使用 alert 确保用户能看到警告（Toast 在 BroadcastChannel 回调中无法触发）
+  alert(t('toast.multiTabConflict'))
+  console.warn(`[TabSync] Event handled: current=${e.detail.currentSid}, other=${e.detail.otherSid}`)
+}
+
 onMounted(() => {
-  store.initSession()
-  healthTimer = setInterval(() => store.checkApiHealth(), 15000)
+  // 默认进入文件浏览器模式
+  mode.value = 'browser'
   document.addEventListener('click', hideMenu)
   document.documentElement.setAttribute('data-theme', ui.theme)
+
+  // 初始化多标签页冲突检测（使用已获取的 ui 实例）
+  initTabSync((currentSid, otherSid) => {
+    window.dispatchEvent(new CustomEvent('tab-conflict', { detail: { currentSid, otherSid } }))
+    console.warn(`[TabSync] Session conflict detected: current=${currentSid}, other=${otherSid}`)
+  })
+
+  // 监听多标签页冲突事件
+  window.addEventListener('tab-conflict', handleTabConflict)
 })
 
 onUnmounted(() => {
   clearInterval(healthTimer)
   document.removeEventListener('click', hideMenu)
+  window.removeEventListener('tab-conflict', handleTabConflict)
+  cleanupTabSync()
 })
+
+// 打开文件
+async function openFile(sessionId) {
+  try {
+    await store.loadHistorySession(sessionId)
+    mode.value = 'editor'
+    startHealthCheck()
+  } catch (e) {
+    // 加载失败，保持在浏览器模式
+    console.error('Failed to open file:', e)
+  }
+}
+
+// 新建文件
+async function createNewFile() {
+  try {
+    await store.newFile()
+    mode.value = 'editor'
+    startHealthCheck()
+  } catch (e) {
+    // 创建失败，保持在浏览器模式
+    console.error('Failed to create new file:', e)
+  }
+}
+
+// 返回文件浏览器
+function goBack() {
+  // 释放文件锁
+  store.releaseSession()
+  // 清理编辑器状态
+  store.clearUndoStack()
+  store.selectedMsgId = null
+  store.messageCache = {}
+  store.messages = []
+  store.signalErrors = []
+  store.editorState = null
+  // 停止健康检查
+  stopHealthCheck()
+  mode.value = 'browser'
+}
+
+// 健康检查定时器管理
+function startHealthCheck() {
+  stopHealthCheck()
+  healthTimer = setInterval(() => store.checkApiHealth(), 15000)
+}
+
+function stopHealthCheck() {
+  if (healthTimer) {
+    clearInterval(healthTimer)
+    healthTimer = null
+  }
+}
 
 function hideMenu() {
   ui.hideContextMenu()

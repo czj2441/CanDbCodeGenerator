@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { api, setSessionId, clearSession, addRecentSession, removeRecentSession } from '../api/client.js'
+import { api, setSessionId, clearSession, addRecentSession, removeRecentSession, getSessionId } from '../api/client.js'
 import { t } from '../i18n.js'
 import { createUndoRedoManager } from '../utils/useUndoRedo.js'
 import { markModified } from '../utils/storeHelpers.js'
@@ -784,7 +784,8 @@ export const useEditorStore = defineStore('editor', {
       this.isLoading = true
 
       try {
-        const data = await api('POST', `/api/session/${sessionId}/load`)
+        const currentSid = getSessionId()
+        const data = await api('POST', `/api/session/${sessionId}/load`, null, { 'X-Session-Id': currentSid })
         const sid = data.session_id
         setSessionId(sid)
         addRecentSession(sid, data.file_name || '')
@@ -794,7 +795,13 @@ export const useEditorStore = defineStore('editor', {
         this.loadMessages()
         useUiStore().showToast(t('toast.sessionLoaded'))
       } catch (e) {
-        useUiStore().showToast(e.message, true)
+        // 409 表示文件被锁定，显示专用错误消息
+        if (e.status === 409) {
+          useUiStore().showToast(t('toast.fileLocked'), true)
+        } else {
+          useUiStore().showToast(e.message, true)
+        }
+        throw e  // 重新抛出，让调用方知道失败
       } finally {
         this.isLoading = false
       }
@@ -838,6 +845,39 @@ export const useEditorStore = defineStore('editor', {
         useUiStore().showToast(t('toast.newSessionCreated'))
       } catch (e) {
         useUiStore().showToast(e.message, true)
+      }
+    },
+
+    /**
+     * 新建文件（从 FileBrowser 调用）
+     * 与 createNewSession 类似，但不显示 Toast（由 FileBrowser 处理）
+     */
+    async newFile(name = 'Untitled') {
+      const data = await api('POST', '/api/new', { name })
+      const sid = data.session_id
+      setSessionId(sid)
+      addRecentSession(sid, data.name + '.toml')
+      this.currentFileName = data.name + '.toml'
+      this.selectedMsgId = null
+      this.messageCache = {}
+      this.messages = []
+      this.signalErrors = []
+      this.modified = false
+      this.clearUndoStack()
+      return sid
+    },
+
+    /**
+     * 释放当前 session 的文件锁（返回文件浏览器时调用）
+     */
+    async releaseSession() {
+      const sid = sessionStorage.getItem('canmatrix_session_id')
+      if (sid) {
+        try {
+          await api('POST', '/api/release', null, { 'X-Session-Id': sid })
+        } catch (_) {
+          // 忽略释放失败
+        }
       }
     },
 

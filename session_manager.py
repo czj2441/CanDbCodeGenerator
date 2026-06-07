@@ -20,6 +20,11 @@ import toml
 import uuid
 from typing import Optional
 
+
+class FileLockedError(Exception):
+    """文件已被其他会话占用。"""
+    pass
+
 # 数据模型从 api_server 导入（循环依赖通过延迟导入解决）
 # 实际使用时由 api_server 注入模型类
 
@@ -82,7 +87,8 @@ class SessionManager:
     def __init__(self, data_dir: str | None = None):
         self._data_dir = data_dir or DATA_DIR
         self._sessions: dict[str, Session] = {}
-        self._lock = threading.Lock()
+        self._active_files: dict[str, set[str]] = {}  # file_path -> {session_ids}
+        self._lock = threading.RLock()  # 可重入锁，避免嵌套调用死锁
         self._model_factory = None  # 由外部注入
         os.makedirs(self._data_dir, exist_ok=True)
 
@@ -111,6 +117,7 @@ class SessionManager:
         with self._lock:
             session = Session(session_id, file_path, db)
             self._sessions[session_id] = session
+            self._register_active(session_id, file_path)
 
         # 立即落盘
         self._write_file(session)
@@ -127,12 +134,19 @@ class SessionManager:
                 session.touch()
             return session
 
-    def restore(self, session_id: str):
+    def restore(self, session_id: str, exclude_session: str = ''):
         """
         从磁盘恢复会话。
 
+        Args:
+            session_id: 要恢复的会话 ID
+            exclude_session: 排除的会话 ID（当前已打开的会话不视为锁定）
+            
         Returns:
             Session 或 None（文件不存在/已过期/数据损坏）
+            
+        Raises:
+            FileLockedError: 如果文件已被其他会话占用
         """
         with self._lock:
             # 先检查内存中是否已有
@@ -141,6 +155,10 @@ class SessionManager:
                 if session.is_expired():
                     self._destroy(session_id)
                     return None
+                # 检查锁：如果内存中的 session 被其他标签页占用，拒绝恢复
+                if exclude_session and session_id != exclude_session:
+                    if self.is_file_locked(session.file_path, exclude_session=exclude_session):
+                        raise FileLockedError(f"File '{_pure_file_name_from_path(session.file_path)}' is opened in another tab")
                 session.touch()
                 return session
 
@@ -149,12 +167,17 @@ class SessionManager:
             if not file_path:
                 return None
 
+            # 检查文件锁（排除当前会话自身）
+            if self.is_file_locked(file_path, exclude_session=exclude_session):
+                raise FileLockedError(f"File '{_pure_file_name_from_path(file_path)}' is opened in another tab")
+
             db = self._load_file(file_path)
             if db is None:
                 return None
 
             session = Session(session_id, file_path, db)
             self._sessions[session_id] = session
+            self._register_active(session_id, file_path)
             return session
 
     def rename(self, session_id: str, new_name: str) -> bool:
@@ -177,6 +200,8 @@ class SessionManager:
 
         # 如果新旧路径不同，移动文件
         if os.path.normpath(old_path) != os.path.normpath(new_path):
+            # 更新活跃文件追踪
+            self._unregister_active(session_id)
             # 删除可能已存在的目标文件
             if os.path.isfile(new_path):
                 try:
@@ -190,6 +215,7 @@ class SessionManager:
                     # 移动失败，仍然尝试在新路径写入
                     pass
             session.file_path = new_path
+            self._register_active(session_id, new_path)
 
         session.db.name = pure_name
         self._write_file(session)
@@ -217,8 +243,12 @@ class SessionManager:
             self._cleanup_expired()
             return [s.to_info() for s in self._sessions.values()]
 
-    def list_history(self) -> list[dict]:
-        """扫描 data 目录，返回所有历史会话记录（含已过期但文件仍在的）。"""
+    def list_history(self, exclude_session: str = '') -> list[dict]:
+        """扫描 data 目录，返回所有历史会话记录（含已过期但文件仍在的）。
+        
+        Args:
+            exclude_session: 排除的会话 ID（当前已打开的会话不视为锁定）
+        """
         history = []
         if not os.path.isdir(self._data_dir):
             return history
@@ -251,6 +281,7 @@ class SessionManager:
                 "size": size,
                 "message_count": msg_count,
                 "signal_count": sig_count,
+                "is_locked": self.is_file_locked(fpath, exclude_session=exclude_session),
             })
         return history
 
@@ -309,13 +340,44 @@ class SessionManager:
         session = self._sessions.pop(session_id, None)
         if not session:
             return False
+        self._unregister_active(session_id)
         # 不删除磁盘文件（用户数据保留），仅清理内存
         return True
 
     def _cleanup_expired(self):
         expired = [sid for sid, s in self._sessions.items() if s.is_expired()]
         for sid in expired:
+            self._unregister_active(sid)
             self._sessions.pop(sid, None)
+
+    # ── 活跃文件锁管理 ──
+
+    def _register_active(self, session_id: str, file_path: str):
+        """注册文件被当前 session 占用。（调用方必须已持有 self._lock）"""
+        if file_path not in self._active_files:
+            self._active_files[file_path] = set()
+        self._active_files[file_path].add(session_id)
+
+    def _unregister_active(self, session_id: str):
+        """注销 session 占用的所有文件。（调用方必须已持有 self._lock）"""
+        for file_path, sids in list(self._active_files.items()):
+            sids.discard(session_id)
+            if not sids:
+                del self._active_files[file_path]
+
+    def is_file_locked(self, file_path: str, exclude_session: str = '') -> bool:
+        """检查文件是否被其他 session 占用。（线程安全）"""
+        with self._lock:
+            sids = self._active_files.get(file_path, set())
+            return bool(sids - {exclude_session})
+
+    def release_session(self, session_id: str) -> bool:
+        """释放指定 session 的文件锁。（公共 API，线程安全）"""
+        with self._lock:
+            if session_id not in self._sessions:
+                return False
+            self._unregister_active(session_id)
+            return True
 
     def _find_session_file(self, session_id: str) -> Optional[str]:
         """在 data 目录中查找属于该 session 的文件（优先 .toml，兼容 .canmatrix）。"""
@@ -367,6 +429,15 @@ class SessionManager:
             return None
         except Exception:
             return None
+
+
+def _pure_file_name_from_path(file_path: str) -> str:
+    """从完整文件路径中提取纯名称（去掉 session_id 前缀和 .toml 后缀）。"""
+    fname = os.path.basename(file_path)
+    if fname.endswith('.toml'):
+        fname = fname[:-5]
+    parts = fname.split('_', 1)
+    return parts[1] if len(parts) > 1 else fname
 
 
 # ── 全局单例（由 api_server 初始化） ──

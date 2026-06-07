@@ -30,7 +30,7 @@ except ImportError:
     THREADING_AVAILABLE = True
 
 # ── 会话管理器 ──────────────────────────────────────────────────────────────────
-from session_manager import init_session_manager, get_session_manager
+from session_manager import init_session_manager, get_session_manager, FileLockedError
 
 SESSION_MGR = init_session_manager()
 
@@ -824,6 +824,8 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._post_import()
         elif parts == ["api", "export"]:
             self._post_export()
+        elif parts == ["api", "release"]:
+            self._post_release()
         elif parts == ["api", "messages"]:
             self._post_messages()
         elif parts == ["api", "session"]:
@@ -912,7 +914,9 @@ class ApiHandler(BaseHTTPRequestHandler):
 
     def _get_sessions(self) -> None:
         """GET /api/sessions - 列出所有历史会话（含磁盘文件）。"""
-        sessions = SESSION_MGR.list_history()
+        # 获取当前会话 ID（用于排除自身锁定）
+        current_sid = self.headers.get("X-Session-Id", "")
+        sessions = SESSION_MGR.list_history(exclude_session=current_sid)
         self._send_json(200, _resp(True, sessions))
 
     def _delete_session(self, session_id: str) -> None:
@@ -925,7 +929,13 @@ class ApiHandler(BaseHTTPRequestHandler):
 
     def _post_session_load(self, session_id: str) -> None:
         """POST /api/session/{id}/load - 恢复历史会话（直接复用原 session，不创建副本）。"""
-        s = SESSION_MGR.restore(session_id)
+        # 获取当前会话 ID（用于排除自身锁定）
+        current_sid = self.headers.get("X-Session-Id", "")
+        try:
+            s = SESSION_MGR.restore(session_id, exclude_session=current_sid)
+        except FileLockedError as e:
+            self._send_json(409, _resp(False, error=str(e)))
+            return
         if not s:
             self._send_json(404, _resp(False, error="Session not found or corrupted"))
             return
@@ -1030,9 +1040,7 @@ class ApiHandler(BaseHTTPRequestHandler):
 
     def _post_new(self) -> None:
         body = self._read_body()
-        name = body.get("name", "Untitled") if body else {"name": "Untitled"}
-        if isinstance(name, dict):
-            name = name.get("name", "Untitled")
+        name = (body or {}).get("name", "Untitled")
 
         session_id = self.headers.get("X-Session-Id", "")
         # 先保存当前会话（确保旧数据不丢失）
@@ -1047,6 +1055,13 @@ class ApiHandler(BaseHTTPRequestHandler):
             "name": new_db.name,
             "session_id": new_session_id,
         }))
+
+    def _post_release(self) -> None:
+        """POST /api/release - 主动释放当前 session 的文件锁。"""
+        sid = self.headers.get("X-Session-Id", "")
+        if sid:
+            SESSION_MGR.release_session(sid)
+        self._send_json(200, _resp(True))
 
     def _post_import(self) -> None:
         """导入文件内容（前端已读取文件，发送JSON）。"""
