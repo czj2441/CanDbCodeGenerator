@@ -829,6 +829,8 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._post_export()
         elif parts == ["api", "release"]:
             self._post_release()
+        elif parts == ["api", "heartbeat"]:
+            self._post_heartbeat()
         elif parts == ["api", "steal"]:
             self._post_steal()
         elif parts == ["api", "messages"]:
@@ -1086,11 +1088,34 @@ class ApiHandler(BaseHTTPRequestHandler):
         }))
 
     def _post_release(self) -> None:
-        """POST /api/release - 主动释放当前 session 的文件锁。"""
+        """POST /api/release - 主动释放当前 session 的文件锁。
+
+        支持从 X-Session-Id 请求头或 URL 查询参数 ?sid=xxx 读取 session ID，
+        以便 navigator.sendBeacon() 使用（beacon 不支持自定义请求头）。
+        """
         sid = self.headers.get("X-Session-Id", "")
+        if not sid:
+            params = self._url_params()
+            sid_list = params.get("sid", [])
+            if sid_list:
+                sid = sid_list[0]
         if sid:
             SESSION_MGR.release_session(sid)
         self._send_json(200, _resp(True))
+
+    def _post_heartbeat(self) -> None:
+        """POST /api/heartbeat - 编辑器标签页心跳上报。
+
+        Body: {session_id: str}
+        前端每 10 秒发送一次，后端记录心跳时间用于自动释放离线标签页的文件锁。
+        """
+        body = self._read_body() or {}
+        sid = body.get("session_id", "")
+        if not sid:
+            self._send_json(400, _resp(False, error="Session ID required"))
+            return
+        ok = SESSION_MGR.update_heartbeat(sid)
+        self._send_json(200, _resp(True, {"active": ok}))
 
     def _post_steal(self) -> None:
         """POST /api/steal - 抢占指定 session 的文件锁。

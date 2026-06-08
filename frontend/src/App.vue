@@ -30,7 +30,7 @@ import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useEditorStore } from './stores/editor.js'
 import { useUiStore } from './stores/uiStore.js'
 import { t } from './i18n.js'
-import { initTabSync, cleanupTabSync, getSessionId, clearSession } from './api/client.js'
+import { api, initTabSync, cleanupTabSync, getSessionId, clearSession } from './api/client.js'
 import FileBrowser from './components/FileBrowser.vue'
 import TopBar from './components/TopBar.vue'
 import MessageList from './components/MessageList.vue'
@@ -49,6 +49,8 @@ const store = useEditorStore()
 const ui = useUiStore()
 let healthTimer = null
 let lockCheckTimer = null  // 文件锁状态检查定时器
+let heartbeatTimer = null  // 心跳定时器
+let beforeUnloadHandler = null  // beforeunload 事件处理器
 
 // 应用模式：'browser' | 'editor'
 const mode = ref('browser')
@@ -72,12 +74,25 @@ onMounted(() => {
       handleSessionStolen(stolenSessionId)
     }
   )
+
+  // 页面关闭/刷新时使用 sendBeacon 释放文件锁（比异步 fetch 更可靠）
+  beforeUnloadHandler = () => {
+    const sid = getSessionId()
+    if (sid) {
+      navigator.sendBeacon('/api/release?sid=' + encodeURIComponent(sid))
+    }
+  }
+  window.addEventListener('beforeunload', beforeUnloadHandler)
 })
 
 onUnmounted(() => {
   clearInterval(healthTimer)
   document.removeEventListener('click', hideMenu)
   cleanupTabSync()
+  if (beforeUnloadHandler) {
+    window.removeEventListener('beforeunload', beforeUnloadHandler)
+    beforeUnloadHandler = null
+  }
 })
 
 // 打开文件
@@ -87,6 +102,7 @@ async function openFile(sessionId) {
     mode.value = 'editor'
     startHealthCheck()
     startLockCheck()  // 启动文件锁状态检查
+    startHeartbeat()  // 启动心跳
   } catch (e) {
     // 加载失败，保持在浏览器模式
     console.error('Failed to open file:', e)
@@ -104,6 +120,7 @@ async function createNewFile() {
     mode.value = 'editor'
     startHealthCheck()
     startLockCheck()  // 启动文件锁状态检查
+    startHeartbeat()  // 启动心跳
   } catch (e) {
     // 创建失败，保持在浏览器模式
     console.error('Failed to create new file:', e)
@@ -124,6 +141,7 @@ function goBack() {
   // 停止健康检查
   stopHealthCheck()
   stopLockCheck()  // 停止文件锁状态检查
+  stopHeartbeat()  // 停止心跳
   mode.value = 'browser'
 }
 
@@ -167,6 +185,28 @@ function stopLockCheck() {
   if (lockCheckTimer) {
     clearInterval(lockCheckTimer)
     lockCheckTimer = null
+  }
+}
+
+// 心跳定时器管理（每 10 秒发送一次，通知后端该标签页仍在编辑）
+function startHeartbeat() {
+  stopHeartbeat()
+  heartbeatTimer = setInterval(async () => {
+    const sid = getSessionId()
+    if (!sid) return
+    try {
+      await api('POST', '/api/heartbeat', { session_id: sid })
+    } catch (e) {
+      // 心跳失败不提示用户，静默处理
+      console.warn('[Heartbeat] failed:', e.message)
+    }
+  }, 10000)
+}
+
+function stopHeartbeat() {
+  if (heartbeatTimer) {
+    clearInterval(heartbeatTimer)
+    heartbeatTimer = null
   }
 }
 

@@ -30,6 +30,8 @@ class FileLockedError(Exception):
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 SESSION_TIMEOUT = 30 * 60  # 30 分钟无操作自动过期
+HEARTBEAT_TIMEOUT = 30       # 30 秒无心跳则视为离线，自动释放文件锁
+HEARTBEAT_CHECK_INTERVAL = 30  # 每 30 秒检查一次心跳超时
 
 
 class Session:
@@ -90,7 +92,10 @@ class SessionManager:
         self._active_files: dict[str, set[str]] = {}  # file_path -> {session_ids}
         self._lock = threading.RLock()  # 可重入锁，避免嵌套调用死锁
         self._model_factory = None  # 由外部注入
+        self._heartbeats: dict[str, float] = {}  # session_id -> last_heartbeat_time
+        self._heartbeat_timer: Optional[threading.Timer] = None
         os.makedirs(self._data_dir, exist_ok=True)
+        self._start_heartbeat_checker()
 
     # ── 依赖注入 ──
 
@@ -356,6 +361,7 @@ class SessionManager:
         if not session:
             return False
         self._unregister_active(session_id)
+        self._heartbeats.pop(session_id, None)
         # 不删除磁盘文件（用户数据保留），仅清理内存
         return True
 
@@ -373,6 +379,8 @@ class SessionManager:
         if norm_path not in self._active_files:
             self._active_files[norm_path] = set()
         self._active_files[norm_path].add(session_id)
+        # 初始化心跳时间，给前端留出时间开始发送心跳
+        self._heartbeats[session_id] = time.time()
 
     def _unregister_active(self, session_id: str):
         """注销 session 占用的所有文件。（调用方必须已持有 self._lock）"""
@@ -394,7 +402,53 @@ class SessionManager:
             if session_id not in self._sessions:
                 return False
             self._unregister_active(session_id)
+            self._heartbeats.pop(session_id, None)
             return True
+
+    # ── 心跳机制 ──
+
+    def update_heartbeat(self, session_id: str) -> bool:
+        """更新指定 session 的心跳时间。（线程安全）
+
+        由前端编辑器标签页定期调用，表明该标签页仍在活跃编辑中。
+        """
+        with self._lock:
+            if session_id not in self._sessions:
+                return False
+            self._heartbeats[session_id] = time.time()
+            return True
+
+    def _cleanup_stale_heartbeats(self):
+        """清理超时未心跳的 session，自动释放其文件锁。
+
+        由后台定时器每 HEARTBEAT_CHECK_INTERVAL 秒调用一次。
+        """
+        now = time.time()
+        stale_sids = []
+        with self._lock:
+            for sid, last_beat in list(self._heartbeats.items()):
+                if now - last_beat > HEARTBEAT_TIMEOUT:
+                    stale_sids.append(sid)
+
+        for sid in stale_sids:
+            self.release_session(sid)
+
+        # 重新调度下一次检查
+        self._start_heartbeat_checker()
+
+    def _start_heartbeat_checker(self):
+        """启动心跳检查定时器。"""
+        self._heartbeat_timer = threading.Timer(
+            HEARTBEAT_CHECK_INTERVAL, self._cleanup_stale_heartbeats
+        )
+        self._heartbeat_timer.daemon = True
+        self._heartbeat_timer.start()
+
+    def _stop_heartbeat_checker(self):
+        """停止心跳检查定时器。"""
+        if self._heartbeat_timer:
+            self._heartbeat_timer.cancel()
+            self._heartbeat_timer = None
 
     def _find_session_file(self, session_id: str) -> Optional[str]:
         """在 data 目录中查找属于该 session 的文件（优先 .toml，兼容 .canmatrix）。"""
