@@ -826,6 +826,8 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._post_export()
         elif parts == ["api", "release"]:
             self._post_release()
+        elif parts == ["api", "steal"]:
+            self._post_steal()
         elif parts == ["api", "messages"]:
             self._post_messages()
         elif parts == ["api", "session"]:
@@ -1062,6 +1064,31 @@ class ApiHandler(BaseHTTPRequestHandler):
         if sid:
             SESSION_MGR.release_session(sid)
         self._send_json(200, _resp(True))
+
+    def _post_steal(self) -> None:
+        """POST /api/steal - 抢占指定 session 的文件锁。
+        Body: {target_session_id: str}
+        释放目标 session 的文件锁，让当前 session 可以打开该文件。
+        会先保存目标 session 的数据，避免数据丢失。
+        """
+        body = self._read_body()
+        target_sid = body.get("target_session_id", "")
+        if not target_sid:
+            self._send_json(400, _resp(False, error="target_session_id is required"))
+            return
+        
+        # 检查目标 session 是否存在
+        target_session = SESSION_MGR.get(target_sid)
+        if not target_session:
+            self._send_json(404, _resp(False, error="Target session not found"))
+            return
+        
+        # 先保存目标 session 的数据（避免数据丢失）
+        SESSION_MGR.save(target_sid)
+        
+        # 释放目标 session 的文件锁
+        SESSION_MGR.release_session(target_sid)
+        self._send_json(200, _resp(True, {"released_session": target_sid}))
 
     def _post_import(self) -> None:
         """导入文件内容（前端已读取文件，发送JSON）。"""

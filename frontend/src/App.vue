@@ -30,7 +30,7 @@ import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useEditorStore } from './stores/editor.js'
 import { useUiStore } from './stores/uiStore.js'
 import { t } from './i18n.js'
-import { initTabSync, cleanupTabSync } from './api/client.js'
+import { initTabSync, cleanupTabSync, getSessionId, clearSession } from './api/client.js'
 import FileBrowser from './components/FileBrowser.vue'
 import TopBar from './components/TopBar.vue'
 import MessageList from './components/MessageList.vue'
@@ -52,10 +52,11 @@ let healthTimer = null
 // 应用模式：'browser' | 'editor'
 const mode = ref('browser')
 
-function handleTabConflict(e) {
-  // 使用 alert 确保用户能看到警告（Toast 在 BroadcastChannel 回调中无法触发）
-  alert(t('toast.multiTabConflict'))
-  console.warn(`[TabSync] Event handled: current=${e.detail.currentSid}, other=${e.detail.otherSid}`)
+function handleSessionStolen(stolenSessionId) {
+  // 当前 session 被其他标签页抢占，自动返回文件浏览器
+  console.warn(`[TabSync] handleSessionStolen called: session ${stolenSessionId} was stolen by another tab`)
+  ui.showToast(t('toast.sessionStolen'), true)
+  goBack()
 }
 
 onMounted(() => {
@@ -64,20 +65,17 @@ onMounted(() => {
   document.addEventListener('click', hideMenu)
   document.documentElement.setAttribute('data-theme', ui.theme)
 
-  // 初始化多标签页冲突检测（使用已获取的 ui 实例）
-  initTabSync((currentSid, otherSid) => {
-    window.dispatchEvent(new CustomEvent('tab-conflict', { detail: { currentSid, otherSid } }))
-    console.warn(`[TabSync] Session conflict detected: current=${currentSid}, other=${otherSid}`)
-  })
-
-  // 监听多标签页冲突事件
-  window.addEventListener('tab-conflict', handleTabConflict)
+  // 初始化多标签页同步（steal 通知）
+  initTabSync(
+    (stolenSessionId) => {
+      handleSessionStolen(stolenSessionId)
+    }
+  )
 })
 
 onUnmounted(() => {
   clearInterval(healthTimer)
   document.removeEventListener('click', hideMenu)
-  window.removeEventListener('tab-conflict', handleTabConflict)
   cleanupTabSync()
 })
 

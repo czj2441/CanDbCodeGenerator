@@ -159,6 +159,8 @@ class SessionManager:
                 if exclude_session and session_id != exclude_session:
                     if self.is_file_locked(session.file_path, exclude_session=exclude_session):
                         raise FileLockedError(f"File '{_pure_file_name_from_path(session.file_path)}' is opened in another tab")
+                # 重新注册活动文件（防止服务器重启后 _active_files 丢失）
+                self._register_active(session_id, session.file_path)
                 session.touch()
                 return session
 
@@ -354,9 +356,10 @@ class SessionManager:
 
     def _register_active(self, session_id: str, file_path: str):
         """注册文件被当前 session 占用。（调用方必须已持有 self._lock）"""
-        if file_path not in self._active_files:
-            self._active_files[file_path] = set()
-        self._active_files[file_path].add(session_id)
+        norm_path = os.path.normpath(file_path)
+        if norm_path not in self._active_files:
+            self._active_files[norm_path] = set()
+        self._active_files[norm_path].add(session_id)
 
     def _unregister_active(self, session_id: str):
         """注销 session 占用的所有文件。（调用方必须已持有 self._lock）"""
@@ -368,7 +371,8 @@ class SessionManager:
     def is_file_locked(self, file_path: str, exclude_session: str = '') -> bool:
         """检查文件是否被其他 session 占用。（线程安全）"""
         with self._lock:
-            sids = self._active_files.get(file_path, set())
+            norm_path = os.path.normpath(file_path)
+            sids = self._active_files.get(norm_path, set())
             return bool(sids - {exclude_session})
 
     def release_session(self, session_id: str) -> bool:

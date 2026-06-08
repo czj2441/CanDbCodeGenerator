@@ -13,34 +13,25 @@ let tabChannelInitialized = false
 let beforeunloadHandler = null
 
 /**
- * 初始化多标签页冲突检测
+ * 初始化多标签页同步
  * 在应用启动时调用一次
+ * @param {Function} onStolen - 当前 session 被抢占时的回调
  */
-export function initTabSync(onConflict) {
+export function initTabSync(onStolen) {
   if (tabChannelInitialized) return
   tabChannelInitialized = true
 
-  // 声明当前标签页的 session
-  TAB_CHANNEL.postMessage({
-    type: 'tab_register',
-    tabId: TAB_ID,
-    sessionId: currentSessionId,
-    timestamp: Date.now()
-  })
-
-  // 监听其他标签页的 session 变更
+  // 监听其他标签页的消息
   TAB_CHANNEL.onmessage = (event) => {
-    const { type, tabId, sessionId } = event.data
+    const { type, tabId, stolenSessionId } = event.data
+    console.log(`[TabSync] onmessage received: type=${type}, tabId=${tabId}, my TAB_ID=${TAB_ID}, currentSessionId=${currentSessionId}`)
 
-    if (type === 'tab_register' && tabId !== TAB_ID) {
-      // 检测到其他标签页，检查是否编辑不同 session
-      if (currentSessionId && sessionId && currentSessionId !== sessionId) {
-        onConflict?.(currentSessionId, sessionId)
-      }
-    } else if (type === 'session_change' && tabId !== TAB_ID) {
-      // 其他标签页切换了 session
-      if (currentSessionId && sessionId && currentSessionId !== sessionId) {
-        onConflict?.(currentSessionId, sessionId)
+    if (type === 'session_stolen' && tabId !== TAB_ID) {
+      // 当前 session 被其他标签页抢占
+      console.log(`[TabSync] session_stolen received: stolenSessionId=${stolenSessionId}, currentSessionId=${currentSessionId}, match=${stolenSessionId === currentSessionId}`)
+      if (stolenSessionId && stolenSessionId === currentSessionId) {
+        console.log(`[TabSync] session_stolen MATCHED! calling onStolen callback`)
+        onStolen?.(stolenSessionId)
       }
     }
   }
@@ -82,6 +73,20 @@ export function notifySessionChange(newSessionId) {
     sessionId: newSessionId,
     timestamp: Date.now()
   })
+}
+
+/**
+ * 通知其他标签页指定 session 已被抢占
+ */
+export function notifySessionStolen(stolenSessionId) {
+  console.log(`[TabSync] notifySessionStolen: sending session_stolen message for session ${stolenSessionId}`)
+  TAB_CHANNEL.postMessage({
+    type: 'session_stolen',
+    tabId: TAB_ID,
+    stolenSessionId: stolenSessionId,
+    timestamp: Date.now()
+  })
+  console.log(`[TabSync] notifySessionStolen: message sent, my TAB_ID=${TAB_ID}`)
 }
 
 export function getSessionId() {

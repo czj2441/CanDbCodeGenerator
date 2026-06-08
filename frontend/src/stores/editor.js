@@ -795,9 +795,9 @@ export const useEditorStore = defineStore('editor', {
         this.loadMessages()
         useUiStore().showToast(t('toast.sessionLoaded'))
       } catch (e) {
-        // 409 表示文件被锁定，显示专用错误消息
+        // 409 表示文件被锁定，静默失败
         if (e.status === 409) {
-          useUiStore().showToast(t('toast.fileLocked'), true)
+          // 文件锁定，不显示提示
         } else {
           useUiStore().showToast(e.message, true)
         }
