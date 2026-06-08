@@ -795,13 +795,13 @@ export const useEditorStore = defineStore('editor', {
         this.loadMessages()
         useUiStore().showToast(t('toast.sessionLoaded'))
       } catch (e) {
-        // 409 表示文件被锁定，静默失败
+        // 409 表示文件被锁定，转换为友好的错误信息
         if (e.status === 409) {
-          // 文件锁定，不显示提示
+          e.message = t('toast.noEditPermission')
         } else {
           useUiStore().showToast(e.message, true)
         }
-        throw e  // 重新抛出，让调用方知道失败
+        throw e  // 重新抛出，让调用方处理
       } finally {
         this.isLoading = false
       }

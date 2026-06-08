@@ -796,6 +796,9 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._get_summary()
         elif parts[0:2] == ["api", "session"] and len(parts) == 3:
             self._get_session(parts[2])
+        elif len(parts) == 4 and parts[0:2] == ["api", "session"] and parts[3] == "info":
+            # GET /api/session/{id}/info - 轻量级检查 session 状态（不含数据库）
+            self._get_session_info(parts[2])
         elif parts == ["api", "sessions"]:
             self._get_sessions()
         else:
@@ -920,6 +923,30 @@ class ApiHandler(BaseHTTPRequestHandler):
         current_sid = self.headers.get("X-Session-Id", "")
         sessions = SESSION_MGR.list_history(exclude_session=current_sid)
         self._send_json(200, _resp(True, sessions))
+
+    def _get_session_info(self, session_id: str) -> None:
+        """GET /api/session/{id}/info - 轻量级检查 session 状态（不含数据库）。
+        
+        用于编辑器页面定期检查文件锁状态。
+        如果 session 被其他标签页抢占，返回 409 Conflict。
+        """
+        s = SESSION_MGR.get(session_id)
+        if not s:
+            self._send_json(404, _resp(False, error="Session not found or expired"))
+            return
+        
+        # 检查文件是否被其他 session 占用（排除当前 session）
+        if SESSION_MGR.is_file_locked(s.file_path, exclude_session=session_id):
+            self._send_json(409, _resp(False, error=f"File '{_pure_file_name(s)}' is opened in another tab"))
+            return
+        
+        self._send_json(200, _resp(True, {
+            "session_id": s.id,
+            "file_name": _pure_file_name(s),
+            "message_count": len(s.db.messages),
+            "signal_count": s.db.total_signals(),
+            "is_locked": False,
+        }))
 
     def _delete_session(self, session_id: str) -> None:
         """DELETE /api/session/{id} - 删除历史会话（内存 + 磁盘）。"""

@@ -2,34 +2,86 @@
   <div class="file-browser">
     <div class="browser-header">
       <h2>{{ t('browser.title') }}</h2>
-      <button class="new-file-btn" @click="createNew">{{ t('browser.newFile') }}</button>
-    </div>
-    <div class="file-list">
-      <div v-if="files.length === 0" class="empty">{{ t('history.empty') }}</div>
-      <div
-        v-for="file in files"
-        :key="file.session_id"
-        class="file-item"
-        :class="{ locked: file.is_locked }"
-      >
-        <div class="file-info" @click="open(file)">
-          <div class="file-name">{{ file.name }}</div>
-          <div class="file-meta">
-            {{ file.message_count }} messages · {{ file.signal_count }} signals · {{ formatTime(file.mtime) }}
-            <span v-if="file.is_locked" class="lock-badge">{{ t('browser.locked') }}</span>
-          </div>
-        </div>
-        <button
-          v-if="!file.is_locked"
-          class="open-btn"
-          @click="open(file)"
-        >{{ t('browser.open') }}</button>
+      <div class="header-actions">
+        <button class="new-file-btn" @click="createNew">{{ t('browser.newFile') }}</button>
         <button 
-          v-else 
-          class="steal-btn"
-          @click="confirmSteal(file)"
-        >{{ t('browser.steal') }}</button>
+          v-if="selectedFiles.length > 0" 
+          class="delete-btn"
+          :disabled="deleting"
+          @click="confirmDelete"
+        >
+          {{ deleting ? '删除中...' : `${t('browser.deleteSelected')} (${selectedFiles.length})` }}
+        </button>
       </div>
+    </div>
+
+    <!-- 表格形式文件列表 -->
+    <div class="table-container">
+      <table class="file-table">
+        <thead>
+          <tr>
+            <th class="col-checkbox">
+              <input 
+                type="checkbox" 
+                :checked="selectAll" 
+                :indeterminate="!selectAll && selectedFiles.length > 0"
+                @change="toggleSelectAll"
+              />
+            </th>
+            <th class="col-name">文件名</th>
+            <th class="col-messages">报文</th>
+            <th class="col-signals">信号</th>
+            <th class="col-time">修改时间</th>
+            <th class="col-status">状态</th>
+            <th class="col-actions">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-if="files.length === 0">
+            <td colspan="7" class="empty-row">{{ t('history.empty') }}</td>
+          </tr>
+          <tr
+            v-for="file in files"
+            :key="file.session_id"
+            class="file-row"
+            :class="{ 
+              'locked': file.is_locked,
+              'selected': selectedFiles.includes(file.session_id)
+            }"
+            @click="toggleSelectFile(file)"
+          >
+            <td class="col-checkbox" @click.stop>
+              <input 
+                type="checkbox" 
+                :checked="selectedFiles.includes(file.session_id)"
+                :disabled="file.is_locked"
+                @change="toggleSelectFile(file)"
+              />
+            </td>
+            <td class="col-name" @click.stop="open(file)">
+              <span class="file-name-link">{{ file.name }}</span>
+            </td>
+            <td class="col-messages">{{ file.message_count }}</td>
+            <td class="col-signals">{{ file.signal_count }}</td>
+            <td class="col-time">{{ formatTime(file.mtime) }}</td>
+            <td class="col-status">
+              <span v-if="file.is_locked" class="lock-badge">{{ t('browser.locked') }}</span>
+            </td>
+            <td class="col-actions" @click.stop>
+              <button
+                v-if="!file.is_locked"
+                class="open-btn"
+                @click="open(file)"
+              >{{ t('browser.open') }}</button>
+              <button 
+                v-else 
+                class="steal-btn"
+                @click="confirmSteal(file)"
+              >{{ t('browser.steal') }}</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
     </div>
 
     <!-- 抢占确认对话框 -->
@@ -46,11 +98,35 @@
         </div>
       </div>
     </div>
+
+    <!-- 删除确认对话框 -->
+    <div v-if="deleteModalOpen" class="modal-overlay" @click="closeDeleteModal">
+      <div class="modal-box" @click.stop>
+        <h3>{{ t('browser.deleteConfirmTitle') }}</h3>
+        <p>
+          {{ t('browser.deleteConfirmDesc', { count: pendingDeleteFiles.length }) }}
+          <ul class="file-list-preview">
+            <li v-for="(file, idx) in displayedDeleteFiles" :key="file.session_id">
+              {{ file.name }}
+            </li>
+            <li v-if="pendingDeleteFiles.length > 5" class="more-files">
+              ... 等 {{ pendingDeleteFiles.length }} 个文件
+            </li>
+          </ul>
+        </p>
+        <div class="modal-actions">
+          <button class="btn btn-cancel" @click="closeDeleteModal">{{ t('browser.deleteConfirmCancel') }}</button>
+          <button class="btn btn-danger" :disabled="deleting" @click="executeDelete">
+            {{ deleting ? '删除中...' : t('browser.deleteConfirmDelete') }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { api, getSessionId, notifySessionStolen } from '../api/client.js'
 import { useUiStore } from '../stores/uiStore.js'
 import { t } from '../i18n.js'
@@ -61,15 +137,112 @@ const files = ref([])
 const openingSessionId = ref(null)  // 防止重复点击
 const stealModalOpen = ref(false)
 const stealingFile = ref(null)
+const deleteModalOpen = ref(false)
+const pendingDeleteFiles = ref([])
+const selectedFiles = ref([])  // 存储选中的 session_id
+const deleting = ref(false)
 let refreshTimer = null
+
+// 计算属性：是否全选
+const selectAll = computed(() => {
+  const unlockableFiles = files.value.filter(f => !f.is_locked)
+  return unlockableFiles.length > 0 && unlockableFiles.every(f => selectedFiles.value.includes(f.session_id))
+})
+
+// 计算属性：显示在删除弹窗中的文件列表（最多显示5个）
+const displayedDeleteFiles = computed(() => {
+  return pendingDeleteFiles.value.slice(0, 5)
+})
 
 async function loadFiles() {
   try {
-    const currentSid = getSessionId()
-    files.value = await api('GET', '/api/sessions', null, { 'X-Session-Id': currentSid })
+    // 文件浏览器模式下，不应排除任何 session，以便正确显示所有文件的锁定状态
+    files.value = await api('GET', '/api/sessions', null, { 'X-Session-Id': '' })
+    // 清除已不存在的文件的选中状态
+    const validIds = new Set(files.value.map(f => f.session_id))
+    selectedFiles.value = selectedFiles.value.filter(id => validIds.has(id))
   } catch (e) {
     const ui = useUiStore()
     ui.showToast(e.message, true)
+  }
+}
+
+// 切换单个文件的选中状态
+function toggleSelectFile(file) {
+  if (file.is_locked) return  // 锁定的文件不能被选中
+  
+  const idx = selectedFiles.value.indexOf(file.session_id)
+  if (idx === -1) {
+    selectedFiles.value.push(file.session_id)
+  } else {
+    selectedFiles.value.splice(idx, 1)
+  }
+}
+
+// 全选/取消全选
+function toggleSelectAll() {
+  if (selectAll.value) {
+    // 取消全选
+    selectedFiles.value = []
+  } else {
+    // 全选所有未锁定的文件
+    selectedFiles.value = files.value
+      .filter(f => !f.is_locked)
+      .map(f => f.session_id)
+  }
+}
+
+// 确认删除
+function confirmDelete() {
+  if (selectedFiles.value.length === 0) return
+  
+  // 获取选中的文件对象
+  pendingDeleteFiles.value = files.value.filter(f => selectedFiles.value.includes(f.session_id))
+  deleteModalOpen.value = true
+}
+
+// 关闭删除弹窗
+function closeDeleteModal() {
+  deleteModalOpen.value = false
+  pendingDeleteFiles.value = []
+}
+
+// 执行批量删除
+async function executeDelete() {
+  if (pendingDeleteFiles.value.length === 0) return
+  
+  deleting.value = true
+  const ui = useUiStore()
+  let successCount = 0
+  let failedCount = 0
+  
+  try {
+    // 循环调用单个删除 API
+    for (const file of pendingDeleteFiles.value) {
+      try {
+        await api('DELETE', `/api/session/${file.session_id}`)
+        successCount++
+      } catch (e) {
+        console.error(`Failed to delete ${file.name}:`, e)
+        failedCount++
+      }
+    }
+    
+    if (successCount > 0) {
+      ui.showToast(t('toast.filesDeleted', { count: successCount }))
+    }
+    if (failedCount > 0) {
+      ui.showToast(`${t('toast.deleteFailed')}: ${failedCount} 个文件`, true)
+    }
+    
+    // 清空选中状态并刷新列表
+    selectedFiles.value = []
+    await loadFiles()
+  } catch (e) {
+    ui.showToast(t('toast.deleteFailed') + ': ' + e.message, true)
+  } finally {
+    deleting.value = false
+    closeDeleteModal()
   }
 }
 
@@ -148,7 +321,7 @@ function formatTime(ts) {
 
 onMounted(() => {
   loadFiles()
-  refreshTimer = setInterval(loadFiles, 5000)
+  refreshTimer = setInterval(loadFiles, 500)
 })
 
 onUnmounted(() => {
@@ -163,6 +336,7 @@ onUnmounted(() => {
   height: 100vh;
   background: var(--bg);
   color: var(--text);
+  overflow: hidden;
 }
 
 .browser-header {
@@ -172,12 +346,20 @@ onUnmounted(() => {
   padding: 16px 24px;
   border-bottom: 1px solid var(--border);
   background: var(--bg-panel);
+  position: relative;
+  z-index: 10;
 }
 
 .browser-header h2 {
   margin: 0;
   font-size: 18px;
   font-weight: 600;
+}
+
+.header-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
 }
 
 .new-file-btn {
@@ -194,54 +376,118 @@ onUnmounted(() => {
   opacity: 0.9;
 }
 
-.file-list {
-  flex: 1;
-  overflow-y: auto;
-  padding: 16px 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+.delete-btn {
+  background: var(--danger);
+  color: #fff;
+  border: none;
+  padding: 8px 16px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  cursor: pointer;
+  font-weight: 500;
+}
+.delete-btn:hover:not(:disabled) {
+  opacity: 0.9;
+}
+.delete-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
-.empty {
+/* 表格容器 */
+.table-container {
+  flex: 1;
+  overflow: auto;
+  padding: 0 24px 16px;
+  position: relative;
+}
+
+.file-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.file-table thead {
+  position: sticky;
+  top: 0;
+  background: var(--bg-panel);
+  z-index: 1;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.file-table th {
+  padding: 12px 16px;
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-dim);
+  border-bottom: 2px solid var(--border);
+  white-space: nowrap;
+}
+
+.file-table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.file-row {
+  cursor: pointer;
+  transition: background 150ms;
+}
+.file-row:hover {
+  background: var(--bg-hover);
+}
+.file-row.selected {
+  background: var(--bg-active);
+}
+.file-row.selected:hover {
+  background: var(--bg-hover);
+}
+.file-row.locked {
+  opacity: 0.6;
+}
+
+.empty-row {
   text-align: center;
   color: var(--text-muted);
   padding: 48px;
   font-size: 14px;
 }
 
-.file-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 14px 18px;
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  transition: background 150ms;
+/* 列宽控制 */
+.col-checkbox {
+  width: 40px;
+  text-align: center;
 }
-.file-item:hover {
-  background: var(--bg-raised);
-}
-.file-item.locked {
-  opacity: 0.6;
-}
-
-.file-info {
-  flex: 1;
-  cursor: pointer;
-  min-width: 0;
-}
-
-.file-name {
+.col-name {
+  min-width: 200px;
   font-weight: 500;
-  font-size: 14px;
-  margin-bottom: 4px;
+}
+.col-messages,
+.col-signals {
+  width: 80px;
+  text-align: center;
+}
+.col-time {
+  width: 180px;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.col-status {
+  width: 180px;
+}
+.col-actions {
+  width: 120px;
+  text-align: center;
 }
 
-.file-meta {
-  font-size: 12px;
-  color: var(--text-muted);
+.file-name-link {
+  color: var(--accent);
+  cursor: pointer;
+}
+.file-name-link:hover {
+  text-decoration: underline;
 }
 
 .lock-badge {
@@ -327,6 +573,22 @@ onUnmounted(() => {
   line-height: 1.5;
 }
 
+.file-list-preview {
+  margin: 12px 0 0 0;
+  padding-left: 20px;
+  font-size: 13px;
+}
+
+.file-list-preview li {
+  margin: 4px 0;
+  color: var(--text);
+}
+
+.more-files {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
 .modal-actions {
   display: flex;
   justify-content: flex-end;
@@ -358,5 +620,18 @@ onUnmounted(() => {
 }
 .btn-confirm:hover {
   opacity: 0.9;
+}
+
+.btn-danger {
+  background: var(--danger);
+  color: #fff;
+  border-color: var(--danger);
+}
+.btn-danger:hover:not(:disabled) {
+  opacity: 0.9;
+}
+.btn-danger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 </style>

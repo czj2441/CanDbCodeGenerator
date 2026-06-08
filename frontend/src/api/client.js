@@ -148,7 +148,8 @@ export async function api(method, path, body, extraHeaders = {}) {
     method,
     headers: { 'Content-Type': 'application/json', ...extraHeaders },
   }
-  if (currentSessionId) {
+  // 只有当 extraHeaders 中没有显式设置 X-Session-Id 时，才使用 currentSessionId
+  if (!('X-Session-Id' in extraHeaders) && currentSessionId) {
     opts.headers['X-Session-Id'] = currentSessionId
   }
   if (body !== undefined && body !== null) {

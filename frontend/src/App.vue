@@ -48,6 +48,7 @@ import LogPanel from './components/LogPanel.vue'
 const store = useEditorStore()
 const ui = useUiStore()
 let healthTimer = null
+let lockCheckTimer = null  // 文件锁状态检查定时器
 
 // 应用模式：'browser' | 'editor'
 const mode = ref('browser')
@@ -85,9 +86,14 @@ async function openFile(sessionId) {
     await store.loadHistorySession(sessionId)
     mode.value = 'editor'
     startHealthCheck()
+    startLockCheck()  // 启动文件锁状态检查
   } catch (e) {
     // 加载失败，保持在浏览器模式
     console.error('Failed to open file:', e)
+    // 409 错误显示提示
+    if (e.status === 409) {
+      ui.showToast(e.message, true)
+    }
   }
 }
 
@@ -97,6 +103,7 @@ async function createNewFile() {
     await store.newFile()
     mode.value = 'editor'
     startHealthCheck()
+    startLockCheck()  // 启动文件锁状态检查
   } catch (e) {
     // 创建失败，保持在浏览器模式
     console.error('Failed to create new file:', e)
@@ -116,6 +123,7 @@ function goBack() {
   store.editorState = null
   // 停止健康检查
   stopHealthCheck()
+  stopLockCheck()  // 停止文件锁状态检查
   mode.value = 'browser'
 }
 
@@ -129,6 +137,36 @@ function stopHealthCheck() {
   if (healthTimer) {
     clearInterval(healthTimer)
     healthTimer = null
+  }
+}
+
+// 文件锁状态检查定时器管理
+function startLockCheck() {
+  stopLockCheck()
+  lockCheckTimer = setInterval(async () => {
+    if (mode.value !== 'editor') return
+    const currentSid = getSessionId()
+    if (!currentSid) return
+    
+    try {
+      // 请求当前 session 的信息，后端会检查文件锁状态
+      const res = await api('GET', `/api/session/${currentSid}/info`)
+      // 如果后端返回 session 信息，说明当前标签页仍有权限
+    } catch (e) {
+      // 409 Conflict 表示文件已被其他标签页抢占
+      if (e.message && e.message.includes('409')) {
+        console.warn('[LockCheck] Session stolen by another tab')
+        ui.showToast(t('toast.noEditPermission'), true)
+        goBack()
+      }
+    }
+  }, 500)
+}
+
+function stopLockCheck() {
+  if (lockCheckTimer) {
+    clearInterval(lockCheckTimer)
+    lockCheckTimer = null
   }
 }
 

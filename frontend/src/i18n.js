@@ -21,6 +21,13 @@ const dict = {
     // FileBrowser
     'browser.title': '选择文件',
     'browser.newFile': '新建文件',
+    'browser.selectAll': '全选',
+    'browser.deselectAll': '取消全选',
+    'browser.deleteSelected': '删除选中',
+    'browser.deleteConfirmTitle': '确认删除',
+    'browser.deleteConfirmDesc': '即将删除 {count} 个文件：',
+    'browser.deleteConfirmCancel': '取消',
+    'browser.deleteConfirmDelete': '确认删除',
     'browser.locked': '已在其他标签页打开',
     'browser.open': '打开',
     'browser.steal': '抢占',
@@ -32,6 +39,9 @@ const dict = {
     'toast.stealSuccess': '已抢占文件编辑权',
     'toast.stealFailed': '抢占失败',
     'toast.sessionStolen': '该文件已被其他标签页抢占，已自动返回文件列表',
+    'toast.noEditPermission': '无编辑权限，已在其它标签页打开此文件',
+    'toast.filesDeleted': '已删除 {count} 个文件',
+    'toast.deleteFailed': '删除失败',
 
     // StatusBar
     'status.message': '报文',
@@ -202,6 +212,13 @@ const dict = {
     // FileBrowser
     'browser.title': 'Select File',
     'browser.newFile': 'New File',
+    'browser.selectAll': 'Select All',
+    'browser.deselectAll': 'Deselect All',
+    'browser.deleteSelected': 'Delete Selected',
+    'browser.deleteConfirmTitle': 'Confirm Delete',
+    'browser.deleteConfirmDesc': 'About to delete {count} files:',
+    'browser.deleteConfirmCancel': 'Cancel',
+    'browser.deleteConfirmDelete': 'Confirm Delete',
     'browser.locked': 'Open in another tab',
     'browser.open': 'Open',
     'browser.steal': 'Steal',
@@ -213,6 +230,9 @@ const dict = {
     'toast.stealSuccess': 'File editing rights stolen successfully',
     'toast.stealFailed': 'Failed to steal file',
     'toast.sessionStolen': 'This file has been taken by another tab. Returned to file list.',
+    'toast.noEditPermission': 'No edit permission, this file is already opened in another tab',
+    'toast.filesDeleted': 'Deleted {count} files',
+    'toast.deleteFailed': 'Delete failed',
 
     // StatusBar
     'status.message': 'message',

@@ -254,6 +254,11 @@ class SessionManager:
         history = []
         if not os.path.isdir(self._data_dir):
             return history
+        
+        # 构建 session_id -> Session 的映射（用于优先使用内存数据）
+        with self._lock:
+            active_sessions = {s.id: s for s in self._sessions.values()}
+        
         for fname in sorted(os.listdir(self._data_dir), key=lambda n: os.path.getmtime(os.path.join(self._data_dir, n)), reverse=True):
             if not fname.endswith(".toml"):
                 continue
@@ -265,16 +270,24 @@ class SessionManager:
             fpath = os.path.join(self._data_dir, fname)
             mtime = os.path.getmtime(fpath)
             size = os.path.getsize(fpath)
-            # 尝试快速读取摘要
-            msg_count = 0
-            sig_count = 0
-            try:
-                with open(fpath, "r", encoding="utf-8") as f:
-                    data = toml.load(f)
-                msg_count = len(data.get("messages", []))
-                sig_count = sum(len(m.get("signals", [])) for m in data.get("messages", []))
-            except Exception:
-                pass
+            
+            # 优先从内存中的活跃 session 获取数据
+            if sid in active_sessions:
+                session = active_sessions[sid]
+                msg_count = len(session.db.messages)
+                sig_count = sum(len(m.signals) for m in session.db.messages.values())
+            else:
+                # 从磁盘文件读取
+                msg_count = 0
+                sig_count = 0
+                try:
+                    with open(fpath, "r", encoding="utf-8") as f:
+                        data = toml.load(f)
+                    msg_count = len(data.get("messages", []))
+                    sig_count = sum(len(m.get("signals", [])) for m in data.get("messages", []))
+                except Exception:
+                    pass
+            
             history.append({
                 "session_id": sid,
                 "file_name": fname,
@@ -283,7 +296,7 @@ class SessionManager:
                 "size": size,
                 "message_count": msg_count,
                 "signal_count": sig_count,
-                "is_locked": self.is_file_locked(fpath, exclude_session=exclude_session),
+                "is_locked": self.is_file_locked(os.path.normpath(fpath), exclude_session=exclude_session),
             })
         return history
 
