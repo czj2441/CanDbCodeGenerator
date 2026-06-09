@@ -26,7 +26,7 @@ import os
 
 import toml
 
-from core.can_database import CanDatabase, Message, Signal
+from models import CanDatabase, Message, Signal
 
 
 def save_toml(database: CanDatabase, filepath: str) -> None:

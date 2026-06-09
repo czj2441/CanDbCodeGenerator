@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 
-from core.can_database import CanDatabase, Message, Signal
+from models import CanDatabase, Message, Signal
 from core.dbc_io import import_dbc, export_dbc
 from core.json_io import load_json, save_json
 from core.toml_io import load_toml, save_toml

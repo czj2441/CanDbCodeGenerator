@@ -25,8 +25,8 @@ class FileLockedError(Exception):
     """文件已被其他会话占用。"""
     pass
 
-# 数据模型从 api_server 导入（循环依赖通过延迟导入解决）
-# 实际使用时由 api_server 注入模型类
+# 数据模型统一从 models.py 导入
+from models import Signal, Message, CanDatabase
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 SESSION_TIMEOUT = 30 * 60  # 30 分钟无操作自动过期
@@ -37,12 +37,20 @@ HEARTBEAT_CHECK_INTERVAL = 30  # 每 30 秒检查一次心跳超时
 class Session:
     """单个编辑会话。"""
 
+    # 撤销栈最大深度
+    MAX_UNDO_SIZE = 50
+
     def __init__(self, session_id: str, file_path: str, db):
         self.id = session_id
         self.file_path = file_path          # 绑定的数据文件绝对路径
         self.db = db                         # CanDatabase 实例
         self.created_at = time.time()
         self.last_access = time.time()
+        
+        # 撤销/重做栈（RAM 中存储）
+        self.undo_stack: list[dict] = []
+        self.redo_stack: list[dict] = []
+        self._undo_lock = threading.RLock()  # 撤销操作并发保护
 
     def touch(self):
         self.last_access = time.time()
@@ -60,6 +68,8 @@ class Session:
             "db_name": self.db.name,
             "created_at": self.created_at,
             "last_access": self.last_access,
+            "undo_count": len(self.undo_stack),
+            "redo_count": len(self.redo_stack),
         }
 
 
@@ -353,6 +363,284 @@ class SessionManager:
         """清理过期会话。"""
         with self._lock:
             self._cleanup_expired()
+
+    # ── 撤销/重做栈管理 ──
+
+    def push_undo(self, session_id: str, snapshot: dict) -> bool:
+        """
+        推入撤销快照。
+        
+        Args:
+            session_id: 会话 ID
+            snapshot: 撤销快照，包含 type, prev, next, data 等字段
+            
+        Returns:
+            是否成功推入
+        """
+        session = self.get(session_id)
+        if not session:
+            return False
+        
+        with session._undo_lock:
+            # 深度克隆快照（避免引用污染）
+            try:
+                snap_copy = json.loads(json.dumps(snapshot))
+            except (TypeError, ValueError):
+                snap_copy = dict(snapshot)  # 浅拷贝回退
+            
+            session.undo_stack.append(snap_copy)
+            
+            # 限制栈大小
+            if len(session.undo_stack) > session.MAX_UNDO_SIZE:
+                session.undo_stack.pop(0)  # 移除最早的记录
+            
+            # 新操作清空 redo 栈（标准行为）
+            session.redo_stack.clear()
+            
+            return True
+
+    def undo(self, session_id: str) -> dict:
+        """
+        执行撤销操作。
+        
+        Args:
+            session_id: 会话 ID
+            
+        Returns:
+            {"success": bool, "message": str, "data": dict}
+        """
+        session = self.get(session_id)
+        if not session:
+            return {"success": False, "message": "Session not found"}
+        
+        with session._undo_lock:
+            if not session.undo_stack:
+                return {"success": False, "message": "No operation to undo"}
+            
+            snap = session.undo_stack.pop()
+            
+            # 推入 redo 栈
+            session.redo_stack.append(snap)
+            
+            # 执行撤销逻辑（策略模式）
+            try:
+                self._execute_undo(session, snap)
+                
+                # 自动保存
+                with session.db.with_lock():
+                    self._write_file(session)
+                    session.db.modified = False
+                
+                return {
+                    "success": True,
+                    "message": "Undo successful",
+                    "data": {
+                        "undo_count": len(session.undo_stack),
+                        "redo_count": len(session.redo_stack),
+                    }
+                }
+            except Exception as e:
+                # 撤销失败，恢复 undo 栈
+                session.undo_stack.append(snap)
+                return {"success": False, "message": f"Undo failed: {str(e)}"}
+
+    def redo(self, session_id: str) -> dict:
+        """
+        执行重做操作。
+        
+        Args:
+            session_id: 会话 ID
+            
+        Returns:
+            {"success": bool, "message": str, "data": dict}
+        """
+        session = self.get(session_id)
+        if not session:
+            return {"success": False, "message": "Session not found"}
+        
+        with session._undo_lock:
+            if not session.redo_stack:
+                return {"success": False, "message": "No operation to redo"}
+            
+            snap = session.redo_stack.pop()
+            
+            # 推回 undo 栈
+            session.undo_stack.append(snap)
+            
+            # 执行重做逻辑（策略模式）
+            try:
+                self._execute_redo(session, snap)
+                
+                # 自动保存
+                with session.db.with_lock():
+                    self._write_file(session)
+                    session.db.modified = False
+                
+                return {
+                    "success": True,
+                    "message": "Redo successful",
+                    "data": {
+                        "undo_count": len(session.undo_stack),
+                        "redo_count": len(session.redo_stack),
+                    }
+                }
+            except Exception as e:
+                # 重做失败，恢复 redo 栈
+                session.redo_stack.append(snap)
+                return {"success": False, "message": f"Redo failed: {str(e)}"}
+
+    def clear_undo_stacks(self, session_id: str) -> bool:
+        """清空撤销/重做栈（会话切换或清理时调用）。"""
+        session = self.get(session_id)
+        if not session:
+            return False
+        
+        with session._undo_lock:
+            session.undo_stack.clear()
+            session.redo_stack.clear()
+            return True
+
+    # ── 撤销/重做执行逻辑（策略模式） ──
+
+    def _execute_undo(self, session: Session, snap: dict):
+        """执行撤销操作（根据 type 分发到不同处理器）。"""
+        snap_type = snap.get("type")
+        
+        if snap_type == "message_delete":
+            # 撤销删除报文 = 恢复报文
+            self._restore_message(session, snap["data"])
+        elif snap_type == "signal_delete":
+            # 撤销删除信号 = 恢复信号
+            self._restore_signal(session, snap["msgId"], snap["data"])
+        elif snap_type == "message_update":
+            # 撤销报文修改 = 恢复旧值
+            self._restore_message_update(session, snap["msgId"], snap["prev"])
+        elif snap_type == "signal_update":
+            # 撤销信号修改 = 恢复旧值
+            self._restore_signal_update(session, snap["msgId"], snap["sigUuid"], snap["prev"])
+        elif snap_type == "message_add":
+            # 撤销添加报文 = 删除报文
+            self._delete_message(session, snap["msgId"])
+        elif snap_type == "signal_add":
+            # 撤销添加信号 = 删除信号
+            self._delete_signal(session, snap["msgId"], snap["sigUuid"])
+        elif snap_type == "batch_signal_add":
+            # 撤销批量添加信号 = 逐个删除
+            for sig in snap["signals"]:
+                self._delete_signal(session, snap["msgId"], sig["uuid"])
+        else:
+            raise ValueError(f"Unknown undo type: {snap_type}")
+
+    def _execute_redo(self, session: Session, snap: dict):
+        """执行重做操作（撤销的逆操作）。"""
+        snap_type = snap.get("type")
+        
+        if snap_type == "message_delete":
+            # 重做删除报文 = 再次删除
+            self._delete_message(session, snap["data"]["id"])
+        elif snap_type == "signal_delete":
+            # 重做删除信号 = 再次删除
+            self._delete_signal(session, snap["msgId"], snap["data"]["uuid"])
+        elif snap_type == "message_update":
+            # 重做报文修改 = 应用新值
+            self._restore_message_update(session, snap["msgId"], snap["next"])
+        elif snap_type == "signal_update":
+            # 重做信号修改 = 应用新值
+            self._restore_signal_update(session, snap["msgId"], snap["sigUuid"], snap["next"])
+        elif snap_type == "message_add":
+            # 重做添加报文 = 再次创建
+            self._restore_message(session, snap["data"])
+        elif snap_type == "signal_add":
+            # 重做添加信号 = 再次创建
+            self._restore_signal(session, snap["msgId"], snap["data"])
+        elif snap_type == "batch_signal_add":
+            # 重做批量添加信号 = 逐个重新创建
+            for sig in snap["signals"]:
+                self._restore_signal(session, snap["msgId"], sig["data"])
+        else:
+            raise ValueError(f"Unknown redo type: {snap_type}")
+
+    # ── 撤销/重做辅助方法 ──
+
+    def _restore_message(self, session: Session, msg_data: dict):
+        """恢复报文（含所有信号）。"""
+        from models import Signal, Message
+        
+        msg_id = msg_data["id"]
+        signals = []
+        for sig_data in msg_data.get("signals", []):
+            # sig_data 应该是字典（经过 JSON 序列化/反序列化）
+            if isinstance(sig_data, dict):
+                sig = Signal.from_dict(sig_data)
+            else:
+                # 如果已经是 Signal 对象（异常情况），直接使用
+                sig = sig_data
+            signals.append(sig)
+        
+        msg = Message(
+            id=msg_id,
+            name=msg_data["name"],
+            dlc=msg_data.get("dlc", 8),
+            cycle_time=msg_data.get("cycle_time", 0),
+            sender=msg_data.get("sender", ""),
+            comment=msg_data.get("comment", ""),
+            signals=signals,
+        )
+        
+        with session.db.with_lock():
+            session.db.messages[msg_id] = msg
+
+    def _restore_signal(self, session: Session, msg_id: int, sig_data: dict):
+        """恢复信号。"""
+        msg = session.db.messages.get(msg_id)
+        if not msg:
+            raise ValueError(f"Message {msg_id} not found")
+        
+        sig = Signal.from_dict(sig_data)
+        with session.db.with_lock():
+            msg.signals.append(sig)
+
+    def _restore_message_update(self, session: Session, msg_id: int, updates: dict):
+        """恢复报文属性更新。"""
+        msg = session.db.messages.get(msg_id)
+        if not msg:
+            raise ValueError(f"Message {msg_id} not found")
+        
+        with session.db.with_lock():
+            for key, value in updates.items():
+                if hasattr(msg, key):
+                    setattr(msg, key, value)
+
+    def _restore_signal_update(self, session: Session, msg_id: int, sig_uuid: str, updates: dict):
+        """恢复信号属性更新。"""
+        msg = session.db.messages.get(msg_id)
+        if not msg:
+            raise ValueError(f"Message {msg_id} not found")
+        
+        # signals 是列表，需要查找
+        sig = next((s for s in msg.signals if s.uuid == sig_uuid), None)
+        if not sig:
+            raise ValueError(f"Signal {sig_uuid} not found")
+        
+        with session.db.with_lock():
+            for key, value in updates.items():
+                if hasattr(sig, key):
+                    setattr(sig, key, value)
+
+    def _delete_message(self, session: Session, msg_id: int):
+        """删除报文。"""
+        with session.db.with_lock():
+            session.db.messages.pop(msg_id, None)
+
+    def _delete_signal(self, session: Session, msg_id: int, sig_uuid: str):
+        """删除信号。"""
+        msg = session.db.messages.get(msg_id)
+        if not msg:
+            raise ValueError(f"Message {msg_id} not found")
+        
+        with session.db.with_lock():
+            # signals 是列表，需要过滤
+            msg.signals = [s for s in msg.signals if s.uuid != sig_uuid]
 
     # ── 内部方法 ──
 

@@ -1,223 +1,193 @@
-"""Core data model for CAN database management.
+"""纯 IO 序列化工具模块。
 
-DBC semantics: signals are per-message definitions. Each message has its own
-signal list, and signals with the same name in different messages can have
-completely different attributes (start bit, length, scaling, etc.).
+本模块不再定义数据类，仅提供 from_toml_str、from_json_str、from_xml_str 等
+反序列化辅助函数。所有数据类（Signal、Message、CanDatabase）统一从 models.py 导入。
+
+向后兼容：保留原有的 from_toml_dict、from_json_dict 等方法签名，
+但内部委托给 models.CanDatabase 实现。
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any
+from models import CanDatabase, Message, Signal
 
 
 # ---------------------------------------------------------------------------
-# Data classes
+# TOML IO
 # ---------------------------------------------------------------------------
 
-@dataclass
-class Signal:
-    """A single CAN signal definition (per-message entity)."""
-
-    name: str = ""
-    start_bit: int = 0
-    length: int = 8
-    byte_order: str = "motorola"  # "intel" | "motorola"
-    is_signed: bool = False
-    factor: float = 1.0
-    offset: float = 0.0
-    min_val: float = 0.0
-    max_val: float = 0.0
-    unit: str = ""
-    comment: str = ""
-    receivers: list[str] = field(default_factory=list)
-    multiplexer_mode: str = "none"  # "none" | "multiplexer" | "multiplexed"
-    multiplexer_value: int = 0
-
-    def to_dict(self) -> dict[str, Any]:
-        """Serialize to a plain dict."""
-        return {
-            "name": self.name,
-            "start_bit": self.start_bit,
-            "length": self.length,
-            "byte_order": self.byte_order,
-            "is_signed": self.is_signed,
-            "factor": self.factor,
-            "offset": self.offset,
-            "min_val": self.min_val,
-            "max_val": self.max_val,
-            "unit": self.unit,
-            "comment": self.comment,
-            "receivers": self.receivers[:],
-            "multiplexer_mode": self.multiplexer_mode,
-            "multiplexer_value": self.multiplexer_value,
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> Signal:
-        """Create a Signal from a dict."""
-        return cls(
-            name=str(data.get("name", "")),
-            start_bit=int(data.get("start_bit", 0)),
-            length=int(data.get("length", 8)),
-            byte_order=str(data.get("byte_order", "motorola")),
-            is_signed=bool(data.get("is_signed", False)),
-            factor=float(data.get("factor", 1.0)),
-            offset=float(data.get("offset", 0.0)),
-            min_val=float(data.get("min_val", 0.0)),
-            max_val=float(data.get("max_val", 0.0)),
-            unit=str(data.get("unit", "")),
-            comment=str(data.get("comment", "")),
-            receivers=list(data.get("receivers", [])),
-            multiplexer_mode=str(data.get("multiplexer_mode", "none")),
-            multiplexer_value=int(data.get("multiplexer_value", 0)),
-        )
+def from_toml_str(content: str) -> CanDatabase:
+    """从 TOML 字符串加载 CanDatabase。"""
+    return CanDatabase.from_toml_str(content)
 
 
-@dataclass
-class Message:
-    """A CAN message with its own signal definitions."""
+def from_toml_dict(data: dict) -> CanDatabase:
+    """从 TOML 字典加载 CanDatabase。"""
+    return CanDatabase.from_toml_dict(data)
 
-    id: int = 0
-    name: str = ""
-    dlc: int = 8
-    cycle_time: int = 0  # ms, 0 = event-triggered
-    comment: str = ""
-    sender: str = ""
-    signals: list[Signal] = field(default_factory=list)  # signal objects
 
-    def to_dict(self) -> dict[str, Any]:
-        """Serialize to a plain dict (signals as dicts)."""
-        return {
-            "id": self.id,
-            "name": self.name,
-            "dlc": self.dlc,
-            "cycle_time": self.cycle_time,
-            "comment": self.comment,
-            "sender": self.sender,
-            "signals": [sig.to_dict() for sig in self.signals],
-        }
+def to_toml_str(db: CanDatabase) -> str:
+    """将 CanDatabase 序列化为 TOML 字符串。"""
+    return db.to_toml_str()
 
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> Message:
-        """Create a Message from a dict.  *signals* is a list of dicts."""
-        return cls(
-            id=int(data.get("id", 0)),
-            name=str(data.get("name", "")),
-            dlc=int(data.get("dlc", 8)),
-            cycle_time=int(data.get("cycle_time", 0)),
-            comment=str(data.get("comment", "")),
-            sender=str(data.get("sender", "")),
-            signals=[Signal.from_dict(sig_data) for sig_data in data.get("signals", [])],
-        )
+
+def to_toml_dict(db: CanDatabase) -> dict:
+    """将 CanDatabase 序列化为 TOML 字典。"""
+    return db.to_toml_dict()
 
 
 # ---------------------------------------------------------------------------
-# CanDatabase
+# JSON IO
 # ---------------------------------------------------------------------------
 
-class CanDatabase:
-    """Top-level CAN database.
+def from_json_str(content: str) -> CanDatabase:
+    """从 JSON 字符串加载 CanDatabase。"""
+    import json
+    data = json.loads(content)
+    return CanDatabase.from_json_dict(data)
 
-    Signals are per-message definitions. No global signal registry.
-    """
 
-    def __init__(self, name: str = "Untitled") -> None:
-        self.name: str = name
-        self.messages: dict[int, Message] = {}
+def from_json_dict(data: dict) -> CanDatabase:
+    """从 JSON 字典加载 CanDatabase。"""
+    return CanDatabase.from_json_dict(data)
 
-    # -- Message CRUD --------------------------------------------------------
 
-    def add_message(self, msg: Message) -> None:
-        """Add or replace a message keyed by its CAN ID."""
-        self.messages[msg.id] = msg
+def to_json_str(db: CanDatabase) -> str:
+    """将 CanDatabase 序列化为 JSON 字符串。"""
+    import json
+    return json.dumps(db.to_json_dict(), indent=2, ensure_ascii=False)
 
-    def remove_message(self, msg_id: int) -> Message | None:
-        """Remove a message.  Does *not* delete signal definitions."""
-        return self.messages.pop(msg_id, None)
 
-    def get_message(self, msg_id: int) -> Message | None:
-        """Retrieve a message by CAN ID."""
-        return self.messages.get(msg_id)
+def to_json_dict(db: CanDatabase) -> dict:
+    """将 CanDatabase 序列化为 JSON 字典。"""
+    return db.to_json_dict()
 
-    def update_message(self, msg_id: int, **kwargs: Any) -> bool:
-        """Update message attributes by keyword."""
-        msg = self.messages.get(msg_id)
-        if msg is None:
-            return False
-        for key, value in kwargs.items():
-            if hasattr(msg, key):
-                setattr(msg, key, value)
-        return True
 
-    # -- Signal ↔ Message linking -------------------------------------------
+# ---------------------------------------------------------------------------
+# XML IO
+# ---------------------------------------------------------------------------
 
-    def add_signal_to_message(self, msg_id: int, sig: Signal) -> bool:
-        """Append a signal to a message. No dedup — DBC allows same-name
-        signals with different attributes in different messages."""
-        msg = self.messages.get(msg_id)
-        if msg is None:
-            return False
-        msg.signals.append(sig)
-        return True
+def from_xml_str(content: str) -> CanDatabase:
+    """从 XML 字符串加载 CanDatabase。"""
+    import xml.etree.ElementTree as ET
+    
+    root = ET.fromstring(content)
+    data = _xml_to_dict(root)
+    return CanDatabase.from_xml_dict(data)
 
-    def remove_signal_from_message(self, msg_id: int, sig_name: str) -> bool:
-        """Remove a signal by name from one message. Removes only the first match."""
-        msg = self.messages.get(msg_id)
-        if msg is None:
-            return False
-        for idx, sig in enumerate(msg.signals):
-            if sig.name == sig_name:
-                msg.signals.pop(idx)
-                return True
-        return False
 
-    def get_signals_for_message(self, msg_id: int) -> list[Signal]:
-        """Return Signal objects for a message, in order."""
-        msg = self.messages.get(msg_id)
-        if msg is None:
-            return []
-        return msg.signals[:]
+def from_xml_dict(data: dict) -> CanDatabase:
+    """从 XML 字典加载 CanDatabase。"""
+    return CanDatabase.from_xml_dict(data)
 
-    # -- Serialization helpers -----------------------------------------------
 
-    def to_toml_dict(self) -> dict[str, Any]:
-        """Produce a TOML-friendly dict. Signals are nested inside messages."""
-        return {
-            "database": {"name": self.name},
-            "messages": [
-                msg.to_dict()
-                for msg in sorted(self.messages.values(), key=lambda m: m.id)
-            ],
-        }
+def to_xml_str(db: CanDatabase) -> str:
+    """将 CanDatabase 序列化为 XML 字符串。"""
+    import xml.etree.ElementTree as ET
+    import xml.dom.minidom
+    
+    root = ET.Element("candatabase")
+    name_elem = ET.SubElement(root, "name")
+    name_elem.text = db.name
+    
+    messages_elem = ET.SubElement(root, "messages")
+    for msg in sorted(db.messages.values(), key=lambda m: m.id):
+        msg_elem = ET.SubElement(messages_elem, "message")
+        msg_elem.set("id", f"0x{msg.id:X}")
+        msg_elem.set("name", msg.name)
+        msg_elem.set("dlc", str(msg.dlc))
+        msg_elem.set("cycle_time", str(msg.cycle_time))
+        msg_elem.set("sender", msg.sender)
+        msg_elem.set("comment", msg.comment)
+        
+        signals_elem = ET.SubElement(msg_elem, "signals")
+        for sig in msg.signals:
+            sig_elem = ET.SubElement(signals_elem, "signal")
+            sig_elem.set("uuid", sig.uuid)
+            sig_elem.set("name", sig.name)
+            sig_elem.set("start_bit", str(sig.start_bit))
+            sig_elem.set("length", str(sig.length))
+            sig_elem.set("byte_order", sig.byte_order)
+            sig_elem.set("is_signed", str(sig.is_signed))
+            sig_elem.set("factor", str(sig.factor))
+            sig_elem.set("offset", str(sig.offset))
+            sig_elem.set("min_val", str(sig.min_val))
+            sig_elem.set("max_val", str(sig.max_val))
+            sig_elem.set("unit", sig.unit)
+            sig_elem.set("comment", sig.comment)
+            sig_elem.set("multiplexer_mode", sig.multiplexer_mode)
+            sig_elem.set("multiplexer_value", str(sig.multiplexer_value))
+            if sig.receivers:
+                sig_elem.set("receivers", ",".join(sig.receivers))
+    
+    rough_string = ET.tostring(root, encoding="unicode")
+    dom = xml.dom.minidom.parseString(rough_string)
+    return dom.toprettyxml(indent="  ", encoding=None)
 
-    @classmethod
-    def from_toml_dict(cls, data: dict[str, Any]) -> CanDatabase:
-        """Build CanDatabase from a parsed TOML dict."""
-        db_info = data.get("database", {})
-        db = cls(name=str(db_info.get("name", "Untitled")))
 
-        # Messages (signals field is a list of dicts)
-        for msg_data in data.get("messages", []):
-            msg = Message.from_dict(msg_data)
-            db.messages[msg.id] = msg
+def to_xml_dict(db: CanDatabase) -> dict:
+    """将 CanDatabase 序列化为 XML 字典。"""
+    return db.to_xml_dict()
 
-        return db
 
-    def to_json_dict(self) -> dict[str, Any]:
-        """Produce a JSON-friendly dict (same structure as TOML)."""
-        return self.to_toml_dict()
+def _xml_to_dict(element: ET.Element) -> dict:
+    """将 XML Element 转换为字典（简化版）。"""
+    result = {}
+    
+    for child in element:
+        if child.tag == "name":
+            result["name"] = child.text
+        elif child.tag == "messages":
+            messages = []
+            for msg_elem in child:
+                msg_data = {
+                    "id": int(msg_elem.get("id"), 16),
+                    "name": msg_elem.get("name", ""),
+                    "dlc": int(msg_elem.get("dlc", 8)),
+                    "cycle_time": int(msg_elem.get("cycle_time", 0)),
+                    "sender": msg_elem.get("sender", ""),
+                    "comment": msg_elem.get("comment", ""),
+                    "signals": [],
+                }
+                
+                signals_elem = msg_elem.find("signals")
+                if signals_elem is not None:
+                    for sig_elem in signals_elem:
+                        sig_data = {
+                            "uuid": sig_elem.get("uuid", ""),
+                            "name": sig_elem.get("name", ""),
+                            "start_bit": int(sig_elem.get("start_bit", 0)),
+                            "length": int(sig_elem.get("length", 8)),
+                            "byte_order": sig_elem.get("byte_order", "motorola"),
+                            "is_signed": sig_elem.get("is_signed", "False") == "True",
+                            "factor": float(sig_elem.get("factor", 1.0)),
+                            "offset": float(sig_elem.get("offset", 0.0)),
+                            "min_val": float(sig_elem.get("min_val", 0.0)),
+                            "max_val": float(sig_elem.get("max_val", 0.0)),
+                            "unit": sig_elem.get("unit", ""),
+                            "comment": sig_elem.get("comment", ""),
+                            "multiplexer_mode": sig_elem.get("multiplexer_mode", "none"),
+                            "multiplexer_value": int(sig_elem.get("multiplexer_value", 0)),
+                            "receivers": sig_elem.get("receivers", "").split(",") if sig_elem.get("receivers") else [],
+                        }
+                        msg_data["signals"].append(sig_data)
+                
+                messages.append(msg_data)
+            
+            result["messages"] = messages
+    
+    return {"database": result}
 
-    @classmethod
-    def from_json_dict(cls, data: dict[str, Any]) -> CanDatabase:
-        """Build CanDatabase from a parsed JSON dict."""
-        return cls.from_toml_dict(data)
 
-    def to_xml_dict(self) -> dict[str, Any]:
-        """Produce dict structure suitable for XML serialization."""
-        return self.to_toml_dict()
+# ---------------------------------------------------------------------------
+# DBC IO
+# ---------------------------------------------------------------------------
 
-    @classmethod
-    def from_xml_dict(cls, data: dict[str, Any]) -> CanDatabase:
-        """Build CanDatabase from a parsed XML dict."""
-        return cls.from_toml_dict(data)
+def from_dbc_str(content: str) -> CanDatabase:
+    """从 DBC 字符串加载 CanDatabase。"""
+    return CanDatabase.from_dbc_str(content)
+
+
+def to_dbc_str(db: CanDatabase) -> str:
+    """将 CanDatabase 序列化为 DBC 字符串。"""
+    return db.to_dbc_str()

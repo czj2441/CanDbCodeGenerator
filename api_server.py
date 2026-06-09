@@ -36,525 +36,8 @@ from session_manager import init_session_manager, get_session_manager, FileLocke
 
 SESSION_MGR = init_session_manager()
 
-# ── 数据模型 ──────────────────────────────────────────────────────────────────
-
-class Signal:
-    """单个CAN信号定义（per-message实体）。"""
-
-    def __init__(self, data: dict | None = None) -> None:
-        data = data or {}
-        self.uuid: str = data.get("uuid", uuid.uuid4().hex[:8])
-        self.name: str = data.get("name", "")
-        self.start_bit: int = data.get("start_bit", 0)
-        self.length: int = data.get("length", 8)
-        self.byte_order: str = data.get("byte_order", "motorola")
-        self.is_signed: bool = data.get("is_signed", False)
-        self.factor: float = data.get("factor", 1.0)
-        self.offset: float = data.get("offset", 0.0)
-        self.min_val: float = data.get("min_val", 0.0)
-        self.max_val: float = data.get("max_val", 0.0)
-        self.unit: str = data.get("unit", "")
-        self.comment: str = data.get("comment", "")
-        self.receivers: list[str] = data.get("receivers", [])
-        self.multiplexer_mode: str = data.get("multiplexer_mode", "none")
-        self.multiplexer_value: int = data.get("multiplexer_value", 0)
-
-    def to_dict(self) -> dict:
-        return {
-            "uuid": self.uuid,
-            "name": self.name,
-            "start_bit": self.start_bit,
-            "length": self.length,
-            "byte_order": self.byte_order,
-            "is_signed": self.is_signed,
-            "factor": self.factor,
-            "offset": self.offset,
-            "min_val": self.min_val,
-            "max_val": self.max_val,
-            "unit": self.unit,
-            "comment": self.comment,
-            "receivers": self.receivers,
-            "multiplexer_mode": self.multiplexer_mode,
-            "multiplexer_value": self.multiplexer_value,
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "Signal":
-        return cls(data)
-
-
-class Message:
-    """一个CAN报文及其信号定义。"""
-
-    def __init__(self, data: dict | None = None) -> None:
-        data = data or {}
-        self.id: int = data.get("id", 0)
-        self.name: str = data.get("name", "")
-        self.dlc: int = data.get("dlc", 8)
-        self.cycle_time: int = data.get("cycle_time", 0)
-        self.comment: str = data.get("comment", "")
-        self.sender: str = data.get("sender", "")
-        self.signals: list[Signal] = [
-            Signal(s) for s in data.get("signals", [])
-        ]
-
-    def to_dict(self, signals_as_dict: bool = True) -> dict:
-        d = {
-            "id": self.id,
-            "name": self.name,
-            "dlc": self.dlc,
-            "cycle_time": self.cycle_time,
-            "comment": self.comment,
-            "sender": self.sender,
-        }
-        if signals_as_dict:
-            d["signals"] = [s.to_dict() for s in self.signals]
-        else:
-            d["signals"] = self.signals
-        return d
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "Message":
-        return cls(data)
-
-
-class CanDatabase:
-    """顶层CAN数据库。信号是per-message定义。"""
-
-    def __init__(self, name: str = "Untitled") -> None:
-        self.name: str = name
-        self.messages: dict[int, Message] = {}
-        self.modified: bool = False
-        self.__lock = threading.RLock()
-
-    def with_lock(self):
-        """返回锁上下文管理器，供外部需要原子操作时使用。"""
-        return self.__lock
-
-    # ── 报文操作 ──
-
-    def add_message(self, msg: Message) -> bool:
-        with self.__lock:
-            if msg.id in self.messages:
-                return False
-            self.messages[msg.id] = msg
-            self.modified = True
-            return True
-
-    def remove_message(self, msg_id: int) -> Message | None:
-        with self.__lock:
-            msg = self.messages.pop(msg_id, None)
-            if msg:
-                self.modified = True
-            return msg
-
-    def get_message(self, msg_id: int) -> Message | None:
-        with self.__lock:
-            return self.messages.get(msg_id)
-
-    def update_message(self, msg_id: int, **kwargs: Any) -> bool:
-        with self.__lock:
-            msg = self.messages.get(msg_id)
-            if not msg:
-                return False
-            kwargs.pop("id", None)
-            changed = False
-            for k, v in kwargs.items():
-                if hasattr(msg, k) and getattr(msg, k) != v:
-                    setattr(msg, k, v)
-                    changed = True
-            if changed:
-                self.modified = True
-            return True
-
-    def move_message(self, old_id: int, new_id: int) -> bool:
-        with self.__lock:
-            if new_id in self.messages or old_id not in self.messages:
-                return False
-            msg = self.messages.pop(old_id)
-            msg.id = new_id
-            self.messages[new_id] = msg
-            self.modified = True
-            return True
-
-    # ── 信号操作 ──
-
-    def _ensure_sig_uuid_unique(
-        self, msg: Message, sig: Signal, exclude_sig: Signal | None = None
-    ) -> None:
-        """若 sig.uuid 与 msg 中其他信号冲突，则重新生成。"""
-        existing = {s.uuid for s in msg.signals if s is not exclude_sig}
-        while sig.uuid in existing:
-            sig.uuid = uuid.uuid4().hex[:8]
-
-    # ── 信号有效性检查（DBC标准） ──
-
-    @staticmethod
-    def _get_signal_bits(start_bit: int, length: int, byte_order: str) -> set[int]:
-        """将信号按字节序展开为占用的物理 bit 集合（线性编号 0~N-1）。
-        Intel（小端序）: start_bit 是 LSB，占用连续递增位。
-        Motorola（大端序）: start_bit 是 MSB，按锯齿规则展开：
-            字节内从高位向低位填充，到达 bit0 后跳到下一字节的 bit7。
-        """
-        bits: set[int] = set()
-        bo = str(byte_order).lower() if byte_order else "motorola"
-        if bo == "motorola":
-            current = start_bit
-            for _ in range(length):
-                bits.add(current)
-                bit_in_byte = current % 8
-                if bit_in_byte == 0:
-                    current += 15
-                else:
-                    current -= 1
-        else:
-            for i in range(length):
-                bits.add(start_bit + i)
-        return bits
-
-    def _find_next_available_start_bit(
-        self, msg: Message, length: int, byte_order: str, exclude_uuid: str | None = None
-    ) -> dict | None:
-        """在报文中寻找第一个足够大的空闲区间，返回建议的 start_bit。"""
-        max_bits = msg.dlc * 8
-        if length > max_bits:
-            return None
-        used: set[int] = set()
-        for s in msg.signals:
-            if exclude_uuid and s.uuid == exclude_uuid:
-                continue
-            used |= self._get_signal_bits(s.start_bit, s.length, s.byte_order)
-        for candidate in range(max_bits):
-            candidate_bits = self._get_signal_bits(candidate, length, byte_order)
-            if all(0 <= b < max_bits for b in candidate_bits) and not (candidate_bits & used):
-                return {
-                    "action": "move_start_bit",
-                    "recommended_start_bit": candidate,
-                    "reason": f"First available gap at bit {candidate}",
-                }
-        return None
-
-    def validate_signal(
-        self, msg_id: int, sig: Signal, exclude_uuid: str | None = None
-    ) -> tuple[bool, str, dict]:
-        """验证信号是否可以加入/更新到报文中。返回 (is_valid, error_message, details)."""
-        msg = self.messages.get(msg_id)
-        if not msg:
-            return False, "Message not found", {"type": "invalid_param"}
-        max_bits = msg.dlc * 8
-        if max_bits < 1:
-            return False, "Invalid message DLC", {"type": "invalid_param"}
-        if sig.start_bit < 0:
-            return False, "Start bit must be non-negative", {
-                "type": "invalid_param", "field": "start_bit", "value": sig.start_bit,
-            }
-        if sig.length < 1:
-            return False, "Signal length must be at least 1", {
-                "type": "invalid_param", "field": "length", "value": sig.length,
-            }
-        # 越界检查
-        occupied = self._get_signal_bits(sig.start_bit, sig.length, sig.byte_order)
-        oob = [b for b in occupied if b < 0 or b >= max_bits]
-        if oob:
-            suggestion = self._find_next_available_start_bit(
-                msg, sig.length, sig.byte_order, exclude_uuid
-            )
-            return False, f"Signal out of bounds (DLC={msg.dlc}, max bit={max_bits - 1})", {
-                "type": "out_of_bounds",
-                "signal_name": sig.name,
-                "start_bit": sig.start_bit,
-                "length": sig.length,
-                "byte_order": sig.byte_order,
-                "dlc": msg.dlc,
-                "max_bit": max_bits - 1,
-                "out_of_bounds_bits": sorted(oob)[:10],
-                "suggestion": suggestion,
-            }
-        # 重叠检查
-        for existing in msg.signals:
-            if exclude_uuid and existing.uuid == exclude_uuid:
-                continue
-            existing_bits = self._get_signal_bits(
-                existing.start_bit, existing.length, existing.byte_order
-            )
-            overlap = occupied & existing_bits
-            if overlap:
-                suggestion = self._find_next_available_start_bit(
-                    msg, sig.length, sig.byte_order, exclude_uuid
-                )
-                return False, f"Signal overlaps with '{existing.name}'", {
-                    "type": "overlap",
-                    "signal_name": sig.name,
-                    "conflicts_with": existing.name,
-                    "conflicts_uuid": existing.uuid,
-                    "overlapping_bits": sorted(overlap),
-                    "suggestion": suggestion,
-                }
-        return True, "", {"type": "ok"}
-
-    def validate_all_signals(self, msg_id: int) -> list[dict]:
-        """验证报文中所有信号，返回全部错误列表（用于界面错误提示区）。"""
-        msg = self.messages.get(msg_id)
-        if not msg:
-            return []
-        errors: list[dict] = []
-        max_bits = msg.dlc * 8
-        n = len(msg.signals)
-        for i in range(n):
-            sig = msg.signals[i]
-            occupied = self._get_signal_bits(sig.start_bit, sig.length, sig.byte_order)
-            oob = [b for b in occupied if b < 0 or b >= max_bits]
-            if oob:
-                suggestion = self._find_next_available_start_bit(
-                    msg, sig.length, sig.byte_order, sig.uuid
-                )
-                errors.append({
-                    "type": "out_of_bounds",
-                    "signal_uuid": sig.uuid,
-                    "signal_name": sig.name,
-                    "start_bit": sig.start_bit,
-                    "length": sig.length,
-                    "out_of_bounds_bits": sorted(oob)[:10],
-                    "suggestion": suggestion,
-                })
-            for j in range(i + 1, n):
-                other = msg.signals[j]
-                other_bits = self._get_signal_bits(other.start_bit, other.length, other.byte_order)
-                overlap = occupied & other_bits
-                if overlap:
-                    suggestion = self._find_next_available_start_bit(
-                        msg, sig.length, sig.byte_order, sig.uuid
-                    )
-                    errors.append({
-                        "type": "overlap",
-                        "signal_uuid": sig.uuid,
-                        "signal_name": sig.name,
-                        "conflicts_uuid": other.uuid,
-                        "conflicts_name": other.name,
-                        "overlapping_bits": sorted(overlap),
-                        "suggestion": suggestion,
-                    })
-        return errors
-
-    def add_signal_to_message(self, msg_id: int, sig: Signal) -> bool:
-        with self.__lock:
-            msg = self.messages.get(msg_id)
-            if not msg:
-                return False
-            self._ensure_sig_uuid_unique(msg, sig)
-            msg.signals.append(sig)
-            self.modified = True
-            return True
-
-    def remove_signal_from_message(self, msg_id: int, sig_uuid: str) -> bool:
-        with self.__lock:
-            msg = self.messages.get(msg_id)
-            if not msg:
-                return False
-            for i, sig in enumerate(msg.signals):
-                if sig.uuid == sig_uuid:
-                    msg.signals.pop(i)
-                    self.modified = True
-                    return True
-            return False
-
-    def update_signal_in_message(
-        self, msg_id: int, sig_uuid: str, **kwargs: Any
-    ) -> bool:
-        with self.__lock:
-            msg = self.messages.get(msg_id)
-            if not msg:
-                return False
-            for sig in msg.signals:
-                if sig.uuid == sig_uuid:
-                    changed = False
-                    new_uuid = kwargs.get("uuid")
-                    if new_uuid is not None and new_uuid != sig.uuid:
-                        # 检查新 uuid 是否与同报文其他信号冲突
-                        if any(s.uuid == new_uuid for s in msg.signals if s is not sig):
-                            # 冲突：忽略 uuid 修改，保留原值
-                            kwargs.pop("uuid", None)
-                        else:
-                            sig.uuid = new_uuid
-                            changed = True
-                    for k, v in kwargs.items():
-                        if k == "uuid":
-                            continue
-                        if hasattr(sig, k) and getattr(sig, k) != v:
-                            setattr(sig, k, v)
-                            changed = True
-                    if changed:
-                        self.modified = True
-                    return True
-            return False
-
-    def total_signals(self) -> int:
-        with self.__lock:
-            return sum(len(m.signals) for m in self.messages.values())
-
-    # ── 序列化 ──
-
-    def to_dict(self) -> dict:
-        with self.__lock:
-            return {
-                "name": self.name,
-                "messages": {
-                    f"0x{mid:X}": m.to_dict() for mid, m in sorted(self.messages.items())
-                },
-            }
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "CanDatabase":
-        db = cls(name=data.get("name", "Untitled"))
-        for mid_str, mdata in data.get("messages", {}).items():
-            mid = int(mid_str, 16) if mid_str.startswith("0x") else int(mid_str)
-            mdata["id"] = mid
-            msg = Message.from_dict(mdata)
-            db.messages[mid] = msg
-        return db
-
-    # ── JSON 序列化（SessionManager 持久化用） ──
-
-    def to_json_dict(self) -> dict:
-        return self.to_dict()
-
-    @classmethod
-    def from_json_dict(cls, data: dict) -> "CanDatabase":
-        return cls.from_dict(data)
-
-    # ── TOML 序列化 ──
-
-    def to_toml_str(self) -> str:
-        import toml
-
-        with self.__lock:
-            data = {"name": self.name, "messages": []}
-            for mid in sorted(self.messages):
-                msg = self.messages[mid]
-                m_dict = {
-                    "id": f"0x{mid:X}",
-                    "name": msg.name,
-                    "dlc": msg.dlc,
-                    "cycle_time": msg.cycle_time,
-                    "sender": msg.sender,
-                    "comment": msg.comment,
-                    "signals": [],
-                }
-                for sig in msg.signals:
-                    s_dict = {k: v for k, v in sig.to_dict().items() if v != _SIGNAL_DEFAULTS.get(k)}
-                    m_dict["signals"].append(s_dict)
-                data["messages"].append(m_dict)
-            return toml.dumps(data)
-
-    # ── DBC 序列化 ──
-
-    def to_dbc_str(self) -> str:
-        """导出为 DBC 格式字符串（使用 cantools 库）。"""
-        import cantools.database
-        from cantools.database.conversion import IdentityConversion, LinearConversion
-        
-        with self.__lock:
-            # 构建 cantools database 对象
-            can_db = cantools.database.Database()
-            
-            for msg in sorted(self.messages.values(), key=lambda m: m.id):
-                can_signals = []
-                
-                for sig in msg.signals:
-                    # 确定转换类型
-                    if sig.factor == 1.0 and sig.offset == 0.0:
-                        conversion = IdentityConversion(is_float=False)
-                    else:
-                        conversion = LinearConversion(
-                            scale=sig.factor,
-                            offset=sig.offset,
-                            is_float=False,
-                        )
-                    
-                    # 构建 cantools Signal
-                    can_sig = cantools.database.Signal(
-                        name=sig.name,
-                        start=sig.start_bit,
-                        length=sig.length,
-                        # cantools 要求 byte_order 为 'little_endian' 或 'big_endian'
-                        byte_order="big_endian" if sig.byte_order == "motorola" else "little_endian",
-                        is_signed=sig.is_signed,
-                        unit=sig.unit if sig.unit else None,
-                        minimum=sig.min_val if sig.min_val != 0.0 else None,
-                        maximum=sig.max_val if sig.max_val != 0.0 else None,
-                        comment=sig.comment if sig.comment else None,
-                        receivers=sig.receivers[:] if sig.receivers else [],
-                        conversion=conversion,
-                        is_multiplexer=(sig.multiplexer_mode == "multiplexer"),
-                        multiplexer_ids=[sig.multiplexer_value] if sig.multiplexer_mode == "multiplexed" else None,
-                    )
-                    can_signals.append(can_sig)
-                
-                can_msg = cantools.database.Message(
-                    frame_id=msg.id,
-                    name=msg.name,
-                    length=msg.dlc,
-                    signals=can_signals,
-                    comment=msg.comment if msg.comment else None,
-                    senders=[sender] if (sender := msg.sender) else [],
-                    cycle_time=msg.cycle_time if msg.cycle_time > 0 else None,
-                )
-                can_db.messages.append(can_msg)
-            
-            # 使用 cantools 导出为标准 DBC 字符串
-            return can_db.as_dbc_string()
-
-    def _escape_dbc_string(self, s: str) -> str:
-        """转义 DBC 字符串中的特殊字符。"""
-        if not s:
-            return ""
-        # 简单转义：双引号、反斜杠
-        return s.replace("\\", "\\\\").replace("\"", "\\\"")
-    
-    @classmethod
-    def from_dbc_str(cls, content: str) -> "CanDatabase":
-        """从 DBC 格式解析（暂不实现）。"""
-        raise NotImplementedError("DBC import not yet implemented")
-
-    @classmethod
-    def from_toml_str(cls, content: str) -> "CanDatabase":
-        import toml
-
-        data = toml.loads(content)
-        db = cls(name=data.get("name", "Untitled"))
-        for m_dict in data.get("messages", []):
-            mid_raw = m_dict["id"]
-            mid = int(mid_raw, 16) if isinstance(mid_raw, str) and mid_raw.startswith("0x") else int(mid_raw)
-            msg = Message({
-                "id": mid,
-                "name": m_dict.get("name", ""),
-                "dlc": m_dict.get("dlc", 8),
-                "cycle_time": m_dict.get("cycle_time", 0),
-                "sender": m_dict.get("sender", ""),
-                "comment": m_dict.get("comment", ""),
-            })
-            for s_dict in m_dict.get("signals", []):
-                msg.signals.append(Signal.from_dict(s_dict))
-            db.messages[mid] = msg
-        return db
-
-
-_SIGNAL_DEFAULTS = {
-    "name": "",
-    "start_bit": 0,
-    "length": 8,
-    "byte_order": "motorola",
-    "is_signed": False,
-    "factor": 1.0,
-    "offset": 0.0,
-    "min_val": 0.0,
-    "max_val": 0.0,
-    "unit": "",
-    "comment": "",
-    "receivers": [],
-    "multiplexer_mode": "none",
-    "multiplexer_value": 0,
-}
+# ── 数据模型（统一从 models.py 导入）────────────────────────────────────
+from models import Signal, Message, CanDatabase
 
 
 # ── 全局会话（单用户桌面应用场景）─────────────────────────────────────────────
@@ -682,6 +165,12 @@ class ApiHandler(BaseHTTPRequestHandler):
                 except Exception as e:
                     print(f"[WARN] auto_save failed for session {sid}: {e}")
             threading.Thread(target=_save_later, args=(session_id,), daemon=True).start()
+
+    def _push_undo(self, snapshot: dict) -> None:
+        """推入撤销快照（如果存在 session）。"""
+        session_id = self.headers.get("X-Session-Id", "")
+        if session_id:
+            SESSION_MGR.push_undo(session_id, snapshot)
 
     def _session_id_from_path(self) -> str | None:
         """从路径中取 session_id（用于 /api/session/{id} 类端点）。"""
@@ -812,6 +301,10 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._post_heartbeat()
         elif parts == ["api", "steal"]:
             self._post_steal()
+        elif parts == ["api", "undo"]:
+            self._post_undo()
+        elif parts == ["api", "redo"]:
+            self._post_redo()
         elif parts == ["api", "messages"]:
             self._post_messages()
         elif parts == ["api", "session"]:
@@ -983,13 +476,21 @@ class ApiHandler(BaseHTTPRequestHandler):
         db = self._get_db()
         session_id = self.headers.get("X-Session-Id", "")
         s = SESSION_MGR.get(session_id) if session_id else None
-        self._send_json(200, _resp(True, {
+        
+        status_data = {
             "message_count": len(db.messages),
             "signal_count": db.total_signals(),
             "modified": db.modified,
             "session_id": session_id,
             "file_name": _pure_file_name(s) if s else None,
-        }))
+        }
+        
+        # 添加撤销/重做计数（如果有 session）
+        if s:
+            status_data["undo_count"] = len(s.undo_stack)
+            status_data["redo_count"] = len(s.redo_stack)
+        
+        self._send_json(200, _resp(True, status_data))
 
     def _get_messages(self) -> None:
         db = self._get_db()
@@ -1071,7 +572,7 @@ class ApiHandler(BaseHTTPRequestHandler):
         
         立即保存会话数据，成功后重置 modified 标志。
         用于用户主动触发保存（Ctrl+S 或点击保存按钮）。
-z        支持从 X-Session-Id 请求头或 URL 查询参数 ?sid=xxx 读取 session ID，
+        支持从 X-Session-Id 请求头或 URL 查询参数 ?sid=xxx 读取 session ID，
         以便 navigator.sendBeacon() 使用（beacon 不支持自定义请求头）。
         """
         session_id = self.headers.get("X-Session-Id", "")
@@ -1094,6 +595,36 @@ z        支持从 X-Session-Id 请求头或 URL 查询参数 ?sid=xxx 读取 se
         except Exception as e:
             print(f"[ERROR] save failed: {e}")
             self._send_json(500, _resp(False, error=f"保存失败: {str(e)}"))
+
+    def _post_undo(self) -> None:
+        """POST /api/undo - 执行撤销操作。
+        
+        从后端撤销栈中弹出最近的操作，执行回滚并自动保存。
+        返回更新后的 undo_count 和 redo_count。
+        """
+        session_id = self.headers.get("X-Session-Id", "")
+        if not session_id:
+            self._send_json(400, _resp(False, error="Session ID required"))
+            return
+        
+        result = SESSION_MGR.undo(session_id)
+        status_code = 200 if result["success"] else 400
+        self._send_json(status_code, _resp(result["success"], data=result.get("data"), error=result.get("message") if not result["success"] else None))
+
+    def _post_redo(self) -> None:
+        """POST /api/redo - 执行重做操作。
+        
+        从后端重做栈中弹出最近的操作，执行重做并自动保存。
+        返回更新后的 undo_count 和 redo_count。
+        """
+        session_id = self.headers.get("X-Session-Id", "")
+        if not session_id:
+            self._send_json(400, _resp(False, error="Session ID required"))
+            return
+        
+        result = SESSION_MGR.redo(session_id)
+        status_code = 200 if result["success"] else 400
+        self._send_json(status_code, _resp(result["success"], data=result.get("data"), error=result.get("message") if not result["success"] else None))
 
     def _post_release(self) -> None:
         """POST /api/release - 主动释放当前 session 的文件锁。
@@ -1201,7 +732,7 @@ z        支持从 X-Session-Id 请求头或 URL 查询参数 ?sid=xxx 读取 se
                         
                         comment = can_msg.comment or ""
                         
-                        msg = Message({
+                        msg = Message.from_dict({
                             "id": can_msg.frame_id,
                             "name": can_msg.name,
                             "dlc": can_msg.length,
@@ -1232,7 +763,7 @@ z        支持从 X-Session-Id 请求头或 URL 查询参数 ?sid=xxx 读取 se
                                 mux_mode = "multiplexed"
                                 mux_value = can_sig.multiplexer_ids[0] if can_sig.multiplexer_ids else 0
                             
-                            sig = Signal({
+                            sig = Signal.from_dict({
                                 "name": can_sig.name,
                                 "start_bit": can_sig.start,
                                 "length": can_sig.length,
@@ -1304,11 +835,19 @@ z        支持从 X-Session-Id 请求头或 URL 查询参数 ?sid=xxx 读取 se
         if msg_id is None:
             self._send_json(400, _resp(False, error="Invalid or missing message ID"))
             return
-        msg = Message(body)
+        msg = Message.from_dict(body)
         msg.id = msg_id
         if not db.add_message(msg):
             self._send_json(409, _resp(False, error=f"Message 0x{msg_id:X} already exists"))
             return
+        
+        # 推入撤销栈（message_add）
+        self._push_undo({
+            "type": "message_add",
+            "msgId": msg_id,
+            "data": msg.to_dict()
+        })
+        
         self._auto_save()
         self._send_json(201, _resp(True, msg.to_dict()))
 
@@ -1320,6 +859,15 @@ z        支持从 X-Session-Id 请求头或 URL 查询参数 ?sid=xxx 读取 se
             self._send_json(400, _resp(False, error="Invalid message ID"))
             return
         body = self._read_body()
+        
+        # 获取旧值（用于撤销）
+        msg = db.get_message(msg_id)
+        old_values = {}
+        if msg:
+            for key in body.keys():
+                if key != "id" and hasattr(msg, key):
+                    old_values[key] = getattr(msg, key)
+        
         # 允许更新id（即移动key）
         new_id = _parse_id(body.get("id", msg_id))
         if new_id is None:
@@ -1334,6 +882,16 @@ z        支持从 X-Session-Id 请求头或 URL 查询参数 ?sid=xxx 读取 se
         if not ok:
             self._send_json(404, _resp(False, error=f"Message 0x{msg_id:X} not found"))
             return
+        
+        # 推入撤销栈（message_update）
+        if old_values:
+            self._push_undo({
+                "type": "message_update",
+                "msgId": msg_id,
+                "prev": old_values,
+                "next": {k: v for k, v in body.items() if k != "id"}
+            })
+        
         self._auto_save()
         self._send_json(200, _resp(True, db.get_message(msg_id).to_dict()))
 
@@ -1344,10 +902,22 @@ z        支持从 X-Session-Id 请求头或 URL 查询参数 ?sid=xxx 读取 se
         if msg_id is None:
             self._send_json(400, _resp(False, error="Invalid message ID"))
             return
-        msg = db.remove_message(msg_id)
+        msg = db.get_message(msg_id)
         if not msg:
             self._send_json(404, _resp(False, error=f"Message 0x{msg_id:X} not found"))
             return
+        
+        # 保存报文数据（用于撤销）
+        msg_data = msg.to_dict()
+        
+        db.remove_message(msg_id)
+        
+        # 推入撤销栈（message_delete）
+        self._push_undo({
+            "type": "message_delete",
+            "data": msg_data
+        })
+        
         self._auto_save()
         self._send_json(200, _resp(True, {"deleted": f"0x{msg_id:X}"}))
 
@@ -1359,10 +929,19 @@ z        支持从 X-Session-Id 请求头或 URL 查询参数 ?sid=xxx 读取 se
             self._send_json(400, _resp(False, error="Invalid message ID"))
             return
         body = self._read_body()
-        sig = Signal(body)
+        sig = Signal.from_dict(body)
         if not db.add_signal_to_message(msg_id, sig):
             self._send_json(404, _resp(False, error=f"Message 0x{msg_id:X} not found"))
             return
+        
+        # 推入撤销栈（signal_add）
+        self._push_undo({
+            "type": "signal_add",
+            "msgId": msg_id,
+            "sigUuid": sig.uuid,
+            "data": sig.to_dict()
+        })
+        
         self._auto_save()
         self._send_json(201, _resp(True, sig.to_dict()))
 
@@ -1374,10 +953,31 @@ z        支持从 X-Session-Id 请求头或 URL 查询参数 ?sid=xxx 读取 se
             self._send_json(400, _resp(False, error="Invalid message ID"))
             return
         body = self._read_body()
+        
+        # 获取旧值（用于撤销）
+        msg = db.get_message(msg_id)
+        sig = next((s for s in msg.signals if s.uuid == idx_str), None) if msg else None
+        old_values = {}
+        if sig:
+            for key in body.keys():
+                if hasattr(sig, key):
+                    old_values[key] = getattr(sig, key)
+        
         ok = db.update_signal_in_message(msg_id, idx_str, **body)
         if not ok:
             self._send_json(404, _resp(False, error="Message or signal not found"))
             return
+        
+        # 推入撤销栈（signal_update）
+        if old_values:
+            self._push_undo({
+                "type": "signal_update",
+                "msgId": msg_id,
+                "sigUuid": idx_str,
+                "prev": old_values,
+                "next": body
+            })
+        
         msg = db.get_message(msg_id)
         sig = next((s for s in msg.signals if s.uuid == idx_str), None) if msg else None
         self._auto_save()
@@ -1390,10 +990,28 @@ z        支持从 X-Session-Id 请求头或 URL 查询参数 ?sid=xxx 读取 se
         if msg_id is None:
             self._send_json(400, _resp(False, error="Invalid message ID"))
             return
+        
+        # 保存信号数据（用于撤销）
+        msg = db.get_message(msg_id)
+        sig = next((s for s in msg.signals if s.uuid == uuid_str), None) if msg else None
+        if not sig:
+            self._send_json(404, _resp(False, error=f"Message or signal not found"))
+            return
+        
+        sig_data = sig.to_dict()
+        
         ok = db.remove_signal_from_message(msg_id, uuid_str)
         if not ok:
             self._send_json(404, _resp(False, error=f"Message or signal not found"))
             return
+        
+        # 推入撤销栈（signal_delete）
+        self._push_undo({
+            "type": "signal_delete",
+            "msgId": msg_id,
+            "data": sig_data
+        })
+        
         self._auto_save()
         self._send_json(200, _resp(True, {"deleted": uuid_str}))
 

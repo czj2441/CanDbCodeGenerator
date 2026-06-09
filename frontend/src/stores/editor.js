@@ -1,7 +1,6 @@
 import { defineStore } from 'pinia'
 import { api, setSessionId, clearSession, addRecentSession, removeRecentSession, getSessionId } from '../api/client.js'
 import { t } from '../i18n.js'
-import { createUndoRedoManager } from '../utils/useUndoRedo.js'
 import { markModified } from '../utils/storeHelpers.js'
 import { useUiStore } from './uiStore.js'
 
@@ -28,8 +27,7 @@ export const useEditorStore = defineStore('editor', {
     // ── 剪贴板 ──
     clipboard: null,
 
-    // ── 撤销/重做 ──
-    _undoRedo: null,
+    // ── 撤销/重做计数器（从后端同步） ──
     undoCount: 0,
     redoCount: 0,
   }),
@@ -51,85 +49,80 @@ export const useEditorStore = defineStore('editor', {
 
   actions: {
     // ═══════════════════════════════════════════
-    // 区域 C：撤销/重做（Undo/Redo）
+    // 区域 C：撤销/重做（Undo/Redo）- 后端管理
     // ═══════════════════════════════════════════
 
     /**
-     * 初始化撤销/重做管理器
-     * 懒加载模式：首次调用时创建 createUndoRedoManager 实例
-     * 在初始化时捕获 uiStore 引用，避免回调中每次调用 useUiStore()
+     * 执行撤销操作（调用后端 API）
+     * API 成功后刷新数据
+     * @returns {Promise<void>}
      */
-    initUndoRedo() {
-      if (this._undoRedo) return // 已初始化
-      // 在初始化时捕获 uiStore 引用，避免回调中每次调用 useUiStore()
-      const ui = useUiStore()
-      this._undoRedo = createUndoRedoManager({
-        maxSize: 50,
-        onReload: async () => {
+    async undo() {
+      try {
+        const result = await api('POST', '/api/undo')
+        if (result.success) {
+          // 刷新数据
           await this.loadMessages()
-          if (this.selectedMsgId != null) await this.loadSelectedMessage()
-        },
-        onToast: (text, isError) => ui.showToast(text, isError),
-        onLog: (type, description) => this.addLogEntry(type, description),
-      })
+          if (this.selectedMsgId != null) {
+            await this.loadSelectedMessage()
+          }
+          // 同步计数
+          await this._syncUndoRedoCounts()
+          useUiStore().showToast('撤销成功', false)
+          this.addLogEntry('undo', '撤销操作')
+        }
+      } catch (e) {
+        console.error('[STORE] undo() failed:', e)
+        useUiStore().showToast(e.message || '撤销失败', true)
+      }
     },
 
     /**
-     * 同步撤销/重做计数器到响应式 state
-     * 所有操作栈变更后必须调用此方法，确保 UI 按钮状态正确
+     * 执行重做操作（调用后端 API）
+     * API 成功后刷新数据
+     * @returns {Promise<void>}
+     */
+    async redo() {
+      try {
+        const result = await api('POST', '/api/redo')
+        if (result.success) {
+          // 刷新数据
+          await this.loadMessages()
+          if (this.selectedMsgId != null) {
+            await this.loadSelectedMessage()
+          }
+          // 同步计数
+          await this._syncUndoRedoCounts()
+          useUiStore().showToast('重做成功', false)
+          this.addLogEntry('redo', '重做操作')
+        }
+      } catch (e) {
+        console.error('[STORE] redo() failed:', e)
+        useUiStore().showToast(e.message || '重做失败', true)
+      }
+    },
+
+    /**
+     * 同步撤销/重做计数器（从后端获取）
      * @private
      */
-    _syncUndoRedoCounts() {
-      if (this._undoRedo) {
-        this.undoCount = this._undoRedo.undoCount
-        this.redoCount = this._undoRedo.redoCount
-      } else {
+    async _syncUndoRedoCounts() {
+      try {
+        const status = await api('GET', '/api/status')
+        this.undoCount = status.undo_count || 0
+        this.redoCount = status.redo_count || 0
+      } catch (_) {
+        // 忽略错误，保持当前计数
         this.undoCount = 0
         this.redoCount = 0
       }
     },
 
     /**
-     * 推送撤销快照
-     * 自动初始化撤销管理器，并同步响应式计数器
-     * @param {Object} snapshot - 撤销快照
-     */
-    pushUndo(snapshot) {
-      this.initUndoRedo()
-      this._undoRedo.pushUndo(snapshot)
-      this._syncUndoRedoCounts()
-    },
-
-    /**
-     * 执行撤销操作
-     * 自动初始化撤销管理器，并同步响应式计数器
-     * @returns {Promise<void>}
-     */
-    async undo() {
-      this.initUndoRedo()
-      await this._undoRedo.undo()
-      this._syncUndoRedoCounts()
-    },
-
-    /**
-     * 执行重做操作
-     * 自动初始化撤销管理器，并同步响应式计数器
-     * @returns {Promise<void>}
-     */
-    async redo() {
-      this.initUndoRedo()
-      await this._undoRedo.redo()
-      this._syncUndoRedoCounts()
-    },
-
-    /**
-     * 清空撤销/重做栈
-     * 切换会话时调用，同时清理 modified 定时器
+     * 清空撤销/重做栈（切换会话时调用）
+     * 同时清理 modified 定时器
      */
     clearUndoStack() {
-      if (this._undoRedo) {
-        this._undoRedo.clear()
-      }
       this._syncUndoRedoCounts()
       // 切换会话时清理 modified 定时器
       if (this._modifiedTimer) {
@@ -389,12 +382,7 @@ export const useEditorStore = defineStore('editor', {
           dlc: 8, cycle_time: 0, sender: '', signals: [],
         })
 
-        // API 成功后入栈（用于撤销删除）
-        this.pushUndo({
-          type: 'message_add',
-          msgId: id,
-          data: { id, name, dlc: 8, cycle_time: 0, sender: '', signals: [] }
-        })
+        // 后端已自动推入撤销栈
 
         useUiStore().showToast(t('toast.messageAdded'))
       } catch (e) {
@@ -412,8 +400,7 @@ export const useEditorStore = defineStore('editor', {
      * @returns {Promise<void>}
      */
     async deleteMessage(id) {
-      const msg = this.messageCache[id]
-      if (msg) this.pushUndo({ type: 'message_delete', data: msg })
+      // 后端已自动推入撤销栈
 
       // 乐观更新
       this.messages = this.messages.filter(m => m.id !== id)
@@ -454,15 +441,7 @@ export const useEditorStore = defineStore('editor', {
       const oldValueStr = oldValue != null ? String(oldValue) : ''
       const newValueStr = value != null ? String(value) : ''
 
-      // 值变化时入栈（乐观更新之前）
-      if (oldValueStr !== newValueStr) {
-        this.pushUndo({
-          type: 'message_update',
-          msgId: this.selectedMsgId,
-          prev: { [field]: oldValue },
-          next: { [field]: value }
-        })
-      }
+      // 后端已自动推入撤销栈
 
       // 乐观更新
       const oldMessages = [...this.messages]
@@ -536,15 +515,7 @@ export const useEditorStore = defineStore('editor', {
           msg.signals[sigIdx] = result
         }
 
-        // API 成功后入栈（使用后端返回的真实 UUID）
-        if (result && result.uuid) {
-          this.pushUndo({
-            type: 'signal_add',
-            msgId: this.selectedMsgId,
-            sigUuid: result.uuid,
-            data: result
-          })
-        }
+        // 后端已自动推入撤销栈
 
         useUiStore().showToast(t('toast.signalAdded'))
         this.loadSignalErrors()
@@ -580,16 +551,7 @@ export const useEditorStore = defineStore('editor', {
       const oldValStr = oldVal != null ? String(oldVal) : ''
       const newValStr = value != null ? String(value) : ''
 
-      // 值变化时入栈（乐观更新之前）
-      if (oldValStr !== newValStr) {
-        this.pushUndo({
-          type: 'signal_update',
-          msgId: this.selectedMsgId,
-          sigUuid,
-          prev: { [field]: oldVal },
-          next: { [field]: value }
-        })
-      }
+      // 后端已自动推入撤销栈
 
       sig[field] = value
       markModified(this)
@@ -614,11 +576,10 @@ export const useEditorStore = defineStore('editor', {
     async deleteSignal(sigUuid) {
       if (this.selectedMsgId == null) return
 
+      // 后端已自动推入撤销栈
+
       const msg = this.selectedMessage
       const sig = msg ? msg.signals.find(s => s.uuid === sigUuid) : null
-      if (sig) {
-        this.pushUndo({ type: 'signal_delete', msgId: this.selectedMsgId, data: JSON.parse(JSON.stringify(sig)) })
-      }
 
       // 乐观更新
       if (msg) {
@@ -727,14 +688,7 @@ export const useEditorStore = defineStore('editor', {
         )
         await Promise.all(promises)
 
-        // API 成功后入栈（仅对成功创建的信号）
-        if (results.length > 0) {
-          this.pushUndo({
-            type: 'batch_signal_add',
-            msgId: this.selectedMsgId,
-            signals: results
-          })
-        }
+        // 后端已自动推入撤销栈
 
         useUiStore().showToast(t('toast.batchCreated', { count: created }))
       } catch (e) {

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 
-from core.can_database import CanDatabase
+from models import CanDatabase
 
 
 def save_json(database: CanDatabase, filepath: str) -> None:

@@ -9,7 +9,7 @@ import os
 import xml.etree.ElementTree as ET
 from xml.dom import minidom
 
-from core.can_database import CanDatabase, Message, Signal
+from models import CanDatabase, Message, Signal
 
 
 def save_xml(database: CanDatabase, filepath: str) -> None:
