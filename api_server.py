@@ -12,6 +12,8 @@ CanMatrix Editor - REST API Server
 
 import json
 import os
+import signal
+import atexit
 import sys
 import threading
 import time
@@ -1719,6 +1721,46 @@ def main() -> None:
     server = HTTPServer(("localhost", port), ApiHandler)
     print(f"\nCanMatrix Editor API server running at http://localhost:{port}")
     print("Press Ctrl+C to stop.")
+    
+    # ── 优雅关闭机制（Graceful Shutdown） ──
+    
+    def save_all_sessions():
+        """保存所有活跃会话（优雅关闭）。"""
+        print("\n[INFO] Saving all active sessions...")
+        saved_count = 0
+        failed_count = 0
+        for sid in list(SESSION_MGR._sessions.keys()):
+            try:
+                session = SESSION_MGR.get(sid)
+                if session and session.db.modified:
+                    SESSION_MGR.save(sid)
+                    print(f"  ✅ Saved session {sid[:8]}... ({session.db.name})")
+                    saved_count += 1
+                else:
+                    print(f"  ⏭️  Skipped session {sid[:8]}... (no changes)")
+            except Exception as e:
+                print(f"  ❌ Failed to save {sid[:8]}: {e}")
+                failed_count += 1
+        
+        if saved_count > 0 or failed_count > 0:
+            print(f"\n[INFO] Save complete: {saved_count} saved, {failed_count} failed")
+        else:
+            print(f"\n[INFO] No modified sessions to save.")
+    
+    # 注册退出处理器（进程正常退出时触发）
+    atexit.register(save_all_sessions)
+    
+    # 注册信号处理器（捕获 Ctrl+C 和 kill 信号）
+    def graceful_shutdown(signum, frame):
+        signal_name = "SIGINT" if signum == signal.SIGINT else "SIGTERM"
+        print(f"\n[INFO] Received {signal_name} signal, initiating graceful shutdown...")
+        sys.exit(0)  # 触发 atexit
+    
+    # 跨平台信号注册（Windows 支持 SIGINT，Unix 支持 SIGTERM）
+    signal.signal(signal.SIGINT, graceful_shutdown)
+    if hasattr(signal, 'SIGTERM'):
+        signal.signal(signal.SIGTERM, graceful_shutdown)
+    
     try:
         server.serve_forever()
     except KeyboardInterrupt:
