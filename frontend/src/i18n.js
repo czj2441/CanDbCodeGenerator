@@ -17,6 +17,10 @@ const dict = {
     'topbar.newConfirmCreate': '创建新会话',
     'topbar.newNamePlaceholder': '输入会话名称...',
     'topbar.back': '返回文件列表',
+    'topbar.importConfirmTitle': '确认导入',
+    'topbar.importConfirmDesc': '导入将替换当前会话的所有数据，是否继续？',
+    'topbar.importConfirmCancel': '取消',
+    'topbar.importConfirmImport': '导入',
 
     // FileBrowser
     'browser.title': '选择文件',
@@ -208,6 +212,10 @@ const dict = {
     'topbar.newConfirmCreate': 'Create New',
     'topbar.newNamePlaceholder': 'Enter session name...',
     'topbar.back': 'Back to file list',
+    'topbar.importConfirmTitle': 'Confirm Import',
+    'topbar.importConfirmDesc': 'Importing will replace all data in the current session. Continue?',
+    'topbar.importConfirmCancel': 'Cancel',
+    'topbar.importConfirmImport': 'Import',
 
     // FileBrowser
     'browser.title': 'Select File',

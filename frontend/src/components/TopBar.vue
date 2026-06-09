@@ -50,6 +50,31 @@
       </div>
     </Transition>
   </Teleport>
+
+  <!-- Import Confirm Dialog -->
+  <Teleport to="body">
+    <Transition name="fade">
+      <div v-if="importConfirmOpen" class="confirm-overlay" @click="importConfirmOpen = false">
+        <div class="confirm-box" @click.stop>
+          <h4>{{ t('topbar.importConfirmTitle') || '确认导入' }}</h4>
+          <p>{{ t('topbar.importConfirmDesc') || '导入将替换当前会话的所有数据，是否继续？' }}</p>
+          <div class="confirm-actions">
+            <button class="btn" @click="importConfirmOpen = false">{{ t('topbar.importConfirmCancel') || '取消' }}</button>
+            <button class="btn btn-accent" @click="confirmImport">{{ t('topbar.importConfirmImport') || '导入' }}</button>
+          </div>
+        </div>
+      </div>
+    </Transition>
+  </Teleport>
+
+  <!-- Hidden file input -->
+  <input
+    ref="fileInput"
+    type="file"
+    accept=".dbc,.toml,.json"
+    style="display: none"
+    @change="handleFileSelect"
+  />
 </template>
 
 <script setup>
@@ -64,6 +89,9 @@ defineEmits(['back'])
 const store = useEditorStore()
 const ui = useUiStore()
 const newSessionName = ref('')
+const fileInput = ref(null)
+const importConfirmOpen = ref(false)
+const pendingFile = ref(null)
 
 // 直接使用 store.currentFileName，避免本地 ref 与 store 状态不一致
 function handleKeydown(event) {
@@ -116,9 +144,65 @@ function rename(event) {
   store.renameSession(name)
 }
 
-function importFile() {
-  const ui = useUiStore()
-  ui.showToast('导入功能开发中', true)
+async function importFile() {
+  // 触发文件选择对话框
+  if (fileInput.value) {
+    fileInput.value.click()
+  }
+}
+
+async function handleFileSelect(event) {
+  const file = event.target.files[0]
+  if (!file) return
+
+  // 重置 file input，允许重复选择同一文件
+  event.target.value = ''
+
+  // 检测文件格式
+  const ext = file.name.split('.').pop().toLowerCase()
+  const supportedFormats = ['dbc', 'toml', 'json']
+  
+  if (!supportedFormats.includes(ext)) {
+    ui.showToast(`不支持的文件格式: .${ext}，支持 .dbc, .toml, .json`, true)
+    return
+  }
+
+  // 保存待导入文件信息
+  pendingFile.value = { file, format: ext }
+  
+  // 显示确认对话框
+  importConfirmOpen.value = true
+}
+
+async function confirmImport() {
+  if (!pendingFile.value) return
+  
+  const { file, format } = pendingFile.value
+  importConfirmOpen.value = false
+  
+  try {
+    ui.setLoading(true)
+    
+    // 读取文件内容
+    const content = await file.text()
+    
+    // 调用导入 API
+    const data = await api('POST', '/api/import', {
+      format: format,
+      content: content,
+      filename: file.name
+    })
+    
+    // 刷新会话数据
+    await store.loadMessages()
+    
+    ui.showToast(`成功导入 ${file.name}（${data.message_count || 0} 个报文）`, false)
+  } catch (e) {
+    ui.showToast(`导入失败: ${e.message}`, true)
+  } finally {
+    ui.setLoading(false)
+    pendingFile.value = null
+  }
 }
 
 async function exportFile(fmt) {
