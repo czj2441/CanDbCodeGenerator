@@ -447,85 +447,60 @@ class CanDatabase:
     # ── DBC 序列化 ──
 
     def to_dbc_str(self) -> str:
-        """导出为 DBC 格式字符串。"""
+        """导出为 DBC 格式字符串（使用 cantools 库）。"""
+        import cantools.database
+        from cantools.database.conversion import IdentityConversion, LinearConversion
+        
         with self.__lock:
-            lines = []
-            lines.append("VERSION \"\"")
-            lines.append("")
-            lines.append("NS_ :")
-            lines.append("    NS_DESC_")
-            lines.append("    CM_")
-            lines.append("    BA_DEF_")
-            lines.append("    BA_")
-            lines.append("    VAL_")
-            lines.append("    CAT_DEF_")
-            lines.append("    CAT_")
-            lines.append("    FILTER")
-            lines.append("    BA_DEF_DEF_")
-            lines.append("    EV_DATA_")
-            lines.append("    ENVVAR_DATA_")
-            lines.append("    SGTYPE_")
-            lines.append("    SGTYPE_VAL_")
-            lines.append("    BA_DEF_SGTYPE_")
-            lines.append("    BA_SGTYPE_")
-            lines.append("    SIG_TYPE_REF_")
-            lines.append("    VAL_TABLE_")
-            lines.append("    SIG_GROUP_")
-            lines.append("    SIG_VALTYPE_")
-            lines.append("    SIGTYPE_VALTYPE_")
-            lines.append("    BO_TX_BU_")
-            lines.append("    BA_DEF_REL_")
-            lines.append("    BA_REL_")
-            lines.append("    BA_DEF_DEF_REL_")
-            lines.append("    BU_SG_REL_")
-            lines.append("    BU_EV_REL_")
-            lines.append("    BU_BO_REL_")
-            lines.append("    SG_MUL_VAL_")
-            lines.append("")
-
-            # BU_: 网络节点
-            lines.append("BU_: ECU1 ECU2 BMS")
-            lines.append("")
-
-            # BO_: 报文定义
-            for mid in sorted(self.messages):
-                msg = self.messages[mid]
-                # BO_ <id> <name>: <dlc> <sender>
-                sender = msg.sender if msg.sender else "ECU1"
-                lines.append(f"BO_ {mid} {msg.name}: {msg.dlc} {sender}")
-
-                # 信号定义
+            # 构建 cantools database 对象
+            can_db = cantools.database.Database()
+            
+            for msg in sorted(self.messages.values(), key=lambda m: m.id):
+                can_signals = []
+                
                 for sig in msg.signals:
-                    # SG_ <name> : <start_bit>|<length>@<byte_order><sign> (<factor>,<offset>) [<min>|<max>] "<unit>" <receivers>
-                    byte_order = 1 if sig.byte_order == "motorola" else 0
-                    sign = "-" if sig.is_signed else "+"
-                    factor = sig.factor if sig.factor != 1.0 else 1
-                    offset = sig.offset if sig.offset != 0.0 else 0
-                    min_val = sig.min_val if sig.min_val != 0.0 else 0
-                    max_val = sig.max_val if sig.max_val != 0.0 else 0
-                    unit = sig.unit if sig.unit else ""
-                    receivers = ",".join(sig.receivers) if sig.receivers else "Vector__XXX"
-
-                    lines.append(f" SG_ {sig.name} : {sig.start_bit}|{sig.length}@{byte_order}{sign} ({factor},{offset}) [{min_val}|{max_val}] \"{unit}\" {receivers}")
-
-                lines.append("")
-
-            # VAL_: 信号值描述（可选）
-            for mid in sorted(self.messages):
-                msg = self.messages[mid]
-                for sig in msg.signals:
-                    if sig.comment:
-                        # CM_ SG_ <message_id> <signal_name> "<comment>";
-                        lines.append(f"CM_ SG_ {mid} {sig.name} \"{self._escape_dbc_string(sig.comment)}\"")
-
-            # 报文注释
-            for mid in sorted(self.messages):
-                msg = self.messages[mid]
-                if msg.comment:
-                    lines.append(f"CM_ BO_ {mid} \"{self._escape_dbc_string(msg.comment)}\"")
-
-            lines.append("")
-            return "\n".join(lines)
+                    # 确定转换类型
+                    if sig.factor == 1.0 and sig.offset == 0.0:
+                        conversion = IdentityConversion(is_float=False)
+                    else:
+                        conversion = LinearConversion(
+                            scale=sig.factor,
+                            offset=sig.offset,
+                            is_float=False,
+                        )
+                    
+                    # 构建 cantools Signal
+                    can_sig = cantools.database.Signal(
+                        name=sig.name,
+                        start=sig.start_bit,
+                        length=sig.length,
+                        # cantools 要求 byte_order 为 'little_endian' 或 'big_endian'
+                        byte_order="big_endian" if sig.byte_order == "motorola" else "little_endian",
+                        is_signed=sig.is_signed,
+                        unit=sig.unit if sig.unit else None,
+                        minimum=sig.min_val if sig.min_val != 0.0 else None,
+                        maximum=sig.max_val if sig.max_val != 0.0 else None,
+                        comment=sig.comment if sig.comment else None,
+                        receivers=sig.receivers[:] if sig.receivers else [],
+                        conversion=conversion,
+                        is_multiplexer=(sig.multiplexer_mode == "multiplexer"),
+                        multiplexer_ids=[sig.multiplexer_value] if sig.multiplexer_mode == "multiplexed" else None,
+                    )
+                    can_signals.append(can_sig)
+                
+                can_msg = cantools.database.Message(
+                    frame_id=msg.id,
+                    name=msg.name,
+                    length=msg.dlc,
+                    signals=can_signals,
+                    comment=msg.comment if msg.comment else None,
+                    senders=[sender] if (sender := msg.sender) else [],
+                    cycle_time=msg.cycle_time if msg.cycle_time > 0 else None,
+                )
+                can_db.messages.append(can_msg)
+            
+            # 使用 cantools 导出为标准 DBC 字符串
+            return can_db.as_dbc_string()
 
     def _escape_dbc_string(self, s: str) -> str:
         """转义 DBC 字符串中的特殊字符。"""
