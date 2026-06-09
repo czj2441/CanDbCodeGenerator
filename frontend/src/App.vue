@@ -75,11 +75,24 @@ onMounted(() => {
     }
   )
 
-  // 页面关闭/刷新时使用 sendBeacon 释放文件锁（比异步 fetch 更可靠）
-  beforeUnloadHandler = () => {
+  // 页面关闭/刷新时：保存数据 + 释放文件锁 + 确认对话框
+  beforeUnloadHandler = (e) => {
     const sid = getSessionId()
+    
+    // 无论是否有修改，都释放文件锁（必须优先执行）
     if (sid) {
       navigator.sendBeacon('/api/release?sid=' + encodeURIComponent(sid))
+    }
+    
+    // 如果有未保存的修改，弹出确认对话框
+    if (sid && store.modified) {
+      // 尝试保存数据（sendBeacon 不支持自定义请求头，使用 URL 参数）
+      navigator.sendBeacon('/api/save?sid=' + encodeURIComponent(sid))
+      
+      // 弹出确认对话框（防止误关闭/刷新）
+      e.preventDefault()
+      e.returnValue = '您有未保存的更改，确定要离开吗？'
+      return e.returnValue
     }
   }
   window.addEventListener('beforeunload', beforeUnloadHandler)

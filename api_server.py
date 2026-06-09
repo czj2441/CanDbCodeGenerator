@@ -1069,8 +1069,16 @@ class ApiHandler(BaseHTTPRequestHandler):
         
         立即保存会话数据，成功后重置 modified 标志。
         用于用户主动触发保存（Ctrl+S 或点击保存按钮）。
+z        支持从 X-Session-Id 请求头或 URL 查询参数 ?sid=xxx 读取 session ID，
+        以便 navigator.sendBeacon() 使用（beacon 不支持自定义请求头）。
         """
         session_id = self.headers.get("X-Session-Id", "")
+        if not session_id:
+            # 支持从 URL 查询参数读取（用于 sendBeacon）
+            params = self._url_params()
+            sid_list = params.get("sid", [])
+            if sid_list:
+                session_id = sid_list[0]
         if not session_id:
             self._send_json(400, _resp(False, error="Session ID required"))
             return
