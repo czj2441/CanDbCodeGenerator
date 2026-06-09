@@ -10,7 +10,7 @@
     <button class="btn" @click="openHistory">{{ t('topbar.history') }}</button>
     <button class="btn" @click="importFile">{{ t('topbar.import') }}</button>
     <button class="btn btn-accent" @click="exportFile('dbc')">{{ t('topbar.export') }}</button>
-    <button class="btn" @click="save">{{ t('topbar.save') }}</button>
+    <button class="btn" @click="save" :disabled="!store.modified" title="保存 (Ctrl+S)">{{ t('topbar.save') }}</button>
     <span class="topbar-spacer"></span>
     <button class="btn btn-icon" @click="ui.toggleLocale" title="切换语言">{{ ui.locale === 'zh' ? '中' : 'EN' }}</button>
     <button class="btn btn-icon" @click="ui.toggleTheme" title="切换主题">{{ ui.theme === 'dark' ? '☀' : '☾' }}</button>
@@ -108,6 +108,9 @@ function handleKeydown(event) {
     } else if (event.key === 'y' || event.key === 'Y') {
       event.preventDefault()
       store.redo()
+    } else if (event.key === 's' || event.key === 'S') {
+      event.preventDefault()
+      save()
     }
   }
 }
@@ -245,9 +248,20 @@ async function exportFile(fmt) {
   }
 }
 
-function save() {
-  const ui = useUiStore()
-  ui.showToast('保存功能开发中', true)
+async function save() {
+  try {
+    ui.setLoading(true)
+    const success = await store.saveSession()
+    if (success) {
+      ui.showToast('保存成功', false)
+    } else {
+      ui.showToast('保存失败', true)
+    }
+  } catch (e) {
+    ui.showToast(`保存失败: ${e.message}`, true)
+  } finally {
+    ui.setLoading(false)
+  }
 }
 </script>
 

@@ -216,6 +216,23 @@ export const useEditorStore = defineStore('editor', {
     // ── 报文加载与选择 ──
 
     /**
+     * 手动保存当前会话
+     * 调用后端 POST /api/save 立即保存数据到磁盘
+     * @returns {Promise<boolean>} 保存是否成功
+     */
+    async saveSession() {
+      try {
+        await api('POST', '/api/save')
+        this.modified = false
+        this.modifiedAt = 0
+        return true
+      } catch (e) {
+        console.error('Failed to save session:', e)
+        return false
+      }
+    },
+
+    /**
      * 加载所有报文列表
      * 如果已选择报文，则同时加载选中报文的详细信息
      * @returns {Promise<void>}

@@ -802,6 +802,8 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._post_import()
         elif parts == ["api", "export"]:
             self._post_export()
+        elif parts == ["api", "save"]:
+            self._post_save()
         elif parts == ["api", "release"]:
             self._post_release()
         elif parts == ["api", "heartbeat"]:
@@ -1061,6 +1063,27 @@ class ApiHandler(BaseHTTPRequestHandler):
             "name": new_db.name,
             "session_id": new_session_id,
         }))
+
+    def _post_save(self) -> None:
+        """POST /api/save - 手动保存当前会话到磁盘。
+        
+        立即保存会话数据，成功后重置 modified 标志。
+        用于用户主动触发保存（Ctrl+S 或点击保存按钮）。
+        """
+        session_id = self.headers.get("X-Session-Id", "")
+        if not session_id:
+            self._send_json(400, _resp(False, error="Session ID required"))
+            return
+        
+        try:
+            success = SESSION_MGR.save(session_id)
+            if success:
+                self._send_json(200, _resp(True, data={"message": "保存成功"}))
+            else:
+                self._send_json(500, _resp(False, error="保存失败：会话不存在"))
+        except Exception as e:
+            print(f"[ERROR] save failed: {e}")
+            self._send_json(500, _resp(False, error=f"保存失败: {str(e)}"))
 
     def _post_release(self) -> None:
         """POST /api/release - 主动释放当前 session 的文件锁。
