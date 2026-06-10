@@ -2,9 +2,6 @@ const API_BASE = import.meta.env.DEV ? '' : 'http://localhost:8080'
 
 let currentSessionId = sessionStorage.getItem('canmatrix_session_id') || ''
 
-const RECENT_KEY = 'canmatrix_recent_sessions'
-const RECENT_MAX = 10
-
 // ── 多标签页冲突检测 ──
 
 const TAB_CHANNEL = new BroadcastChannel('canmatrix_tab_sync')
@@ -104,30 +101,6 @@ export function clearSession() {
   currentSessionId = ''
   sessionStorage.removeItem('canmatrix_session_id')
   sessionStorage.removeItem('canmatrix_file_name')
-}
-
-export function addRecentSession(id, fileName) {
-  if (!id) return
-  const raw = localStorage.getItem(RECENT_KEY) || '[]'
-  let list = []
-  try { list = JSON.parse(raw) } catch (_) {}
-  list = list.filter(item => item.session_id !== id)
-  list.unshift({ session_id: id, file_name: fileName || '', timestamp: Date.now() })
-  if (list.length > RECENT_MAX) list = list.slice(0, RECENT_MAX)
-  localStorage.setItem(RECENT_KEY, JSON.stringify(list))
-}
-
-export function getRecentSessions() {
-  const raw = localStorage.getItem(RECENT_KEY) || '[]'
-  try { return JSON.parse(raw) } catch (_) { return [] }
-}
-
-export function removeRecentSession(id) {
-  const raw = localStorage.getItem(RECENT_KEY) || '[]'
-  let list = []
-  try { list = JSON.parse(raw) } catch (_) {}
-  list = list.filter(item => item.session_id !== id)
-  localStorage.setItem(RECENT_KEY, JSON.stringify(list))
 }
 
 export class ApiError extends Error {

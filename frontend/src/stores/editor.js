@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { api, setSessionId, clearSession, addRecentSession, removeRecentSession, getSessionId } from '../api/client.js'
+import { api, setSessionId, clearSession, getSessionId } from '../api/client.js'
 import { t } from '../i18n.js'
 import { markModified } from '../utils/storeHelpers.js'
 import { useUiStore } from './uiStore.js'
@@ -137,7 +137,6 @@ export const useEditorStore = defineStore('editor', {
 
     // ── 会话与文件 ──
     currentFileName: '',
-    sessionHistory: [],
 
     // ── 运行时状态 ──
     isLoading: false,
@@ -303,7 +302,6 @@ export const useEditorStore = defineStore('editor', {
       try {
         const session = await api('POST', '/api/session', { name: 'DemoCAN' })
         setSessionId(session.session_id)
-        addRecentSession(session.session_id, session.file_name || '')
         this.currentFileName = session.file_name || ''
         this.clearUndoStack() // 新会话初始化时清空撤销栈
 
@@ -885,19 +883,8 @@ export const useEditorStore = defineStore('editor', {
       this.logEntries = []
     },
 
-    // ── Session History ──
-
-    async loadSessionHistory() {
-      try {
-        const data = await api('GET', '/api/sessions')
-        this.sessionHistory = data || []
-      } catch (e) {
-        useUiStore().showToast(e.message, true)
-      }
-    },
-
     /**
-     * 加载历史会话
+     * 加载会话
      * @param {string} sessionId - 会话 ID
      * @returns {Promise<void>}
      */
@@ -917,7 +904,6 @@ export const useEditorStore = defineStore('editor', {
         const data = await api('POST', `/api/session/${sessionId}/load`, null, { 'X-Session-Id': currentSid })
         const sid = data.session_id
         setSessionId(sid)
-        addRecentSession(sid, data.file_name || '')
         this.currentFileName = data.file_name || ''
 
         // 异步加载消息列表，不阻塞 UI
@@ -933,17 +919,6 @@ export const useEditorStore = defineStore('editor', {
         throw e  // 重新抛出，让调用方处理
       } finally {
         this.isLoading = false
-      }
-    },
-
-    async deleteHistorySession(sessionId) {
-      try {
-        await api('DELETE', `/api/session/${sessionId}`)
-        this.sessionHistory = this.sessionHistory.filter(s => s.session_id !== sessionId)
-        removeRecentSession(sessionId)
-        useUiStore().showToast(t('toast.sessionDeleted'))
-      } catch (e) {
-        useUiStore().showToast(e.message, true)
       }
     },
 
@@ -963,7 +938,6 @@ export const useEditorStore = defineStore('editor', {
         const data = await api('POST', '/api/new', { name })
         const sid = data.session_id
         setSessionId(sid)
-        addRecentSession(sid, data.name + '.toml')
         this.currentFileName = data.name + '.toml'
         this.selectedMsgId = null
         this.messageCache = {}
@@ -985,7 +959,6 @@ export const useEditorStore = defineStore('editor', {
       const data = await api('POST', '/api/new', { name })
       const sid = data.session_id
       setSessionId(sid)
-      addRecentSession(sid, data.name + '.toml')
       this.currentFileName = data.name + '.toml'
       this.selectedMsgId = null
       this.messageCache = {}

@@ -2,7 +2,6 @@ const dict = {
   zh: {
     // TopBar
     'topbar.new': '新建',
-    'topbar.history': '历史',
     'topbar.import': '导入',
     'topbar.export': '导出',
     'topbar.save': '保存',
@@ -129,11 +128,6 @@ const dict = {
     'batch.create': '创建',
 
     // HistoryModal
-    'history.title': '会话历史',
-    'history.empty': '未找到历史会话。',
-    'history.delete': '删除',
-    'history.deleteConfirm': '永久删除此会话？',
-
     // ContextMenu
     'ctx.copySignal': '复制信号',
     'ctx.cutSignal': '剪切信号',
@@ -197,7 +191,6 @@ const dict = {
   en: {
     // TopBar
     'topbar.new': 'New',
-    'topbar.history': 'History',
     'topbar.import': 'Import',
     'topbar.export': 'Export',
     'topbar.save': 'Save',
@@ -324,11 +317,6 @@ const dict = {
     'batch.create': 'Create',
 
     // HistoryModal
-    'history.title': 'Session History',
-    'history.empty': 'No history sessions found.',
-    'history.delete': 'Delete',
-    'history.deleteConfirm': 'Delete this session permanently?',
-
     // ContextMenu
     'ctx.copySignal': 'Copy Signal',
     'ctx.cutSignal': 'Cut Signal',

@@ -7,7 +7,6 @@
     <button class="btn" @click="store.undo()" :disabled="!store.canUndo" title="撤销 (Ctrl+Z)">{{ t('topbar.undo') }}</button>
     <button class="btn" @click="store.redo()" :disabled="!store.canRedo" title="重做 (Ctrl+Y)">{{ t('topbar.redo') || '重做' }}</button>
     <button class="btn" @click="onNew">{{ t('topbar.new') }}</button>
-    <button class="btn" @click="openHistory">{{ t('topbar.history') }}</button>
     <button class="btn" @click="importFile">{{ t('topbar.import') }}</button>
     <button class="btn btn-accent" @click="exportFile('dbc')">{{ t('topbar.export') }}</button>
     <button class="btn" @click="save" :disabled="!store.modified" title="保存 (Ctrl+S)">{{ t('topbar.save') }}</button>
@@ -133,11 +132,6 @@ function confirmNew() {
   ui.newConfirmOpen = false
   const name = newSessionName.value.trim() || 'Untitled'
   store.createNewSession(name)
-}
-
-function openHistory() {
-  store.loadSessionHistory()
-  ui.historyModalOpen = true
 }
 
 function rename(event) {

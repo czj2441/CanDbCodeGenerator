@@ -18,7 +18,6 @@
       <BatchModal v-model:visible="ui.batchModalOpen" />
       <LoadingOverlay />
       <ContextMenu :items="contextMenuItems" />
-      <HistoryModal />
     </template>
     <!-- Toast 在所有模式下都渲染 -->
     <Toast />
@@ -42,7 +41,6 @@ import BatchModal from './components/BatchModal.vue'
 import LoadingOverlay from './components/LoadingOverlay.vue'
 import Toast from './components/Toast.vue'
 import ContextMenu from './components/ContextMenu.vue'
-import HistoryModal from './components/HistoryModal.vue'
 import LogPanel from './components/LogPanel.vue'
 
 const store = useEditorStore()

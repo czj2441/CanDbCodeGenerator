@@ -9,7 +9,6 @@ export const useUiStore = defineStore('ui', {
     contextMenu: { visible: false, x: 0, y: 0, target: null, idx: null },
     // Modal 状态
     batchModalOpen: false,
-    historyModalOpen: false,
     newConfirmOpen: false,
     // 视图状态
     layoutViewMode: false,
