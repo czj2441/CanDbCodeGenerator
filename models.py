@@ -509,14 +509,14 @@ class CanDatabase:
         for m_dict in data.get("messages", []):
             mid_raw = m_dict["id"]
             mid = int(mid_raw, 16) if isinstance(mid_raw, str) and mid_raw.startswith("0x") else int(mid_raw)
-            msg = Message({
-                "id": mid,
-                "name": m_dict.get("name", ""),
-                "dlc": m_dict.get("dlc", 8),
-                "cycle_time": m_dict.get("cycle_time", 0),
-                "sender": m_dict.get("sender", ""),
-                "comment": m_dict.get("comment", ""),
-            })
+            msg = Message(
+                id=mid,
+                name=m_dict.get("name", ""),
+                dlc=m_dict.get("dlc", 8),
+                cycle_time=m_dict.get("cycle_time", 0),
+                sender=m_dict.get("sender", ""),
+                comment=m_dict.get("comment", ""),
+            )
             for s_dict in m_dict.get("signals", []):
                 msg.signals.append(Signal.from_dict(s_dict))
             db.messages[mid] = msg
