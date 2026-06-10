@@ -139,9 +139,9 @@ async function createNewFile() {
 }
 
 // 返回文件浏览器
-function goBack() {
-  // 释放文件锁
-  store.releaseSession()
+async function goBack() {
+  // 释放文件锁（等待完成后再切换模式）
+  await store.releaseSession()
   // 清理编辑器状态
   store.clearUndoStack()
   store.selectedMsgId = null

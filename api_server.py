@@ -142,7 +142,7 @@ class ApiHandler(BaseHTTPRequestHandler):
         """
         session_id = self.headers.get("X-Session-Id", "")
         if session_id:
-            s = SESSION_MGR.restore(session_id)
+            s = SESSION_MGR.get(session_id)
             if s:
                 return s.db
         # 降级：无 session 时使用匿名临时 DB
