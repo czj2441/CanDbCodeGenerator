@@ -508,7 +508,7 @@ export const useEditorStore = defineStore('editor', {
       // 异步发送 API 请求，不阻塞 UI
       try {
         await api('POST', '/api/messages', {
-          id: `0x${id.toString(16)}`, name,
+          id, name,
           dlc: 8, cycle_time: 0, sender: '', signals: [],
         })
 

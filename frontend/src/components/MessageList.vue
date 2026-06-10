@@ -12,7 +12,7 @@
         :class="{ active: store.selectedMsgId === m.id }"
         @click="store.selectMessage(m.id)"
       >
-        <span class="message-id">{{ m.id_hex }}</span>
+        <span class="message-id">{{ m.id_hex || toHex(m.id) }}</span>
         <span class="message-name">{{ m.name || t('msglist.unnamed') }}</span>
         <span class="message-signal-count">{{ m.signal_count }}s</span>
       </div>
@@ -25,6 +25,7 @@
 <script setup>
 import { useEditorStore } from '../stores/editor.js'
 import { t } from '../i18n.js'
+import { toHex } from '../utils/format.js'
 const store = useEditorStore()
 </script>
 
