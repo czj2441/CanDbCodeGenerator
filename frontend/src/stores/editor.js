@@ -4,6 +4,130 @@ import { t } from '../i18n.js'
 import { markModified } from '../utils/storeHelpers.js'
 import { useUiStore } from './uiStore.js'
 
+// ═══════════════════════════════════════════════════════════════════════════
+// API 请求队列工具类（内联避免 Tree Shaking 问题）
+// ═══════════════════════════════════════════════════════════════════════════
+
+class ApiQueue {
+  constructor({ debounceDelay = 500, timeout = 5000 } = {}) {
+    this.debounceDelay = debounceDelay
+    this.timeout = timeout
+    this.queues = new Map()
+    this.debounceTimers = new Map()
+    this.activeRequests = new Map()
+  }
+
+  enqueue(key, apiCall, fallbackValue, onRollback) {
+    const existingTimer = this.debounceTimers.get(key)
+    if (existingTimer) clearTimeout(existingTimer)
+
+    let entry = this.queues.get(key)
+    if (!entry) {
+      entry = { key, pending: [], running: false }
+      this.queues.set(key, entry)
+    }
+
+    return new Promise((resolve, reject) => {
+      entry.pending.push({ apiCall, fallbackValue, onRollback, resolve, reject })
+
+      const timerId = setTimeout(() => {
+        this.debounceTimers.delete(key)
+        this._executeQueue(key)
+      }, this.debounceDelay)
+
+      this.debounceTimers.set(key, timerId)
+    })
+  }
+
+  async _executeQueue(key) {
+    const entry = this.queues.get(key)
+    if (!entry || entry.pending.length === 0) {
+      this.queues.delete(key)
+      return
+    }
+    if (entry.running) return
+
+    entry.running = true
+    const lastRequest = entry.pending[entry.pending.length - 1]
+
+    for (let i = 0; i < entry.pending.length - 1; i++) {
+      entry.pending[i].resolve({ skipped: true, reason: 'debounced' })
+    }
+    entry.pending = [lastRequest]
+
+    try {
+      const result = await this._executeWithTimeout(key, lastRequest)
+      lastRequest.resolve(result)
+    } catch (error) {
+      lastRequest.onRollback(lastRequest.fallbackValue)
+      lastRequest.reject(error)
+    } finally {
+      entry.running = false
+      entry.pending = []
+      if (entry.pending.length > 0) {
+        this._executeQueue(key)
+      } else {
+        this.queues.delete(key)
+      }
+    }
+  }
+
+  _executeWithTimeout(key, request) {
+    return new Promise((resolve, reject) => {
+      const timeoutTimer = setTimeout(() => {
+        this.activeRequests.delete(key)
+        reject(new Error(`API request timeout after ${this.timeout}ms (key: ${key})`))
+      }, this.timeout)
+
+      this.activeRequests.set(key, { timeoutTimer })
+
+      request.apiCall()
+        .then(result => {
+          this.activeRequests.delete(key)
+          clearTimeout(timeoutTimer)
+          resolve(result)
+        })
+        .catch(error => {
+          this.activeRequests.delete(key)
+          clearTimeout(timeoutTimer)
+          reject(error)
+        })
+    })
+  }
+
+  cleanup() {
+    for (const [key, timerId] of this.debounceTimers) clearTimeout(timerId)
+    this.debounceTimers.clear()
+    for (const [key, activeReq] of this.activeRequests) clearTimeout(activeReq.timeoutTimer)
+    this.activeRequests.clear()
+    for (const [key, entry] of this.queues) {
+      for (const req of entry.pending) req.reject(new Error('Queue cleaned up'))
+    }
+    this.queues.clear()
+    console.log('[ApiQueue] cleanup() completed')
+  }
+
+  getStatus() {
+    return {
+      queueCount: this.queues.size,
+      activeRequestCount: this.activeRequests.size,
+      debounceTimerCount: this.debounceTimers.size,
+      queues: Array.from(this.queues.keys()),
+    }
+  }
+}
+
+// ── 全局 API 队列单例 ──
+const apiQueue = new ApiQueue({
+  debounceDelay: 500,  // 500ms 防抖（与自动保存一致）
+  timeout: 5000,       // 5s 超时
+})
+
+// 暴露到全局便于调试
+if (typeof window !== 'undefined') {
+  window.__apiQueue__ = apiQueue
+}
+
 export const useEditorStore = defineStore('editor', {
   state: () => ({
     // ── 核心数据 ──
@@ -48,6 +172,10 @@ export const useEditorStore = defineStore('editor', {
   },
 
   actions: {
+    // ═══════════════════════════════════════════
+    // 区域 0：初始化（Initialization）
+    // ═══════════════════════════════════════════
+
     // ═══════════════════════════════════════════
     // 区域 C：撤销/重做（Undo/Redo）- 后端管理
     // ═══════════════════════════════════════════
@@ -120,7 +248,7 @@ export const useEditorStore = defineStore('editor', {
 
     /**
      * 清空撤销/重做栈（切换会话时调用）
-     * 同时清理 modified 定时器
+     * 同时清理 modified 定时器和 API 队列
      */
     clearUndoStack() {
       this._syncUndoRedoCounts()
@@ -128,6 +256,10 @@ export const useEditorStore = defineStore('editor', {
       if (this._modifiedTimer) {
         clearTimeout(this._modifiedTimer)
         this._modifiedTimer = null
+      }
+      // 清理 API 队列（防止内存泄漏）
+      if (apiQueue) {
+        apiQueue.cleanup()
       }
     },
 
@@ -456,14 +588,23 @@ export const useEditorStore = defineStore('editor', {
       this.modified = true
       this.modifiedAt = Date.now()
 
-      // 异步发送
+      // 使用 API 队列（防抖 + 队列 + 超时）
+      const queueKey = `message_${this.selectedMsgId}_${field}`
       try {
-        await api('PUT', `/api/messages/${this.selectedMsgId}`, { [field]: value })
+        await apiQueue.enqueue(
+          queueKey,
+          () => api('PUT', `/api/messages/${this.selectedMsgId}`, { [field]: value }),
+          { oldMessages, oldCache },  // fallbackValue
+          (fallback) => {  // onRollback
+            this.messages = fallback.oldMessages
+            this.messageCache[this.selectedMsgId] = fallback.oldCache
+          }
+        )
       } catch (e) {
-        // 回滚
-        this.messages = oldMessages
-        this.messageCache[this.selectedMsgId] = oldCache
-        useUiStore().showToast(e.message, true)
+        // 回滚已由 onRollback 执行
+        if (!e.message.includes('Queue cleaned up')) {
+          useUiStore().showToast(e.message, true)
+        }
       }
     },
 
@@ -556,14 +697,21 @@ export const useEditorStore = defineStore('editor', {
       sig[field] = value
       markModified(this)
 
-      // 异步发送
+      // 使用 API 队列（防抖 + 队列 + 超时）
+      const queueKey = `signal_${sigUuid}_${field}`
       try {
-        await api('PUT', `/api/messages/${this.selectedMsgId}/signals/${sigUuid}`, { [field]: value })
+        await apiQueue.enqueue(
+          queueKey,
+          () => api('PUT', `/api/messages/${this.selectedMsgId}/signals/${sigUuid}`, { [field]: value }),
+          oldVal,  // fallbackValue
+          (fallbackVal) => { sig[field] = fallbackVal }  // onRollback
+        )
         this.loadSignalErrors()
       } catch (e) {
-        // 回滚（仅针对真正的 API 失败；验证错误不再被后端拒绝）
-        sig[field] = oldVal
-        useUiStore().showToast(e.message, true)
+        // 回滚已由 onRollback 执行
+        if (!e.message.includes('Queue cleaned up')) {
+          useUiStore().showToast(e.message, true)
+        }
       }
     },
 
@@ -639,6 +787,11 @@ export const useEditorStore = defineStore('editor', {
         return
       }
 
+      // 保存旧状态（用于回滚）
+      const oldSignals = [...msg.signals]
+      const oldMessageIdx = this.messages.findIndex(m => m.id === this.selectedMsgId)
+      const oldMessageData = oldMessageIdx >= 0 ? { ...this.messages[oldMessageIdx] } : null
+
       // 乐观更新：先构建所有新信号
       const newSigs = []
       for (let i = 0; i < count; i++) {
@@ -692,6 +845,11 @@ export const useEditorStore = defineStore('editor', {
 
         useUiStore().showToast(t('toast.batchCreated', { count: created }))
       } catch (e) {
+        // 回滚：恢复旧信号列表
+        msg.signals = oldSignals
+        if (oldMessageIdx >= 0 && oldMessageData) {
+          this.messages[oldMessageIdx] = oldMessageData
+        }
         useUiStore().showToast(t('toast.batchFailed', { idx: created + 1, msg: e.message }), true)
       } finally {
         this.isLoading = false
