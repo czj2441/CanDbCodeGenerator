@@ -22,16 +22,19 @@
 export function getSignalBits(startBit, length, byteOrder) {
   const bits = new Set()
   if (byteOrder === 'motorola') {
-    let current = startBit
+    // Motorola: startBit 是 MSB，从 MSB 开始向高位展开
+    // 字节内递减，到达 bit 0 时回绕到下一字节 MSB (+15)
+    let currentBit = startBit
     for (let i = 0; i < length; i++) {
-      bits.add(current)
-      if (current % 8 === 0) {
-        current += 15
+      bits.add(currentBit)
+      if (currentBit % 8 === 0) {
+        currentBit = currentBit + 15  // 回绕到下一字节 MSB
       } else {
-        current -= 1
+        currentBit = currentBit - 1   // 字节内向低位递减
       }
     }
   } else {
+    // Intel: startBit 是 LSB，向高位递增
     for (let i = 0; i < length; i++) {
       bits.add(startBit + i)
     }

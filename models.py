@@ -277,21 +277,27 @@ class CanDatabase:
     def _get_signal_bits(start_bit: int, length: int, byte_order: str) -> set[int]:
         """将信号按字节序展开为占用的物理 bit 集合。
         
-        Intel（小端序）: start_bit 是 LSB，占用连续递增位。
-        Motorola（大端序）: start_bit 是 MSB，按锯齿规则展开。
+        Intel（小端序）: start_bit 是 LSB，占用连续递增位 [start_bit, start_bit+length-1]。
+        Motorola（大端序）: start_bit 是 MSB，按字节序规则展开：
+          - 字节内从 MSB 向 LSB 递减（bit 递减）
+          - 到达字节 bit 0 时，回绕到下一字节的 MSB (+15)
+        
+        DBC 位编号系统: 字节内 MSB 在左（bit 7），LSB 在右（bit 0），位编号从左到右递减。
+        跨字节时位编号连续: 字节0=[7,6,5,4,3,2,1,0], 字节1=[15,14,13,12,11,10,9,8]
         """
         bits: set[int] = set()
         bo = str(byte_order).lower() if byte_order else "motorola"
         if bo == "motorola":
-            current = start_bit
+            # Motorola: start_bit 是 MSB，从 MSB 开始向高位展开
+            current_bit = start_bit
             for _ in range(length):
-                bits.add(current)
-                bit_in_byte = current % 8
-                if bit_in_byte == 0:
-                    current += 15
+                bits.add(current_bit)
+                if current_bit % 8 == 0:
+                    current_bit = current_bit + 15  # 回绕到下一字节 MSB
                 else:
-                    current -= 1
+                    current_bit = current_bit - 1   # 字节内向低位递减
         else:
+            # Intel: start_bit 是 LSB，向高位（递增）延伸
             for i in range(length):
                 bits.add(start_bit + i)
         return bits
