@@ -129,17 +129,15 @@ export function signalExtents(signal, dlc) {
 
 /**
  * Compute the valid start_bit range extremes for a signal so that all occupied bits
- * lie within [0, maxBit].  O(1) for both Intel and Motorola.
- *
- * NOTE: For Motorola the valid start_bits are NOT always contiguous;
- * use clampStartBit() to snap a candidate to the nearest valid value.
+ * lie within [0, maxBit].
  *
  * @param {number} length
  * @param {string} byteOrder - "intel" | "motorola"
- * @param {number} maxBit
+ * @param {number} dlc - 报文数据长度（字节数）
  * @returns {{minStart: number, maxStart: number}}  (-1, -1) when impossible
  */
-export function validStartBitRangeOptimized(length, byteOrder, maxBit) {
+export function validStartBitRangeOptimized(length, byteOrder, dlc) {
+  const maxBit = 8 * dlc - 1
   if (length > maxBit + 1) {
     return { minStart: -1, maxStart: -1 }
   }
@@ -148,85 +146,76 @@ export function validStartBitRangeOptimized(length, byteOrder, maxBit) {
     return { minStart: 0, maxStart: maxBit - length + 1 }
   }
 
-  const dlc = Math.floor((maxBit + 1) / 8)
+  // Motorola: 使用暴力搜索寻找合法范围（新算法允许任意 start_bit）
+  let minStart = -1
+  let maxStart = -1
 
-  function computeMaxK(r) {
-    if (length <= r + 1) {
-      return dlc - 1
+  for (let s = 0; s <= maxBit; s++) {
+    const bits = getSignalBits(s, length, 'motorola')
+    const allValid = Array.from(bits).every(b => b >= 0 && b <= maxBit)
+    if (allValid) {
+      if (minStart === -1) minStart = s
+      maxStart = s
     }
-    const remaining = length - r - 1
-    const totalJumps = 1 + Math.floor((remaining - 1) / 8)
-    return dlc - 1 - totalJumps
   }
-
-  // Motorola: start_bit must be a byte MSB (bit 7, 15, 23, ...), so r must be 7.
-  const r = 7
-  const maxK = computeMaxK(r)
-  if (maxK < 0) {
-    return { minStart: -1, maxStart: -1 }
-  }
-
-  const minStart = r
-  const maxStart = maxK * 8 + r
 
   return { minStart, maxStart }
 }
 
 /**
  * Find the nearest valid start_bit to a candidate value.
- * Handles Motorola gaps correctly.
+ * Uses the new Motorola algorithm that allows any start_bit position.
  *
  * @param {number} candidate
  * @param {number} length
  * @param {string} byteOrder
- * @param {number} maxBit
+ * @param {number} dlc - 报文数据长度（字节数）
  * @returns {number} nearest valid start_bit, or -1 if none exists
  */
-export function clampStartBit(candidate, length, byteOrder, maxBit) {
+export function clampStartBit(candidate, length, byteOrder, dlc) {
+  const maxBit = 8 * dlc - 1
   if (length > maxBit + 1) return -1
 
   if (byteOrder === 'intel') {
     return Math.max(0, Math.min(maxBit - length + 1, candidate))
   }
 
-  const dlc = Math.floor((maxBit + 1) / 8)
+  // Motorola: 使用新算法，允许任意 start_bit
+  // 策略：从 candidate 开始，向两侧寻找最近的合法位置
 
-  function maxKForR(r) {
-    if (length <= r + 1) return dlc - 1
-    const remaining = length - r - 1
-    const totalJumps = 1 + Math.floor((remaining - 1) / 8)
-    return dlc - 1 - totalJumps
-  }
+  // 先检查 candidate 本身是否合法
+  const candidateBits = getSignalBits(candidate, length, 'motorola')
+  const candidateValid = Array.from(candidateBits).every(b => b >= 0 && b <= maxBit)
+  if (candidateValid) return candidate
 
-  // Motorola: start_bit must be a byte MSB (bit 7, 15, 23, ...), so r must be 7.
-  const validRs = [7]
-
+  // 向下寻找
   let bestS = -1
   let bestDist = Infinity
 
-  for (const r of validRs) {
-    const maxK = maxKForR(r)
-    if (maxK < 0) continue
-
-    let k = Math.round((candidate - r) / 8)
-    k = Math.max(0, Math.min(maxK, k))
-    const s = k * 8 + r
-    const dist = Math.abs(s - candidate)
-
-    if (dist < bestDist || (dist === bestDist && s < bestS)) {
-      bestDist = dist
-      bestS = s
-    }
-
-    for (const dk of [-1, 1]) {
-      const k2 = k + dk
-      if (k2 < 0 || k2 > maxK) continue
-      const s2 = k2 * 8 + r
-      const dist2 = Math.abs(s2 - candidate)
-      if (dist2 < bestDist || (dist2 === bestDist && s2 < bestS)) {
-        bestDist = dist2
-        bestS = s2
+  for (let s = candidate - 1; s >= 0; s--) {
+    const bits = getSignalBits(s, length, 'motorola')
+    const allValid = Array.from(bits).every(b => b >= 0 && b <= maxBit)
+    if (allValid) {
+      const dist = candidate - s
+      if (dist < bestDist) {
+        bestDist = dist
+        bestS = s
       }
+      break  // 找到第一个合法位置即可
+    }
+  }
+
+  // 向上寻找
+  for (let s = candidate + 1; s <= maxBit; s++) {
+    const bits = getSignalBits(s, length, 'motorola')
+    const allValid = Array.from(bits).every(b => b >= 0 && b <= maxBit)
+    if (allValid) {
+      const dist = s - candidate
+      if (dist < bestDist || (dist === bestDist && s < bestS)) {
+        bestDist = dist
+        bestS = s
+      }
+      break  // 找到第一个合法位置即可
     }
   }
 
