@@ -86,6 +86,7 @@
                 stroke: cell.hasError ? 'oklch(0.60 0.20 25)' : cell.color,
                 strokeWidth: cell.hasError ? 2 : 1,
                 cornerRadius: 2,
+                opacity: cell.isPreview ? 0.4 : 1,
               }"
               @mousedown="(e) => onCellMouseDown(cell, e)"
               @click="() => onCellClick(cell)"
@@ -114,6 +115,20 @@
                 fill: 'transparent',
                 stroke: 'oklch(0.60 0.18 260)',
                 strokeWidth: 2,
+                listening: false,
+              }"
+            />
+            <!-- 拖拽预览虚线框 -->
+            <v-rect
+              v-for="cell in previewCells" :key="'pre-' + cell.bit"
+              :config="{
+                x: labelWidth + cell.col * cellSize,
+                y: headerH + cell.row * cellSize,
+                width: cellSize, height: cellSize,
+                fill: 'transparent',
+                stroke: cell.color,
+                strokeWidth: 2,
+                dash: [4, 3],
                 listening: false,
               }"
             />
@@ -231,12 +246,14 @@ onMounted(() => {
   })
   resizeObserver.observe(canvasWrap.value)
   
-  // 全局监听 mouseup，防止鼠标拖出 canvas 后不触发
+  // 全局监听 mousemove/mouseup，防止鼠标拖出 canvas 后不触发
+  window.addEventListener('mousemove', handleGlobalMouseMove, true)
   window.addEventListener('mouseup', handleGlobalMouseUp, true)
 })
 
 onUnmounted(() => {
   if (resizeObserver) resizeObserver.disconnect()
+  window.removeEventListener('mousemove', handleGlobalMouseMove, true)
   window.removeEventListener('mouseup', handleGlobalMouseUp, true)
 })
 
@@ -252,7 +269,11 @@ const stageConfig = computed(() => ({
   scaleY: scale.value,
 }))
 
-// ── cellMap: bit → { uuid, name, color, hasError, row, col, byteOrder, isStartBit, startBit, length } ──
+// ── 拖拽状态 ref（需在 cellMap 之前声明）──
+const dragState = ref(null)
+const previewStartBit = ref(null)  // 拖拽预览用的临时 start_bit
+
+// ── cellMap: bit → { uuid, name, color, hasError, row, col, byteOrder, isStartBit, startBit, length, isPreview } ──
 const cellMap = computed(() => {
   const map = {}
   if (!msg.value) return map
@@ -265,7 +286,13 @@ const cellMap = computed(() => {
   msg.value.signals.forEach((sig, idx) => {
     const color = getSignalColor(idx)
     const hasError = errUuids.has(sig.uuid)
-    const bits = getSignalBits(sig.start_bit, sig.length, sig.byte_order)
+    // 拖拽预览：用预览的 start_bit 计算占位
+    const effectiveStartBit = (dragState.value?.uuid === sig.uuid && previewStartBit.value != null)
+      ? previewStartBit.value
+      : sig.start_bit
+    const bits = getSignalBits(effectiveStartBit, sig.length, sig.byte_order)
+
+    const isPreview = dragState.value?.uuid === sig.uuid && previewStartBit.value != null
 
     for (const bit of bits) {
       if (bit < 0 || bit > maxBit) continue
@@ -276,9 +303,10 @@ const cellMap = computed(() => {
         name: sig.name,
         color,
         hasError,
-        isStartBit: bit === sig.start_bit,
+        isPreview,
+        isStartBit: bit === effectiveStartBit,
         byteOrder: sig.byte_order,
-        startBit: sig.start_bit,
+        startBit: effectiveStartBit,
         length: sig.length,
       }
     }
@@ -329,15 +357,61 @@ const selectedCells = computed(() => {
   return coloredCells.value.filter(c => c.uuid === ui.selectedSignalUuid)
 })
 
+// previewCells: 拖拽预览的虚线边框方格
+const previewCells = computed(() => {
+  if (!dragState.value || previewStartBit.value == null) return []
+  return coloredCells.value.filter(c => c.isPreview)
+})
+
 // ── 拖拽交互 ──
-const dragState = ref(null)
 const debugInfo = ref(null)
 const isProcessingDrop = ref(false)  // 防止重入
+const hasMoved = ref(false)  // 是否已发生实际移动
+
+/**
+ * 将客户端坐标转换为目标 start_bit
+ * @returns {number} newStartBit, or -1 if invalid
+ */
+function clientToStartBit(clientX, clientY, offsetRow, offsetCol) {
+  const stage = stageRef.value?.getStage()
+  if (!stage) return -1
+
+  const container = stage.container()
+  const rect = container.getBoundingClientRect()
+  const s = scale.value
+
+  const stageX = (clientX - rect.left) / s
+  const stageY = (clientY - rect.top) / s
+
+  const { row: dropRow, col: dropCol } = pixelToGridCell(stageX, stageY, {
+    labelWidth, headerH, cellSize,
+  })
+
+  const clampedRow = Math.max(0, Math.min(rows - 1, dropRow))
+  const clampedCol = Math.max(0, Math.min(cols - 1, dropCol))
+
+  const oRow = Number.isFinite(offsetRow) ? offsetRow : 0
+  const oCol = Number.isFinite(offsetCol) ? offsetCol : 0
+
+  const targetStartRow = clampedRow - oRow
+  const targetStartCol = clampedCol - oCol
+  const targetStartBit = gridCellToBit(targetStartRow, targetStartCol)
+
+  if (debugInfo.value) {
+    debugInfo.value.mouseupGrid = `(row=${clampedRow}, col=${clampedCol})  bit=${gridCellToBit(clampedRow, clampedCol)}`
+    debugInfo.value.computation = [
+      `光标(${clampedRow},${clampedCol}) − 偏移(${oRow},${oCol}) = (${targetStartRow},${targetStartCol})`,
+      `→ 虚拟bit=${targetStartBit} → clamp → ...`,
+    ].join('\n')
+  }
+
+  return targetStartBit
+}
 
 function onCellMouseDown(cell, konvaEvent) {
   // 只响应左键拖拽
   if (konvaEvent?.evt?.button !== 0) return
-  
+
   konvaEvent?.evt?.preventDefault?.()
 
   const { row: startRow, col: startCol } = bitToGridCell(cell.startBit)
@@ -354,6 +428,8 @@ function onCellMouseDown(cell, konvaEvent) {
     offsetRow,
     offsetCol,
   }
+  previewStartBit.value = null
+  hasMoved.value = false
 
   debugInfo.value = {
     mousedownGrid: `(row=${grabRow}, col=${grabCol})  bit=${cell.bit}`,
@@ -368,70 +444,57 @@ function onCellMouseDown(cell, konvaEvent) {
 }
 
 function onCellClick(cell) {
-  if (dragState.value) return
+  if (hasMoved.value) return
   ui.selectLayoutSignal(cell.uuid)
 }
 
 /**
- * 核心拖拽处理逻辑（复用）
+ * 鼠标移动时实时更新预览位置（仅视觉，不提交 API）
+ */
+function handleGlobalMouseMove(e) {
+  if (!dragState.value) return
+
+  const ds = dragState.value
+  const targetStartBit = clientToStartBit(e.clientX, e.clientY, ds.offsetRow, ds.offsetCol)
+  if (targetStartBit < 0) return
+
+  const maxBit = dlcBytes.value * 8 - 1
+  const newStartBit = clampStartBit(targetStartBit, ds.sigLength, ds.sigByteOrder, dlcBytes.value)
+
+  if (newStartBit >= 0 && newStartBit <= maxBit) {
+    if (newStartBit !== ds.sigStartBit) {
+      hasMoved.value = true
+    }
+    previewStartBit.value = newStartBit
+  }
+}
+
+/**
+ * 松开鼠标时提交最终位置
  */
 function processDrop(clientX, clientY) {
-  // 防止重入：如果正在处理，直接返回
   if (!dragState.value || isProcessingDrop.value) return
-  
-  // 立即标记为处理中，防止双重触发
+
   isProcessingDrop.value = true
-  
+
   const ds = dragState.value
-  
-  // 立即清空 dragState，确保第二次调用直接 return
+  const preview = previewStartBit.value
+
+  // 清空拖拽状态（确保 cellMap 恢复正常）
   dragState.value = null
-  
+  previewStartBit.value = null
+
   try {
-    // 将页面坐标转换为相对于 stage 的坐标
-    const stage = stageRef.value?.getStage()
-    if (!stage) return
-    
-    // 使用 Konva stage 的 container 获取准确的边界
-    const container = stage.container()
-    const rect = container.getBoundingClientRect()
-    const s = scale.value
-    
-    // 计算相对于 stage 内部的坐标
-    const stageX = (clientX - rect.left) / s
-    const stageY = (clientY - rect.top) / s
-    
-    const { row: dropRow, col: dropCol } = pixelToGridCell(stageX, stageY, {
-      labelWidth, headerH, cellSize,
-    })
-
-    const clampedRow = Math.max(0, Math.min(rows - 1, dropRow))
-    const clampedCol = Math.max(0, Math.min(cols - 1, dropCol))
-    const dropBit = gridCellToBit(clampedRow, clampedCol)
-
-    if (debugInfo.value) {
-      debugInfo.value.mouseupGrid = `(row=${clampedRow}, col=${clampedCol})  bit=${dropBit}`
-    }
-
-    // 防御性编程：确保 offset 是有效数字
-    const offsetRow = Number.isFinite(ds.offsetRow) ? ds.offsetRow : 0
-    const offsetCol = Number.isFinite(ds.offsetCol) ? ds.offsetCol : 0
-    
-    const targetStartRow = clampedRow - offsetRow
-    const targetStartCol = clampedCol - offsetCol
-    
-    // 转换为虚拟 bit（允许超出边界，由 clampStartBit 处理）
-    // 不要提前 clamp row/col，否则会导致边界拖拽失效
-    const targetStartBit = gridCellToBit(targetStartRow, targetStartCol)
+    const targetStartBit = clientToStartBit(clientX, clientY, ds.offsetRow, ds.offsetCol)
+    if (targetStartBit < 0) return
 
     const maxBit = dlcBytes.value * 8 - 1
     const newStartBit = clampStartBit(targetStartBit, ds.sigLength, ds.sigByteOrder, dlcBytes.value)
 
     if (debugInfo.value) {
       debugInfo.value.computation = [
-        `松开(${clampedRow},${clampedCol}) − 偏移(${ds.offsetRow},${ds.offsetCol}) = (${targetStartRow},${targetStartCol})`,
-        `→ 虚拟bit=${targetStartBit} → clamp(${ds.sigByteOrder}) → ${newStartBit}`,
-        newStartBit === ds.sigStartBit ? '结果=原值, 未移动' : `结果≠${ds.sigStartBit}, 执行移动`,
+        `松开 → clamp(${ds.sigByteOrder}) → ${newStartBit}`,
+        newStartBit === ds.sigStartBit ? '结果=原值, 未移动' : `结果≠${ds.sigStartBit}, 提交移动`,
       ].join('\n')
     }
 
@@ -439,34 +502,22 @@ function processDrop(clientX, clientY) {
 
     store.moveSignalByLayout(ds.uuid, newStartBit)
   } finally {
-    // 确保 always 重置处理标志
     isProcessingDrop.value = false
   }
 }
 
-/**
- * 全局 mouseup 监听（处理鼠标拖出 canvas 的情况）
- */
 function handleGlobalMouseUp(e) {
   if (!dragState.value) return
-  
-  // 只响应左键松开
   if (e.button !== 0) return
-  
-  // 只在拖拽时阻止默认行为
   e.preventDefault()
   processDrop(e.clientX, e.clientY)
 }
 
 function onStageMouseUp(konvaEvent) {
   if (!dragState.value) return
-  
   const evt = konvaEvent?.evt
   if (!evt) return
-  
-  // 只响应左键松开
   if (evt.button !== 0) return
-  
   processDrop(evt.clientX, evt.clientY)
 }
 

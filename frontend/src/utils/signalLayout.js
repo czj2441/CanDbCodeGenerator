@@ -66,6 +66,80 @@ export function gridCellToBit(row, col) {
 }
 
 /**
+ * Convert Motorola MSB (start_bit) to LSB (minimum occupied bit).
+ * For Intel signals, MSB === LSB, so this returns the input unchanged.
+ *
+ * @param {number} storageStartBit - Motorola start_bit (stored value)
+ * @param {number} length
+ * @param {string} byteOrder - "intel" | "motorola"
+ * @returns {number} display start bit (LSB for Motorola, unchanged for Intel)
+ */
+export function toDisplayStartBit(storageStartBit, length, byteOrder) {
+  if (!length || length <= 0) return storageStartBit
+  if (byteOrder === 'intel') return storageStartBit
+  // Motorola: LSB 是展开顺序的最后一个位（位权最低）
+  let currentBit = storageStartBit
+  for (let i = 1; i < length; i++) {
+    if (currentBit % 8 === 0) {
+      currentBit = currentBit + 15
+    } else {
+      currentBit = currentBit - 1
+    }
+  }
+  return currentBit
+}
+
+/**
+ * Convert user-input LSB back to Motorola MSB (start_bit) for storage.
+ * For Intel signals, LSB === MSB, so this returns the input unchanged.
+ * 
+ * When multiple MSBs map to the same LSB, picks the one closest to hintMsb
+ * (the original MSB before editing) to preserve the user's intent.
+ *
+ * @param {number} displayStartBit - user-facing start bit (LSB for Motorola)
+ * @param {number} length
+ * @param {string} byteOrder - "intel" | "motorola"
+ * @param {number} maxBit - maximum valid bit (default 63 for DLC=8)
+ * @param {number} hintMsb - preferred MSB when multiple candidates exist (default -1)
+ * @returns {number} storage start bit (MSB), or -1 if no valid mapping exists
+ */
+export function toStorageStartBit(displayStartBit, length, byteOrder, maxBit = 63, hintMsb = -1) {
+  if (!length || length <= 0) return displayStartBit
+  if (byteOrder === 'intel') return displayStartBit
+  // 找展开顺序最后一个位（LSB）= displayStartBit 的 MSB
+  let bestMsb = -1
+  let bestDist = Infinity
+  for (let msb = 0; msb <= maxBit; msb++) {
+    let currentBit = msb
+    for (let i = 1; i < length; i++) {
+      if (currentBit % 8 === 0) {
+        currentBit = currentBit + 15
+      } else {
+        currentBit = currentBit - 1
+      }
+    }
+    if (currentBit === displayStartBit) {
+      const dist = hintMsb >= 0 ? Math.abs(msb - hintMsb) : 0
+      if (dist < bestDist) {
+        bestDist = dist
+        bestMsb = msb
+      }
+    }
+  }
+  if (bestMsb >= 0) return bestMsb
+
+  // Fallback: 精确匹配 LSB 失败时，将输入值直接作为 MSB 尝试
+  // 这允许了了解 DBC 标准的用户直接输入 Motorola MSB
+  const directBits = getSignalBits(displayStartBit, length, 'motorola')
+  const allValid = Array.from(directBits).every(b => b >= 0 && b <= maxBit)
+  if (allValid && directBits.size === length) {
+    return displayStartBit
+  }
+
+  return -1
+}
+
+/**
  * Group a signal's occupied bits by byte row and find contiguous column runs.
  * Returns one rectangle descriptor per contiguous segment per row.
  *
