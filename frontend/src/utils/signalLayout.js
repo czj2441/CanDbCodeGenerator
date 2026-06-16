@@ -6,38 +6,65 @@
  */
 
 /**
- * Compute the set of absolute bit positions occupied by a signal.
+ * Motorola 锯齿遍历：
+ *   字节内 bit 递减，到 bit0 时跳下一字节 bit7
  *
- * Intel: bits are a contiguous block [start_bit, start_bit+length-1].
- * Motorola: start_bit is the MSB; traversal zigzags within bytes:
- *   decrement within byte, when reaching bit 0 jump to bit 7 of the next byte (+15).
+ *   Byte 0      Byte 1      Byte 2
+ *   7 6 5 4 3 2 1 0  15..8  23..16
+ *   ←────────── ←────────── ←──────────
+ *   MSB────→LSB  MSB────→LSB  MSB────→LSB
  *
- * This is an exact JS port of api_server.py:_get_signal_bits().
- *
- * @param {number} startBit
- * @param {number} length
- * @param {string} byteOrder - "intel" | "motorola"
- * @returns {Set<number>}
+ *   例: 7→6→...→0→15→14→...→8→23→...
+ */
+export function motorolaNextBit(bit) {
+  return bit % 8 === 0 ? bit + 15 : bit - 1
+}
+
+/**
+ * 从 MSB 出发走 pos 步，到达的 bit 编号
+ *   pos=0 → MSB 自身
+ *   pos=length-1 → LSB（与 toDisplayStartBit 一致）
+ */
+export function motorolaBitAtPosition(msb, pos) {
+  let cur = msb
+  for (let i = 0; i < pos; i++) cur = motorolaNextBit(cur)
+  return cur
+}
+
+/**
+ * 逆查: 哪个 MSB 使得遍历到 pos 时 = targetBit
+ *   例: pos=7, targetBit=10, len=8
+ *       候选 MSB=1: 1→0→15→14→13→12→11→10  ✅ pos7=10
+ *   → 返回 1（最接近 hintMsb 的那个）
+ */
+export function motorolaFindMsbByPosition(pos, length, targetBit, maxBit = 63, hintMsb = -1) {
+  if (pos < 0 || pos >= length) return -1
+  let bestMsb = -1
+  let bestDist = Infinity
+  for (let msb = 0; msb <= maxBit; msb++) {
+    if (motorolaBitAtPosition(msb, pos) === targetBit) {
+      const d = hintMsb >= 0 ? Math.abs(msb - hintMsb) : 0
+      if (d < bestDist) { bestDist = d; bestMsb = msb }
+    }
+  }
+  return bestMsb
+}
+
+/**
+ * 信号占用的 bit 集合
+ *   Intel:  [startBit, startBit+length-1] 连续递增
+ *   Motorola: MSB→LSB 锯齿遍历 (motorolaNextBit × length−1)
  */
 export function getSignalBits(startBit, length, byteOrder) {
   const bits = new Set()
   if (byteOrder === 'motorola') {
-    // Motorola: startBit 是 MSB，从 MSB 开始向高位展开
-    // 字节内递减，到达 bit 0 时回绕到下一字节 MSB (+15)
-    let currentBit = startBit
+    let cur = startBit
     for (let i = 0; i < length; i++) {
-      bits.add(currentBit)
-      if (currentBit % 8 === 0) {
-        currentBit = currentBit + 15  // 回绕到下一字节 MSB
-      } else {
-        currentBit = currentBit - 1   // 字节内向低位递减
-      }
+      bits.add(cur)
+      cur = motorolaNextBit(cur)
     }
   } else {
-    // Intel: startBit 是 LSB，向高位递增
-    for (let i = 0; i < length; i++) {
-      bits.add(startBit + i)
-    }
+    for (let i = 0; i < length; i++) bits.add(startBit + i)
   }
   return bits
 }
@@ -66,76 +93,34 @@ export function gridCellToBit(row, col) {
 }
 
 /**
- * Convert Motorola MSB (start_bit) to LSB (minimum occupied bit).
- * For Intel signals, MSB === LSB, so this returns the input unchanged.
- *
- * @param {number} storageStartBit - Motorola start_bit (stored value)
- * @param {number} length
- * @param {string} byteOrder - "intel" | "motorola"
- * @returns {number} display start bit (LSB for Motorola, unchanged for Intel)
+ * 存储 MSB → 显示 LSB
+ *   Intel:  不变（startBit 即 LSB）
+ *   Motorola: 走 length−1 步到 LSB
+ *     例: MSB=7 len=8 → 走7步 → 0  (填满 Byte0)
+ *         MSB=23 len=16 → 走15步 → 24 (填满 Byte2+3)
  */
 export function toDisplayStartBit(storageStartBit, length, byteOrder) {
   if (!length || length <= 0) return storageStartBit
   if (byteOrder === 'intel') return storageStartBit
-  // Motorola: LSB 是展开顺序的最后一个位（位权最低）
-  let currentBit = storageStartBit
-  for (let i = 1; i < length; i++) {
-    if (currentBit % 8 === 0) {
-      currentBit = currentBit + 15
-    } else {
-      currentBit = currentBit - 1
-    }
-  }
-  return currentBit
+  return motorolaBitAtPosition(storageStartBit, length - 1)
 }
 
 /**
- * Convert user-input LSB back to Motorola MSB (start_bit) for storage.
- * For Intel signals, LSB === MSB, so this returns the input unchanged.
- * 
- * When multiple MSBs map to the same LSB, picks the one closest to hintMsb
- * (the original MSB before editing) to preserve the user's intent.
- *
- * @param {number} displayStartBit - user-facing start bit (LSB for Motorola)
- * @param {number} length
- * @param {string} byteOrder - "intel" | "motorola"
- * @param {number} maxBit - maximum valid bit (default 63 for DLC=8)
- * @param {number} hintMsb - preferred MSB when multiple candidates exist (default -1)
- * @returns {number} storage start bit (MSB), or -1 if no valid mapping exists
+ * 用户输入 LSB → 存储 MSB
+ *   用 motorolaFindMsbByPosition 反查: 哪个 MSB 的 LSB = 输入值
+ *   兜底: 若无匹配则尝试直接作为 MSB（兼容懂 DBC 的用户）
  */
 export function toStorageStartBit(displayStartBit, length, byteOrder, maxBit = 63, hintMsb = -1) {
   if (!length || length <= 0) return displayStartBit
   if (byteOrder === 'intel') return displayStartBit
-  // 找展开顺序最后一个位（LSB）= displayStartBit 的 MSB
-  let bestMsb = -1
-  let bestDist = Infinity
-  for (let msb = 0; msb <= maxBit; msb++) {
-    let currentBit = msb
-    for (let i = 1; i < length; i++) {
-      if (currentBit % 8 === 0) {
-        currentBit = currentBit + 15
-      } else {
-        currentBit = currentBit - 1
-      }
-    }
-    if (currentBit === displayStartBit) {
-      const dist = hintMsb >= 0 ? Math.abs(msb - hintMsb) : 0
-      if (dist < bestDist) {
-        bestDist = dist
-        bestMsb = msb
-      }
-    }
-  }
-  if (bestMsb >= 0) return bestMsb
+
+  const msb = motorolaFindMsbByPosition(length - 1, length, displayStartBit, maxBit, hintMsb)
+  if (msb >= 0) return msb
 
   // Fallback: 精确匹配 LSB 失败时，将输入值直接作为 MSB 尝试
-  // 这允许了了解 DBC 标准的用户直接输入 Motorola MSB
   const directBits = getSignalBits(displayStartBit, length, 'motorola')
   const allValid = Array.from(directBits).every(b => b >= 0 && b <= maxBit)
-  if (allValid && directBits.size === length) {
-    return displayStartBit
-  }
-
+  if (allValid && directBits.size === length) return displayStartBit
   return -1
 }
 

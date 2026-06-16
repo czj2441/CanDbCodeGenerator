@@ -184,7 +184,7 @@ import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
 import { useEditorStore } from '../stores/editor.js'
 import { useUiStore } from '../stores/uiStore.js'
 import { t } from '../i18n.js'
-import { getSignalBits, bitToGridCell, gridCellToBit, pixelToGridCell, clampStartBit, getSignalColor } from '../utils/signalLayout.js'
+import { getSignalBits, bitToGridCell, gridCellToBit, pixelToGridCell, clampStartBit, getSignalColor, motorolaBitAtPosition, motorolaFindMsbByPosition } from '../utils/signalLayout.js'
 import { toHex } from '../utils/format.js'
 
 const store = useEditorStore()
@@ -355,19 +355,21 @@ const previewCells = computed(() => {
 })
 
 // ── 拖拽交互 ──
+//
+// Intel: dropBit − grabBit = bitDelta → newMsb = oldMsb + bitDelta
+//
+// Motorola (锯齿布局): 无法用 grid 位移直接算 newMsb
+//   改用"遍历位置匹配": 记录 grab bit 在遍历中的序号 grabPos
+//   搜索哪个 MSB 使得 motorolaBitAtPosition(msb, grabPos) = dropBit
+//
+//   例: MSB=7 len=8, grab bit=0 → grabPos=7 (LSB)
+//       拖到 dropBit=10: motorolaFindMsbByPosition(7,8,10,63,7) → MSB=1
+//       验证: motorolaBitAtPosition(1,7) = 1→0→15→14→13→12→11→10 ✓
+//
 const isProcessingDrop = ref(false)
 const hasMoved = ref(false)
 
-/** Motorola 遍历：从 MSB 走 pos 步到达的 bit */
-function bitAtPosition(msb, pos) {
-  let cur = msb
-  for (let i = 0; i < pos; i++) {
-    cur = cur % 8 === 0 ? cur + 15 : cur - 1
-  }
-  return cur
-}
-
-/** 坐标 → 网格位置（辅助） */
+/** 坐标 → 网格位置 */
 function clientToGrid(clientX, clientY) {
   const stage = stageRef.value?.getStage()
   if (!stage) return null
@@ -391,12 +393,14 @@ function onCellMouseDown(cell, konvaEvent) {
   const offsetRow = grabRow - msbRow
   const offsetCol = grabCol - msbCol
 
-  // 记录 grab bit 在 Motorola 遍历中的位置
+  // 记录 grab bit 在遍历中的位置
   let grabPos = 0
   if (cell.byteOrder === 'motorola') {
     for (let p = 0; p < cell.length; p++) {
-      if (bitAtPosition(cell.startBit, p) === cell.bit) { grabPos = p; break }
+      if (motorolaBitAtPosition(cell.startBit, p) === cell.bit) { grabPos = p; break }
     }
+  } else {
+    grabPos = cell.bit - cell.startBit  // Intel: 线性
   }
 
   dragState.value = {
@@ -430,18 +434,9 @@ function handleGlobalMouseMove(e) {
   let newStartBit
 
   if (ds.sigByteOrder === 'intel') {
-    // Intel: bit delta = dropBit - grabBit
     newStartBit = ds.sigStartBit + (grid.bit - ds.grabBit)
   } else {
-    // Motorola: 找哪个 MSB 让遍历位 grabPos = dropBit
-    newStartBit = -1
-    let bestDist = Infinity
-    for (let msb = 0; msb <= maxBit; msb++) {
-      if (bitAtPosition(msb, ds.grabPos) === grid.bit) {
-        const d = Math.abs(msb - ds.sigStartBit)
-        if (d < bestDist) { bestDist = d; newStartBit = msb }
-      }
-    }
+    newStartBit = motorolaFindMsbByPosition(ds.grabPos, ds.sigLength, grid.bit, maxBit, ds.sigStartBit)
   }
 
   if (newStartBit >= 0) {
@@ -473,13 +468,8 @@ function processDrop(clientX, clientY) {
       newStartBit = ds.sigStartBit + (grid.bit - ds.grabBit)
       calcDetail = `drop=${grid.bit} − grab=${ds.grabBit} + msb=${ds.sigStartBit}`
     } else {
-      for (let msb = 0; msb <= maxBit; msb++) {
-        if (bitAtPosition(msb, ds.grabPos) === grid.bit) {
-          newStartBit = msb
-          calcDetail = `grabPos=${ds.grabPos} drop=${grid.bit} → MSB=${msb}`
-          break
-        }
-      }
+      newStartBit = motorolaFindMsbByPosition(ds.grabPos, ds.sigLength, grid.bit, maxBit, ds.sigStartBit)
+      calcDetail = `grabPos=${ds.grabPos} drop=${grid.bit} → MSB=${newStartBit}`
     }
 
     if (newStartBit == null || newStartBit < 0) {
