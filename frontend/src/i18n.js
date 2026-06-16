@@ -187,6 +187,8 @@ const dict = {
     'log.type.delete': '删除',
     'log.type.batch': '批量',
     'log.type.info': '信息',
+    'log.type.drag': '拖拽',
+    'log.type.layout': '布局',
   },
   en: {
     // TopBar
@@ -376,6 +378,8 @@ const dict = {
     'log.type.delete': 'Delete',
     'log.type.batch': 'Batch',
     'log.type.info': 'Info',
+    'log.type.drag': 'Drag',
+    'log.type.layout': 'Layout',
   }
 }
 

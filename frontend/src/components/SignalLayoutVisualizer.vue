@@ -156,15 +156,6 @@
       <div v-else class="placeholder">{{ t('signal.selectMessage') }}</div>
     </div>
 
-    <!-- Debug 拖拽信息（悬浮覆盖，不影响 canvas 布局） -->
-    <div v-if="debugInfo" class="debug-overlay">
-      <div class="debug-row"><span class="debug-label">按下网格位置</span><span class="debug-val">{{ debugInfo.mousedownGrid }}</span></div>
-      <div class="debug-row"><span class="debug-label">信号名 / startBit</span><span class="debug-val">{{ debugInfo.signalName }} / {{ debugInfo.sigStartBit }}</span></div>
-      <div class="debug-row"><span class="debug-label">按下偏移</span><span class="debug-val">{{ debugInfo.offset }}</span></div>
-      <div class="debug-row"><span class="debug-label">松开网格位置</span><span class="debug-val">{{ debugInfo.mouseupGrid || '—' }}</span></div>
-      <div class="debug-row"><span class="debug-label">计算链</span><span class="debug-val">{{ debugInfo.computation || '—' }}</span></div>
-    </div>
-
     <!-- Error panel -->
     <div v-if="msg && store.signalErrors.length > 0" class="error-panel">
       <div class="error-header">{{ t('signal.errorsTitle') }}</div>
@@ -364,82 +355,63 @@ const previewCells = computed(() => {
 })
 
 // ── 拖拽交互 ──
-const debugInfo = ref(null)
-const isProcessingDrop = ref(false)  // 防止重入
-const hasMoved = ref(false)  // 是否已发生实际移动
+const isProcessingDrop = ref(false)
+const hasMoved = ref(false)
 
-/**
- * 将客户端坐标转换为目标 start_bit
- * @returns {number} newStartBit, or -1 if invalid
- */
-function clientToStartBit(clientX, clientY, offsetRow, offsetCol) {
+/** Motorola 遍历：从 MSB 走 pos 步到达的 bit */
+function bitAtPosition(msb, pos) {
+  let cur = msb
+  for (let i = 0; i < pos; i++) {
+    cur = cur % 8 === 0 ? cur + 15 : cur - 1
+  }
+  return cur
+}
+
+/** 坐标 → 网格位置（辅助） */
+function clientToGrid(clientX, clientY) {
   const stage = stageRef.value?.getStage()
-  if (!stage) return -1
-
+  if (!stage) return null
   const container = stage.container()
   const rect = container.getBoundingClientRect()
   const s = scale.value
-
   const stageX = (clientX - rect.left) / s
   const stageY = (clientY - rect.top) / s
-
-  const { row: dropRow, col: dropCol } = pixelToGridCell(stageX, stageY, {
-    labelWidth, headerH, cellSize,
-  })
-
-  const clampedRow = Math.max(0, Math.min(rows - 1, dropRow))
-  const clampedCol = Math.max(0, Math.min(cols - 1, dropCol))
-
-  const oRow = Number.isFinite(offsetRow) ? offsetRow : 0
-  const oCol = Number.isFinite(offsetCol) ? offsetCol : 0
-
-  const targetStartRow = clampedRow - oRow
-  const targetStartCol = clampedCol - oCol
-  const targetStartBit = gridCellToBit(targetStartRow, targetStartCol)
-
-  if (debugInfo.value) {
-    debugInfo.value.mouseupGrid = `(row=${clampedRow}, col=${clampedCol})  bit=${gridCellToBit(clampedRow, clampedCol)}`
-    debugInfo.value.computation = [
-      `光标(${clampedRow},${clampedCol}) − 偏移(${oRow},${oCol}) = (${targetStartRow},${targetStartCol})`,
-      `→ 虚拟bit=${targetStartBit} → clamp → ...`,
-    ].join('\n')
-  }
-
-  return targetStartBit
+  const raw = pixelToGridCell(stageX, stageY, { labelWidth, headerH, cellSize })
+  const r = Math.max(0, Math.min(rows - 1, raw.row))
+  const c = Math.max(0, Math.min(cols - 1, raw.col))
+  return { row: r, col: c, bit: gridCellToBit(r, c) }
 }
 
 function onCellMouseDown(cell, konvaEvent) {
-  // 只响应左键拖拽
   if (konvaEvent?.evt?.button !== 0) return
-
   konvaEvent?.evt?.preventDefault?.()
 
-  const { row: startRow, col: startCol } = bitToGridCell(cell.startBit)
+  const { row: msbRow, col: msbCol } = bitToGridCell(cell.startBit)
   const { row: grabRow, col: grabCol } = bitToGridCell(cell.bit)
+  const offsetRow = grabRow - msbRow
+  const offsetCol = grabCol - msbCol
 
-  const offsetRow = grabRow - startRow
-  const offsetCol = grabCol - startCol
+  // 记录 grab bit 在 Motorola 遍历中的位置
+  let grabPos = 0
+  if (cell.byteOrder === 'motorola') {
+    for (let p = 0; p < cell.length; p++) {
+      if (bitAtPosition(cell.startBit, p) === cell.bit) { grabPos = p; break }
+    }
+  }
 
   dragState.value = {
     uuid: cell.uuid,
     sigStartBit: cell.startBit,
     sigLength: cell.length,
     sigByteOrder: cell.byteOrder,
-    offsetRow,
-    offsetCol,
+    offsetRow, offsetCol,
+    grabBit: cell.bit,
+    grabPos,
   }
   previewStartBit.value = null
   hasMoved.value = false
 
-  debugInfo.value = {
-    mousedownGrid: `(row=${grabRow}, col=${grabCol})  bit=${cell.bit}`,
-    signalName: cell.name,
-    sigStartBit: cell.startBit,
-    offset: `(dRow=${offsetRow}, dCol=${offsetCol})`,
-    mouseupGrid: '',
-    computation: '',
-  }
-
+  store.addLogEntry('drag', `${cell.name}: mousedown bit=${cell.bit} (row=${grabRow},col=${grabCol}) offset=(${offsetRow},${offsetCol})`)
   ui.selectLayoutSignal(cell.uuid)
 }
 
@@ -448,59 +420,88 @@ function onCellClick(cell) {
   ui.selectLayoutSignal(cell.uuid)
 }
 
-/**
- * 鼠标移动时实时更新预览位置（仅视觉，不提交 API）
- */
 function handleGlobalMouseMove(e) {
   if (!dragState.value) return
-
   const ds = dragState.value
-  const targetStartBit = clientToStartBit(e.clientX, e.clientY, ds.offsetRow, ds.offsetCol)
-  if (targetStartBit < 0) return
+  const grid = clientToGrid(e.clientX, e.clientY)
+  if (!grid) return
 
   const maxBit = dlcBytes.value * 8 - 1
-  const newStartBit = clampStartBit(targetStartBit, ds.sigLength, ds.sigByteOrder, dlcBytes.value)
+  let newStartBit
 
-  if (newStartBit >= 0 && newStartBit <= maxBit) {
-    if (newStartBit !== ds.sigStartBit) {
-      hasMoved.value = true
+  if (ds.sigByteOrder === 'intel') {
+    // Intel: bit delta = dropBit - grabBit
+    newStartBit = ds.sigStartBit + (grid.bit - ds.grabBit)
+  } else {
+    // Motorola: 找哪个 MSB 让遍历位 grabPos = dropBit
+    newStartBit = -1
+    let bestDist = Infinity
+    for (let msb = 0; msb <= maxBit; msb++) {
+      if (bitAtPosition(msb, ds.grabPos) === grid.bit) {
+        const d = Math.abs(msb - ds.sigStartBit)
+        if (d < bestDist) { bestDist = d; newStartBit = msb }
+      }
     }
-    previewStartBit.value = newStartBit
+  }
+
+  if (newStartBit >= 0) {
+    const clamped = clampStartBit(newStartBit, ds.sigLength, ds.sigByteOrder, dlcBytes.value)
+    if (clamped >= 0 && clamped <= maxBit) {
+      if (clamped !== ds.sigStartBit) hasMoved.value = true
+      previewStartBit.value = clamped
+    }
   }
 }
 
-/**
- * 松开鼠标时提交最终位置
- */
 function processDrop(clientX, clientY) {
   if (!dragState.value || isProcessingDrop.value) return
-
   isProcessingDrop.value = true
 
   const ds = dragState.value
-  const preview = previewStartBit.value
-
-  // 清空拖拽状态（确保 cellMap 恢复正常）
   dragState.value = null
   previewStartBit.value = null
 
   try {
-    const targetStartBit = clientToStartBit(clientX, clientY, ds.offsetRow, ds.offsetCol)
-    if (targetStartBit < 0) return
+    const grid = clientToGrid(clientX, clientY)
+    if (!grid) return
 
     const maxBit = dlcBytes.value * 8 - 1
-    const newStartBit = clampStartBit(targetStartBit, ds.sigLength, ds.sigByteOrder, dlcBytes.value)
+    let newStartBit
+    let calcDetail = ''
 
-    if (debugInfo.value) {
-      debugInfo.value.computation = [
-        `松开 → clamp(${ds.sigByteOrder}) → ${newStartBit}`,
-        newStartBit === ds.sigStartBit ? '结果=原值, 未移动' : `结果≠${ds.sigStartBit}, 提交移动`,
-      ].join('\n')
+    if (ds.sigByteOrder === 'intel') {
+      newStartBit = ds.sigStartBit + (grid.bit - ds.grabBit)
+      calcDetail = `drop=${grid.bit} − grab=${ds.grabBit} + msb=${ds.sigStartBit}`
+    } else {
+      for (let msb = 0; msb <= maxBit; msb++) {
+        if (bitAtPosition(msb, ds.grabPos) === grid.bit) {
+          newStartBit = msb
+          calcDetail = `grabPos=${ds.grabPos} drop=${grid.bit} → MSB=${msb}`
+          break
+        }
+      }
     }
 
-    if (newStartBit < 0 || newStartBit > maxBit || newStartBit === ds.sigStartBit) return
+    if (newStartBit == null || newStartBit < 0) {
+      store.addLogEntry('drag', `松开(${grid.row},${grid.col}) bit=${grid.bit} 超出范围`)
+      return
+    }
 
-    store.moveSignalByLayout(ds.uuid, newStartBit)
+    const clamped = clampStartBit(newStartBit, ds.sigLength, ds.sigByteOrder, maxBit)
+    const sig = store.selectedMessage?.signals?.find(s => s.uuid === ds.uuid)
+    const sigName = sig?.name || ds.uuid.slice(0, 8)
+
+    if (clamped < 0 || clamped > maxBit || clamped === ds.sigStartBit) {
+      store.addLogEntry('drag', `${sigName}: 松开(${grid.row},${grid.col}) bit=${grid.bit} → ${ds.sigStartBit} 未变 (${calcDetail})`)
+      return
+    }
+
+    store.addLogEntry('layout', [
+      `${sigName}: startBit ${ds.sigStartBit} → ${clamped}`,
+      `  松开(${grid.row},${grid.col}) bit=${grid.bit}  ${calcDetail}`,
+      `  clamp(${ds.sigByteOrder}, len=${ds.sigLength}) → ${clamped}`,
+    ].join('\n'))
+    store.moveSignalByLayout(ds.uuid, clamped)
   } finally {
     isProcessingDrop.value = false
   }
@@ -595,49 +596,6 @@ watch(() => store.selectedMsgId, () => {
   font-size: 14px;
   text-align: center;
   line-height: 1.8;
-}
-
-/* ── Debug overlay ── */
-.debug-overlay {
-  position: fixed;
-  bottom: 8px;
-  right: 8px;
-  z-index: 9999;
-  background: oklch(0.18 0.02 260 / 0.92);
-  border: 1px solid oklch(0.35 0.01 260);
-  border-radius: var(--radius-sm);
-  padding: 8px 12px;
-  font-size: 11px;
-  font-family: 'Consolas', 'Courier New', monospace;
-  pointer-events: none;
-}
-
-[data-theme="light"] .debug-overlay {
-  background: oklch(0.96 0.01 260 / 0.92);
-  border-color: oklch(0.7 0.01 260);
-}
-
-.debug-row {
-  display: flex;
-  gap: 8px;
-  padding: 1px 0;
-}
-
-.debug-label {
-  color: var(--text-dim);
-  min-width: 80px;
-  flex-shrink: 0;
-}
-
-.debug-val {
-  color: oklch(0.72 0.14 40);
-  font-weight: bold;
-  white-space: pre-wrap;
-  max-width: 420px;
-}
-
-[data-theme="light"] .debug-val {
-  color: oklch(0.55 0.16 25);
 }
 
 /* ── Error panel ── */

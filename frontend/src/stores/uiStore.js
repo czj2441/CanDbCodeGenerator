@@ -59,6 +59,9 @@ export const useUiStore = defineStore('ui', {
     toggleLayoutView() {
       this.layoutViewMode = !this.layoutViewMode
       this.selectedSignalUuid = null
+      if (this.layoutViewMode) {
+        this.showLogPanel = true
+      }
     },
 
     selectLayoutSignal(uuid) {

@@ -188,11 +188,13 @@ watch(() => store.logEntries.length, () => {
 .log-delete .log-type { color: var(--danger); background: oklch(0.60 0.20 25 / 0.15); }
 .log-batch .log-type { color: var(--accent-dim); background: oklch(0.55 0.12 155 / 0.15); }
 .log-info .log-type { color: var(--text-dim); background: var(--bg-hover); }
+.log-drag .log-type { color: oklch(0.72 0.15 300); background: oklch(0.72 0.15 300 / 0.12); }
+.log-layout .log-type { color: oklch(0.68 0.14 40); background: oklch(0.68 0.14 40 / 0.12); }
 
 .log-desc {
   color: var(--text);
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 
 .log-empty {
