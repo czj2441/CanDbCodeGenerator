@@ -11,7 +11,7 @@
         <div class="field-row">
           <div class="field">
             <label>{{ t('panel.signalStart') }}</label>
-            <input class="mono" type="number" min="0" :value="selectedSig.start_bit" @blur="e => updateSignal('start_bit', parseInt(e.target.value)||0)">
+            <input class="mono" type="number" min="0" :value="showDisplayStartBit()" @blur="e => modifyDisplayStartBit(parseInt(e.target.value)||0)">
           </div>
           <div class="field">
             <label>{{ t('panel.signalLength') }}</label>
@@ -110,6 +110,11 @@ import { useEditorStore } from '../stores/editor.js'
 import { useUiStore } from '../stores/uiStore.js'
 import { toHex, parseHex } from '../utils/format.js'
 import { t } from '../i18n.js'
+import { toDisplayStartBit, toStorageStartBit } from '../utils/signalLayout.js'
+
+function showToast(msg, isError = false) {
+  useUiStore().showToast(msg, isError)
+}
 
 const store = useEditorStore()
 const ui = useUiStore()
@@ -118,6 +123,27 @@ const selectedSig = computed(() => {
   if (!msg.value || !ui.selectedSignalUuid) return null
   return msg.value.signals.find(s => s.uuid === ui.selectedSignalUuid) || null
 })
+
+/**
+ * 显示用的起始位：Motorola 信号显示 LSB，Intel 信号显示原始 start_bit
+ */
+function showDisplayStartBit() {
+  if (!selectedSig.value) return 0
+  return toDisplayStartBit(selectedSig.value.start_bit, selectedSig.value.length, selectedSig.value.byte_order)
+}
+
+/**
+ * 编辑起始位：Motorola 信号将用户输入的 display start bit 转换为 storage start bit (MSB) 存储
+ */
+function modifyDisplayStartBit(displayValue) {
+  if (!selectedSig.value) return
+  const msbValue = toStorageStartBit(displayValue, selectedSig.value.length, selectedSig.value.byte_order, 63, selectedSig.value.start_bit)
+  if (msbValue >= 0) {
+    store.updateSignal(ui.selectedSignalUuid, 'start_bit', msbValue)
+  } else {
+    showToast(`起始位 ${displayValue} 对于 ${selectedSig.value.byte_order} length=${selectedSig.value.length} 不合法`, true)
+  }
+}
 
 function update(field, value) {
   store.updateMessageField(field, value)

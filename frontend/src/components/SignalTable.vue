@@ -42,7 +42,7 @@
           <tr v-for="(sig, idx) in msg.signals" :key="sig.uuid" :data-sig-id="sig.uuid" :class="{ 'has-error': errorUuids.has(sig.uuid), 'selected': selectedSigUuid === sig.uuid }" @mousedown="handleRowMouseDown(sig.uuid, $event)">
             <td><input class="hex" :value="idx" readonly></td>
             <td><input :value="sig.name" @blur="e => update(sig.uuid, 'name', e.target.value)"></td>
-            <td><input class="mono" type="number" :value="sig.start_bit" @blur="e => update(sig.uuid, 'start_bit', parseInt(e.target.value)||0)"></td>
+            <td><input class="mono" type="number" :value="displayStartBit(sig)" @blur="e => updateStartBit(sig, parseInt(e.target.value)||0)"></td>
             <td><input class="mono" type="number" :value="sig.length" @blur="e => update(sig.uuid, 'length', parseInt(e.target.value)||8)"></td>
             <td>
               <select :value="sig.byte_order" @change="e => update(sig.uuid, 'byte_order', e.target.value)">
@@ -85,7 +85,12 @@ import { computed, ref, onMounted, onUnmounted, watch } from 'vue'
 import { useEditorStore } from '../stores/editor.js'
 import { useUiStore } from '../stores/uiStore.js'
 import { toHex } from '../utils/format.js'
+import { toDisplayStartBit, toStorageStartBit } from '../utils/signalLayout.js'
 import { t } from '../i18n.js'
+
+function showToast(msg, isError = false) {
+  useUiStore().showToast(msg, isError)
+}
 
 const store = useEditorStore()
 const ui = useUiStore()
@@ -156,6 +161,25 @@ function addSignal() {
 
 function update(idx, field, value) {
   store.updateSignal(idx, field, value)
+}
+
+/**
+ * 显示用的起始位：Motorola 信号显示 LSB，Intel 信号显示原始 start_bit
+ */
+function displayStartBit(sig) {
+  return toDisplayStartBit(sig.start_bit, sig.length, sig.byte_order)
+}
+
+/**
+ * 编辑起始位：Motorola 信号将用户输入的 display start bit 转换为 storage start bit (MSB)
+ */
+function updateStartBit(sig, displayValue) {
+  const msbValue = toStorageStartBit(displayValue, sig.length, sig.byte_order, 63, sig.start_bit)
+  if (msbValue >= 0) {
+    store.updateSignal(sig.uuid, 'start_bit', msbValue)
+  } else {
+    showToast(`起始位 ${displayValue} 对于 ${sig.byte_order} length=${sig.length} 不合法`, true)
+  }
 }
 
 function deleteMsg() {
