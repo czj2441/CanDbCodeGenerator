@@ -930,6 +930,13 @@ class ApiHandler(BaseHTTPRequestHandler):
             return
         body = self._read_body()
         sig = Signal.from_dict(body)
+
+        # 防御性校验：信号所有 bit 必须在报文范围内
+        ok, err, _ = db.validate_signal(msg_id, sig)
+        if not ok:
+            self._send_json(400, _resp(False, error=err))
+            return
+
         if not db.add_signal_to_message(msg_id, sig):
             self._send_json(404, _resp(False, error=f"Message 0x{msg_id:X} not found"))
             return
@@ -957,12 +964,21 @@ class ApiHandler(BaseHTTPRequestHandler):
         # 获取旧值（用于撤销）
         msg = db.get_message(msg_id)
         sig = next((s for s in msg.signals if s.uuid == idx_str), None) if msg else None
+        if not sig:
+            self._send_json(404, _resp(False, error="Signal not found"))
+            return
         old_values = {}
-        if sig:
-            for key in body.keys():
-                if hasattr(sig, key):
-                    old_values[key] = getattr(sig, key)
-        
+        for key in body.keys():
+            if hasattr(sig, key):
+                old_values[key] = getattr(sig, key)
+
+        # 防御性校验：更新后的信号所有 bit 必须在报文范围内
+        test_sig = Signal.from_dict({**sig.to_dict(), **body})
+        ok, err, _ = db.validate_signal(msg_id, test_sig, exclude_uuid=idx_str)
+        if not ok:
+            self._send_json(400, _resp(False, error=err))
+            return
+
         ok = db.update_signal_in_message(msg_id, idx_str, **body)
         if not ok:
             self._send_json(404, _resp(False, error="Message or signal not found"))

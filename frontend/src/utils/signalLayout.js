@@ -108,20 +108,19 @@ export function toDisplayStartBit(storageStartBit, length, byteOrder) {
 /**
  * 用户输入 LSB → 存储 MSB
  *   用 motorolaFindMsbByPosition 反查: 哪个 MSB 的 LSB = 输入值
- *   兜底: 若无匹配则尝试直接作为 MSB（兼容懂 DBC 的用户）
+ *   无匹配返回 −1，由调用方报错
  */
 export function toStorageStartBit(displayStartBit, length, byteOrder, maxBit = 63, hintMsb = -1) {
   if (!length || length <= 0) return displayStartBit
   if (byteOrder === 'intel') return displayStartBit
 
   const msb = motorolaFindMsbByPosition(length - 1, length, displayStartBit, maxBit, hintMsb)
-  if (msb >= 0) return msb
-
-  // Fallback: 精确匹配 LSB 失败时，将输入值直接作为 MSB 尝试
-  const directBits = getSignalBits(displayStartBit, length, 'motorola')
-  const allValid = Array.from(directBits).every(b => b >= 0 && b <= maxBit)
-  if (allValid && directBits.size === length) return displayStartBit
-  return -1
+  if (msb < 0) return -1
+  // 双向验证：确保 MSB 产生的 LSB 确实是输入值，且所有 bit 在范围内
+  if (toDisplayStartBit(msb, length, 'motorola') !== displayStartBit) return -1
+  const bits = getSignalBits(msb, length, 'motorola')
+  for (const b of bits) { if (b < 0 || b > maxBit) return -1 }
+  return msb
 }
 
 /**
