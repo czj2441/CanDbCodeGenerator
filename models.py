@@ -599,7 +599,7 @@ class CanDatabase:
         db = cls(name="Imported from DBC")
         
         for can_msg in can_db.messages:
-            msg = Message({
+            msg = Message.from_dict({
                 "id": can_msg.frame_id,
                 "name": can_msg.name,
                 "dlc": can_msg.length,
@@ -609,7 +609,7 @@ class CanDatabase:
             })
             
             for can_sig in can_msg.signals:
-                sig = Signal({
+                sig = Signal.from_dict({
                     "name": can_sig.name,
                     "start_bit": can_sig.start,
                     "length": can_sig.length,
