@@ -639,8 +639,8 @@ class SessionManager:
             raise ValueError(f"Message {msg_id} not found")
         
         with session.db.with_lock():
-            # signals 是列表，需要过滤
-            msg.signals = [s for s in msg.signals if s.uuid != sig_uuid]
+            # ✅ 原地修改，保持列表引用不变
+            msg.signals[:] = [s for s in msg.signals if s.uuid != sig_uuid]
 
     # ── 内部方法 ──
 
