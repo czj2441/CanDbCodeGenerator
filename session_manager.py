@@ -160,7 +160,7 @@ class SessionManager:
             exclude_session: 排除的会话 ID（当前已打开的会话不视为锁定）
             
         Returns:
-            Session 或 None（文件不存在/已过期/数据损坏）
+            Session 或 None（文件不存在/数据损坏）
             
         Raises:
             FileLockedError: 如果文件已被其他会话占用
@@ -395,11 +395,6 @@ class SessionManager:
                     return False
                 return True
             return False
-
-    def cleanup(self):
-        """清理过期会话。"""
-        with self._lock:
-            self._cleanup_expired()
 
     # ── 撤销/重做栈管理 ──
 
@@ -685,19 +680,6 @@ class SessionManager:
         self._heartbeats.pop(session_id, None)
         # 不删除磁盘文件（用户数据保留），仅清理内存
         return True
-
-    def _cleanup_expired(self):
-        expired = [sid for sid, s in self._sessions.items() if s.is_expired()]
-        for sid in expired:
-            session = self._sessions.pop(sid, None)
-            if session:
-                # 保留撤销栈，以便重新打开页面后仍可撤销
-                with session._undo_lock:
-                    self._orphan_stacks[sid] = {
-                        "undo_stack": list(session.undo_stack),
-                        "redo_stack": list(session.redo_stack),
-                    }
-                self._unregister_active(sid)
 
     # ── 活跃文件锁管理 ──
 
