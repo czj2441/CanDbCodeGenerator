@@ -422,12 +422,11 @@ class SessionManager:
             # 推入 redo 栈
             session.redo_stack.append(snap)
             
-            # 执行撤销逻辑（策略模式）
+            # 执行撤销逻辑 + 自动保存（统一持有 db 锁，保证原子性）
             try:
-                self._execute_undo(session, snap)
-                
-                # 自动保存
                 with session.db.with_lock():
+                    self._execute_undo(session, snap)
+                    # 自动保存
                     self._write_file(session)
                     session.db.modified = False
                 
@@ -467,12 +466,11 @@ class SessionManager:
             # 推回 undo 栈
             session.undo_stack.append(snap)
             
-            # 执行重做逻辑（策略模式）
+            # 执行重做逻辑 + 自动保存（统一持有 db 锁，保证原子性）
             try:
-                self._execute_redo(session, snap)
-                
-                # 自动保存
                 with session.db.with_lock():
+                    self._execute_redo(session, snap)
+                    # 自动保存
                     self._write_file(session)
                     session.db.modified = False
                 
@@ -587,8 +585,7 @@ class SessionManager:
             signals=signals,
         )
         
-        with session.db.with_lock():
-            session.db.messages[msg_id] = msg
+        session.db.messages[msg_id] = msg
 
     def _restore_signal(self, session: Session, msg_id: int, sig_data: dict):
         """恢复信号。"""
@@ -597,8 +594,7 @@ class SessionManager:
             raise ValueError(f"Message {msg_id} not found")
         
         sig = Signal.from_dict(sig_data)
-        with session.db.with_lock():
-            msg.signals.append(sig)
+        msg.signals.append(sig)
 
     def _restore_message_update(self, session: Session, msg_id: int, updates: dict):
         """恢复报文属性更新。"""
@@ -606,10 +602,9 @@ class SessionManager:
         if not msg:
             raise ValueError(f"Message {msg_id} not found")
         
-        with session.db.with_lock():
-            for key, value in updates.items():
-                if hasattr(msg, key):
-                    setattr(msg, key, value)
+        for key, value in updates.items():
+            if hasattr(msg, key):
+                setattr(msg, key, value)
 
     def _restore_signal_update(self, session: Session, msg_id: int, sig_uuid: str, updates: dict):
         """恢复信号属性更新。"""
@@ -622,15 +617,13 @@ class SessionManager:
         if not sig:
             raise ValueError(f"Signal {sig_uuid} not found")
         
-        with session.db.with_lock():
-            for key, value in updates.items():
-                if hasattr(sig, key):
-                    setattr(sig, key, value)
+        for key, value in updates.items():
+            if hasattr(sig, key):
+                setattr(sig, key, value)
 
     def _delete_message(self, session: Session, msg_id: int):
         """删除报文。"""
-        with session.db.with_lock():
-            session.db.messages.pop(msg_id, None)
+        session.db.messages.pop(msg_id, None)
 
     def _delete_signal(self, session: Session, msg_id: int, sig_uuid: str):
         """删除信号。"""
@@ -638,9 +631,8 @@ class SessionManager:
         if not msg:
             raise ValueError(f"Message {msg_id} not found")
         
-        with session.db.with_lock():
-            # ✅ 原地修改，保持列表引用不变
-            msg.signals[:] = [s for s in msg.signals if s.uuid != sig_uuid]
+        # ✅ 原地修改，保持列表引用不变
+        msg.signals[:] = [s for s in msg.signals if s.uuid != sig_uuid]
 
     # ── 内部方法 ──
 
