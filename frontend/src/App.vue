@@ -52,7 +52,6 @@ import LogPanel from './components/LogPanel.vue'
 
 const store = useEditorStore()
 const ui = useUiStore()
-let healthTimer = null
 let lockCheckTimer = null  // 文件锁状态检查定时器
 let heartbeatTimer = null  // 心跳定时器
 let beforeUnloadHandler = null  // beforeunload 事件处理器
@@ -104,7 +103,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  clearInterval(healthTimer)
+  store.stopPeriodicReload()
   document.removeEventListener('click', hideMenu)
   cleanupTabSync()
   if (beforeUnloadHandler) {
@@ -163,18 +162,13 @@ async function goBack() {
   mode.value = 'browser'
 }
 
-// 健康检查定时器管理
+// 全量轮询（5s 自复位定时器，由 store 内部管理）
 function startHealthCheck() {
-  stopHealthCheck()
-  store._healthFailCount = 0
-  healthTimer = setInterval(() => store.checkApiHealth(), 15000)
+  store.startPeriodicReload()
 }
 
 function stopHealthCheck() {
-  if (healthTimer) {
-    clearInterval(healthTimer)
-    healthTimer = null
-  }
+  store.stopPeriodicReload()
 }
 
 // 文件锁状态检查定时器管理

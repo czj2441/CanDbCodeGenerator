@@ -144,6 +144,7 @@ export const useEditorStore = defineStore('editor', {
     backendDirty: false,        // 后端 db.modified —— 是否还有未落盘数据（从 /api/status 同步）
     signalErrors: [],
     _healthFailCount: 0,
+    _fullReloadTimer: null,     // 5s 自复位全量轮询定时器
     logEntries: [],
 
     // ── 剪贴板 ──
@@ -171,8 +172,65 @@ export const useEditorStore = defineStore('editor', {
 
   actions: {
     // ═══════════════════════════════════════════
-    // 区域 0：初始化（Initialization）
+    // 区域：周期全量轮询（自复位 5s 定时器）
     // ═══════════════════════════════════════════
+
+    /**
+     * 启动周期全量轮询
+     * 进入编辑器模式时由 App.vue 调用。
+     * 清除旧定时器，重置失败计数，调度首次 5s 后轮询。
+     */
+    startPeriodicReload() {
+      this.stopPeriodicReload()
+      this._healthFailCount = 0
+      this._scheduleNextReload()
+    },
+
+    /**
+     * 停止周期全量轮询
+     * 离开编辑器模式时由 App.vue 调用。
+     */
+    stopPeriodicReload() {
+      if (this._fullReloadTimer) {
+        clearTimeout(this._fullReloadTimer)
+        this._fullReloadTimer = null
+      }
+    },
+
+    /**
+     * 执行一次全量数据重载
+     * 调 loadMessages() 从后端拉取最新数据，成功/失败均更新 apiStatus。
+     * 完成后自动调度下一次 5s 后的轮询。
+     * @returns {Promise<void>}
+     * @private
+     */
+    async _doFullReload() {
+      try {
+        await this.loadMessages()
+        this._healthFailCount = 0
+        this.apiStatus = 'connected'
+      } catch (_) {
+        this._healthFailCount++
+        if (this._healthFailCount >= 2) {
+          this.apiStatus = 'dead'
+        } else {
+          this.apiStatus = 'offline'
+        }
+      } finally {
+        this._scheduleNextReload()
+      }
+    },
+
+    /**
+     * 调度下一次全量轮询（5s 后）。
+     * 每次调用先清除已有定时器，确保只有最后一个生效（自复位）。
+     * CRUD 操作后调用此方法重置倒计时，全量重载仅在定时器超时时触发。
+     * @private
+     */
+    _scheduleNextReload() {
+      if (this._fullReloadTimer) clearTimeout(this._fullReloadTimer)
+      this._fullReloadTimer = setTimeout(() => this._doFullReload(), 5000)
+    },
 
     // ═══════════════════════════════════════════
     // 区域 C：撤销/重做（Undo/Redo）- 后端管理
@@ -192,12 +250,15 @@ export const useEditorStore = defineStore('editor', {
         if (this.selectedMsgId != null) {
           await this.loadSelectedMessage()
         }
+        // 同步计数
+        await this._syncUndoRedoCounts()
         useUiStore().showToast('撤销成功', false)
         this.addLogEntry('undo', '撤销操作')
       } catch (e) {
         console.error('[STORE] undo() failed:', e)
         useUiStore().showToast(e.message || '撤销失败', true)
       }
+      this._scheduleNextReload()
     },
 
     /**
@@ -214,11 +275,30 @@ export const useEditorStore = defineStore('editor', {
         if (this.selectedMsgId != null) {
           await this.loadSelectedMessage()
         }
+        // 同步计数
+        await this._syncUndoRedoCounts()
         useUiStore().showToast('重做成功', false)
         this.addLogEntry('redo', '重做操作')
       } catch (e) {
         console.error('[STORE] redo() failed:', e)
         useUiStore().showToast(e.message || '重做失败', true)
+      }
+      this._scheduleNextReload()
+    },
+
+    /**
+     * 同步撤销/重做计数器（从后端获取）
+     * @private
+     */
+    async _syncUndoRedoCounts() {
+      try {
+        const status = await api('GET', '/api/status')
+        this.undoCount = status.undo_count || 0
+        this.redoCount = status.redo_count || 0
+      } catch (_) {
+        // 忽略错误，保持当前计数
+        this.undoCount = 0
+        this.redoCount = 0
       }
     },
 
@@ -227,8 +307,7 @@ export const useEditorStore = defineStore('editor', {
      * 同时清理 API 队列
      */
     clearUndoStack() {
-      // 会话切换后刷新后端状态（fire-and-forget）
-      this._syncBackendStatus()
+      this._syncUndoRedoCounts()
       // 清理 API 队列（防止内存泄漏）
       if (apiQueue) {
         apiQueue.cleanup()
@@ -443,7 +522,8 @@ export const useEditorStore = defineStore('editor', {
 
     /**
      * 添加报文（乐观更新模式）
-     * 先更新本地状态再发送 API，失败时回滚
+     * 先更新本地状态再发送 API，失败时回滚。
+     * 成功后重置 5s 轮询定时器，全量重载由定时器超时触发。
      * @returns {Promise<void>}
      */
     async addMessage() {
@@ -459,6 +539,7 @@ export const useEditorStore = defineStore('editor', {
       this.messageCache[id] = { id, name, dlc: 8, cycle_time: 0, sender: '', comment: '', signals: [] }
       this.selectedMsgId = id
       this._localDirty = true
+      this._scheduleNextReload()
 
       // 异步发送 API 请求，不阻塞 UI
       try {
@@ -480,18 +561,21 @@ export const useEditorStore = defineStore('editor', {
 
     /**
      * 删除报文（乐观更新模式）
-     * 先更新本地状态再发送 API，失败时回滚
+     * 先更新本地状态再发送 API，失败时回滚。
+     * 成功后重置 5s 轮询定时器，全量重载由定时器超时触发。
      * @param {number} id - 报文 ID
      * @returns {Promise<void>}
      */
     async deleteMessage(id) {
       // 后端已自动推入撤销栈
+      const deleted = this.messageCache[id] ?? null
 
       // 乐观更新
       this.messages = this.messages.filter(m => m.id !== id)
       delete this.messageCache[id]
       if (this.selectedMsgId === id) this.selectedMsgId = null
       this._localDirty = true
+      this._scheduleNextReload()
 
       // 异步发送
       try {
@@ -499,9 +583,9 @@ export const useEditorStore = defineStore('editor', {
         useUiStore().showToast(t('toast.messageDeleted'))
       } catch (e) {
         // 失败时回滚
-        if (msg) {
-          this.messages.push({ id: msg.id, name: msg.name, signal_count: msg.signals.length, id_hex: `0x${msg.id.toString(16).toUpperCase()}` })
-          this.messageCache[id] = msg
+        if (deleted) {
+          this.messages.push({ id: deleted.id, name: deleted.name, signal_count: deleted.signals.length, id_hex: `0x${deleted.id.toString(16).toUpperCase()}` })
+          this.messageCache[id] = deleted
         }
         useUiStore().showToast(e.message, true)
       }
@@ -509,7 +593,8 @@ export const useEditorStore = defineStore('editor', {
 
     /**
      * 更新报文属性（乐观更新模式）
-     * 值变化时先入撤销栈，再更新本地状态，异步发送 API
+     * 值变化时先入撤销栈，再更新本地状态，异步发送 API。
+     * 成功后重置 5s 轮询定时器，全量重载由定时器超时触发。
      * @param {string} field - 字段名
      * @param {any} value - 新值
      * @returns {Promise<void>}
@@ -538,6 +623,7 @@ export const useEditorStore = defineStore('editor', {
         this.messageCache[this.selectedMsgId] = { ...oldCache, [field]: value }
       }
       this._localDirty = true
+      this._scheduleNextReload()
 
       // 使用 API 队列（防抖 + 队列 + 超时）
       const queueKey = `message_${this.selectedMsgId}_${field}`
@@ -561,7 +647,8 @@ export const useEditorStore = defineStore('editor', {
 
     /**
      * 添加信号（乐观更新 + client UUID 替换）
-     * 使用前端生成的临时 UUID 乐观更新 UI，API 成功后替换为后端真实 UUID
+     * 使用前端生成的临时 UUID 乐观更新 UI，API 成功后替换为后端真实 UUID。
+     * 成功后重置 5s 轮询定时器，全量重载由定时器超时触发。
      * @param {Object} signalData - 信号初始数据
      * @returns {Promise<void>}
      */
@@ -597,6 +684,7 @@ export const useEditorStore = defineStore('editor', {
         this.messages[idx] = { ...this.messages[idx], signal_count: msg.signals.length }
       }
       this._localDirty = true
+      this._scheduleNextReload()
 
       // 异步发送
       try {
@@ -623,7 +711,8 @@ export const useEditorStore = defineStore('editor', {
 
     /**
      * 更新信号属性（乐观更新模式）
-     * 值变化时先入撤销栈，再更新本地状态，异步发送 API
+     * 值变化时先入撤销栈，再更新本地状态，异步发送 API。
+     * 成功后重置 5s 轮询定时器，全量重载由定时器超时触发。
      * @param {string} sigUuid - 信号 UUID
      * @param {string} field - 字段名
      * @param {any} value - 新值
@@ -647,16 +736,19 @@ export const useEditorStore = defineStore('editor', {
 
       sig[field] = value
       this._localDirty = true
+      this._scheduleNextReload()
 
       // 使用 API 队列（防抖 + 队列 + 超时）
       const queueKey = `signal_${sigUuid}_${field}`
       try {
-        await apiQueue.enqueue(
+        const queued = await apiQueue.enqueue(
           queueKey,
           () => api('PUT', `/api/messages/${this.selectedMsgId}/signals/${sigUuid}`, { [field]: value }),
           oldVal,  // fallbackValue
           (fallbackVal) => { sig[field] = fallbackVal }  // onRollback
         )
+        // 防抖跳过的中间值不重复加载信号错误
+        if (queued?.skipped) return
         this.loadSignalErrors()
       } catch (e) {
         // 回滚已由 onRollback 执行
@@ -668,7 +760,8 @@ export const useEditorStore = defineStore('editor', {
 
     /**
      * 删除信号（乐观更新模式）
-     * 先更新本地状态再发送 API，失败时回滚
+     * 先更新本地状态再发送 API，失败时回滚。
+     * 成功后重置 5s 轮询定时器，全量重载由定时器超时触发。
      * @param {string} sigUuid - 信号 UUID
      * @returns {Promise<void>}
      */
@@ -689,6 +782,7 @@ export const useEditorStore = defineStore('editor', {
         this.messages[idx] = { ...this.messages[idx], signal_count: msg.signals.length }
       }
       this._localDirty = true
+      this._scheduleNextReload()
 
       // 异步发送
       try {
@@ -709,6 +803,7 @@ export const useEditorStore = defineStore('editor', {
      * 批量添加信号（乐观更新 + 并发 API）
      * 所有信号先本地乐观更新，然后并发发送 API 请求
      * API 成功后替换 clientUuid 为真实 UUID，并入撤销栈
+     * 成功后重置 5s 轮询定时器，全量重载由定时器超时触发。
      * @param {Object} params - 批量参数
      * @param {string} params.nameTemplate - 名称模板（如 "Signal_{n}"）
      * @param {number} params.count - 信号数量
@@ -765,6 +860,7 @@ export const useEditorStore = defineStore('editor', {
         this.messages[idx] = { ...this.messages[idx], signal_count: msg.signals.length }
       }
       this._localDirty = true
+      this._scheduleNextReload()
       this.isLoading = true
 
       // 异步批量发送（调用批量端点，原子撤销）
@@ -817,18 +913,7 @@ export const useEditorStore = defineStore('editor', {
      * @returns {Promise<void>}
      */
     async checkApiHealth() {
-      try {
-        await this._syncBackendStatus()
-        this._healthFailCount = 0
-        this.apiStatus = 'connected'
-      } catch (_) {
-        this._healthFailCount++
-        if (this._healthFailCount >= 2) {
-          this.apiStatus = 'dead'
-        } else {
-          this.apiStatus = 'offline'
-        }
-      }
+      await this._doFullReload()
     },
 
     // ── 操作日志 ──
