@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import { useEditorStore } from './editor.js'
 
 export const useUiStore = defineStore('ui', {
   state: () => ({
@@ -77,6 +78,10 @@ export const useUiStore = defineStore('ui', {
     toggleLocale() {
       const next = this.locale === 'zh' ? 'en' : 'zh'
       this.setLocale(next)
+    },
+
+    setLoading(val) {
+      useEditorStore().isLoading = val
     },
   },
 })
