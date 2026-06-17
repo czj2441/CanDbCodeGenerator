@@ -552,10 +552,8 @@ export const useEditorStore = defineStore('editor', {
 
         useUiStore().showToast(t('toast.messageAdded'))
       } catch (e) {
-        // 失败时回滚
-        this.messages = this.messages.filter(m => m.id !== id)
-        delete this.messageCache[id]
         useUiStore().showToast(e.message, true)
+        await this._doFullReload()
       }
     },
 
@@ -568,7 +566,6 @@ export const useEditorStore = defineStore('editor', {
      */
     async deleteMessage(id) {
       // 后端已自动推入撤销栈
-      const deleted = this.messageCache[id] ?? null
 
       // 乐观更新
       this.messages = this.messages.filter(m => m.id !== id)
@@ -582,12 +579,8 @@ export const useEditorStore = defineStore('editor', {
         await api('DELETE', `/api/messages/${id}`)
         useUiStore().showToast(t('toast.messageDeleted'))
       } catch (e) {
-        // 失败时回滚
-        if (deleted) {
-          this.messages.push({ id: deleted.id, name: deleted.name, signal_count: deleted.signals.length, id_hex: `0x${deleted.id.toString(16).toUpperCase()}` })
-          this.messageCache[id] = deleted
-        }
         useUiStore().showToast(e.message, true)
+        await this._doFullReload()
       }
     },
 
@@ -638,9 +631,9 @@ export const useEditorStore = defineStore('editor', {
           }
         )
       } catch (e) {
-        // 回滚已由 onRollback 执行
         if (!e.message.includes('Queue cleaned up')) {
           useUiStore().showToast(e.message, true)
+          await this._doFullReload()
         }
       }
     },
@@ -676,10 +669,8 @@ export const useEditorStore = defineStore('editor', {
       const newSig = { uuid: clientUuid, ...fullData }
 
       // 乐观更新
-      const oldSignals = [...msg.signals]
       msg.signals = [...msg.signals, newSig]
       const idx = this.messages.findIndex(m => m.id === this.selectedMsgId)
-      const oldMsgEntry = idx >= 0 ? this.messages[idx] : null
       if (idx >= 0) {
         this.messages[idx] = { ...this.messages[idx], signal_count: msg.signals.length }
       }
@@ -700,12 +691,8 @@ export const useEditorStore = defineStore('editor', {
         useUiStore().showToast(t('toast.signalAdded'))
         this.loadSignalErrors()
       } catch (e) {
-        // 回滚（仅针对真正的 API 失败，如网络/404；验证错误不再被后端拒绝）
-        msg.signals = oldSignals
-        if (oldMsgEntry) {
-          this.messages[idx] = oldMsgEntry
-        }
         useUiStore().showToast(e.message, true)
+        await this._doFullReload()
       }
     },
 
@@ -751,9 +738,9 @@ export const useEditorStore = defineStore('editor', {
         if (queued?.skipped) return
         this.loadSignalErrors()
       } catch (e) {
-        // 回滚已由 onRollback 执行
         if (!e.message.includes('Queue cleaned up')) {
           useUiStore().showToast(e.message, true)
+          await this._doFullReload()
         }
       }
     },
@@ -771,7 +758,6 @@ export const useEditorStore = defineStore('editor', {
       // 后端已自动推入撤销栈
 
       const msg = this.selectedMessage
-      const sig = msg ? msg.signals.find(s => s.uuid === sigUuid) : null
 
       // 乐观更新
       if (msg) {
@@ -790,12 +776,8 @@ export const useEditorStore = defineStore('editor', {
         useUiStore().showToast(t('toast.signalDeleted'))
         this.loadSignalErrors()
       } catch (e) {
-        // 回滚
-        if (sig && msg) {
-          msg.signals.push(sig)
-          this.messages[idx] = { ...this.messages[idx], signal_count: msg.signals.length }
-        }
         useUiStore().showToast(e.message, true)
+        await this._doFullReload()
       }
     },
 
@@ -832,11 +814,6 @@ export const useEditorStore = defineStore('editor', {
         useUiStore().showToast(`Last signal ends at bit ${lastEnd - 1}, exceeds ${maxBits - 1}`, true)
         return
       }
-
-      // 保存旧状态（用于回滚）
-      const oldSignals = [...msg.signals]
-      const oldMessageIdx = this.messages.findIndex(m => m.id === this.selectedMsgId)
-      const oldMessageData = oldMessageIdx >= 0 ? { ...this.messages[oldMessageIdx] } : null
 
       // 乐观更新：先构建所有新信号
       const newSigs = []
@@ -894,12 +871,8 @@ export const useEditorStore = defineStore('editor', {
 
         useUiStore().showToast(t('toast.batchCreated', { count: created }))
       } catch (e) {
-        // 回滚：恢复旧信号列表
-        msg.signals = oldSignals
-        if (oldMessageIdx >= 0 && oldMessageData) {
-          this.messages[oldMessageIdx] = oldMessageData
-        }
         useUiStore().showToast(t('toast.batchFailed', { idx: 1, msg: e.message }), true)
+        await this._doFullReload()
       } finally {
         this.isLoading = false
         this.loadSignalErrors()
