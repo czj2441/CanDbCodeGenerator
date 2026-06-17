@@ -104,6 +104,8 @@ class SessionManager:
         self._model_factory = None  # 由外部注入
         self._heartbeats: dict[str, float] = {}  # session_id -> last_heartbeat_time
         self._heartbeat_timer: Optional[threading.Timer] = None
+        # 已销毁会话的撤销栈（重新打开页面时可恢复）
+        self._orphan_stacks: dict[str, dict] = {}
         os.makedirs(self._data_dir, exist_ok=True)
         self._start_heartbeat_checker()
 
@@ -195,6 +197,11 @@ class SessionManager:
             session = Session(session_id, file_path, db)
             self._sessions[session_id] = session
             self._register_active(session_id, file_path)
+            # 恢复之前保留的撤销栈（如果有）
+            orphan = self._orphan_stacks.pop(session_id, None)
+            if orphan:
+                session.undo_stack = orphan["undo_stack"]
+                session.redo_stack = orphan["redo_stack"]
             return session
 
     def rename(self, session_id: str, new_name: str) -> bool:
@@ -347,8 +354,14 @@ class SessionManager:
     def delete_history(self, session_id: str) -> bool:
         """删除历史会话（内存 + 磁盘文件）。"""
         with self._lock:
-            # 清理内存中的 session
-            self._sessions.pop(session_id, None)
+            # 清理内存中的 session，保留撤销栈
+            session = self._sessions.pop(session_id, None)
+            if session:
+                with session._undo_lock:
+                    self._orphan_stacks[session_id] = {
+                        "undo_stack": list(session.undo_stack),
+                        "redo_stack": list(session.redo_stack),
+                    }
             # 删除磁盘文件
             file_path = self._find_session_file(session_id)
             if file_path and os.path.isfile(file_path):
@@ -640,6 +653,12 @@ class SessionManager:
         session = self._sessions.pop(session_id, None)
         if not session:
             return False
+        # 保留撤销栈，以便重新打开页面后仍可撤销
+        with session._undo_lock:
+            self._orphan_stacks[session_id] = {
+                "undo_stack": list(session.undo_stack),
+                "redo_stack": list(session.redo_stack),
+            }
         self._unregister_active(session_id)
         self._heartbeats.pop(session_id, None)
         # 不删除磁盘文件（用户数据保留），仅清理内存
@@ -648,8 +667,15 @@ class SessionManager:
     def _cleanup_expired(self):
         expired = [sid for sid, s in self._sessions.items() if s.is_expired()]
         for sid in expired:
-            self._unregister_active(sid)
-            self._sessions.pop(sid, None)
+            session = self._sessions.pop(sid, None)
+            if session:
+                # 保留撤销栈，以便重新打开页面后仍可撤销
+                with session._undo_lock:
+                    self._orphan_stacks[sid] = {
+                        "undo_stack": list(session.undo_stack),
+                        "redo_stack": list(session.redo_stack),
+                    }
+                self._unregister_active(sid)
 
     # ── 活跃文件锁管理 ──
 
