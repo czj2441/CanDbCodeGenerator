@@ -1,15 +1,6 @@
 /**
  * Store 工具函数
  *
- * 职责：提取 editor.js 中重复的工具逻辑
+ * 职责：提取 editor.js 中重复的工具逻辑。
+ * 当前无活跃的工具函数，保留文件以备后续扩展。
  */
-
-/**
- * 统一标记修改状态
- * @param {Object} store - Pinia store 实例
- */
-export function markModified(store) {
-  store.modified = true
-  store.modifiedAt = Date.now()
-  store._scheduleModifiedCheck()
-}

@@ -1,7 +1,6 @@
 import { defineStore } from 'pinia'
 import { api, setSessionId, clearSession, getSessionId } from '../api/client.js'
 import { t } from '../i18n.js'
-import { markModified } from '../utils/storeHelpers.js'
 import { useUiStore } from './uiStore.js'
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -141,10 +140,9 @@ export const useEditorStore = defineStore('editor', {
     // ── 运行时状态 ──
     isLoading: false,
     apiStatus: 'connecting',
-    modified: false,
-    modifiedAt: 0,
+    _localDirty: false,        // 前端本地自上次 save/load 后是否有过编辑（仅 beforeunload 使用）
+    backendDirty: false,        // 后端 db.modified —— 是否还有未落盘数据（从 /api/status 同步）
     signalErrors: [],
-    _modifiedTimer: null,
     _healthFailCount: 0,
     logEntries: [],
 
@@ -194,8 +192,6 @@ export const useEditorStore = defineStore('editor', {
         if (this.selectedMsgId != null) {
           await this.loadSelectedMessage()
         }
-        // 同步计数
-        await this._syncUndoRedoCounts()
         useUiStore().showToast('撤销成功', false)
         this.addLogEntry('undo', '撤销操作')
       } catch (e) {
@@ -218,8 +214,6 @@ export const useEditorStore = defineStore('editor', {
         if (this.selectedMsgId != null) {
           await this.loadSelectedMessage()
         }
-        // 同步计数
-        await this._syncUndoRedoCounts()
         useUiStore().showToast('重做成功', false)
         this.addLogEntry('redo', '重做操作')
       } catch (e) {
@@ -229,32 +223,12 @@ export const useEditorStore = defineStore('editor', {
     },
 
     /**
-     * 同步撤销/重做计数器（从后端获取）
-     * @private
-     */
-    async _syncUndoRedoCounts() {
-      try {
-        const status = await api('GET', '/api/status')
-        this.undoCount = status.undo_count || 0
-        this.redoCount = status.redo_count || 0
-      } catch (_) {
-        // 忽略错误，保持当前计数
-        this.undoCount = 0
-        this.redoCount = 0
-      }
-    },
-
-    /**
      * 清空撤销/重做栈（切换会话时调用）
-     * 同时清理 modified 定时器和 API 队列
+     * 同时清理 API 队列
      */
     clearUndoStack() {
-      this._syncUndoRedoCounts()
-      // 切换会话时清理 modified 定时器
-      if (this._modifiedTimer) {
-        clearTimeout(this._modifiedTimer)
-        this._modifiedTimer = null
-      }
+      // 会话切换后刷新后端状态（fire-and-forget）
+      this._syncBackendStatus()
       // 清理 API 队列（防止内存泄漏）
       if (apiQueue) {
         apiQueue.cleanup()
@@ -277,8 +251,7 @@ export const useEditorStore = defineStore('editor', {
           const data = await api('GET', `/api/session/${sid}`)
           if (data && data.session_id) {
             this.currentFileName = data.file_name || ''
-            this.modified = false
-            this.modifiedAt = 0
+            this._localDirty = false
             this.clearUndoStack() // 切换会话时清空撤销栈
             await this.loadMessages()
             this.apiStatus = 'connected'
@@ -347,8 +320,8 @@ export const useEditorStore = defineStore('editor', {
     async saveSession() {
       try {
         await api('POST', '/api/save')
-        this.modified = false
-        this.modifiedAt = 0
+        this._localDirty = false
+        await this._syncBackendStatus()
         return true
       } catch (e) {
         console.error('Failed to save session:', e)
@@ -368,45 +341,27 @@ export const useEditorStore = defineStore('editor', {
         if (this.selectedMsgId != null) {
           await this.loadSelectedMessage()
         }
-        await this._checkModifiedStatus()
+        await this._syncBackendStatus()
       } catch (e) {
         useUiStore().showToast(e.message, true)
       }
     },
 
     /**
-     * 检查后端修改状态
-     * 仅在本地修改超过 1.5 秒后才同步后端状态，避免覆盖本地修改
+     * 同步后端状态
+     * 从 /api/status 拉取后端 modified、undo/redo 计数
      * @returns {Promise<void>}
      * @private
      */
-    async _checkModifiedStatus() {
+    async _syncBackendStatus() {
       try {
         const status = await api('GET', '/api/status')
-        const elapsed = Date.now() - this.modifiedAt
-        if (elapsed > 1500) {
-          this.modified = status.modified || false
-        }
+        this.backendDirty = status.modified || false
+        this.undoCount = status.undo_count || 0
+        this.redoCount = status.redo_count || 0
       } catch (_) {
         /* ignore */
       }
-    },
-
-    /**
-     * 调度修改状态检查
-     * 标记本地为已修改，并在 2 秒后检查后端状态
-     * 清除之前的定时器，避免积累多个未执行的检查
-     * @private
-     */
-    _scheduleModifiedCheck() {
-      this.modified = true
-      this.modifiedAt = Date.now()
-      // 清除之前的定时器，避免积累多个未执行的检查
-      if (this._modifiedTimer) clearTimeout(this._modifiedTimer)
-      this._modifiedTimer = setTimeout(() => {
-        this._modifiedTimer = null
-        this._checkModifiedStatus()
-      }, 2000)
     },
 
     /**
@@ -503,8 +458,7 @@ export const useEditorStore = defineStore('editor', {
       this.messages.push(newMsg)
       this.messageCache[id] = { id, name, dlc: 8, cycle_time: 0, sender: '', comment: '', signals: [] }
       this.selectedMsgId = id
-      this.modified = true
-      this.modifiedAt = Date.now()
+      this._localDirty = true
 
       // 异步发送 API 请求，不阻塞 UI
       try {
@@ -537,8 +491,7 @@ export const useEditorStore = defineStore('editor', {
       this.messages = this.messages.filter(m => m.id !== id)
       delete this.messageCache[id]
       if (this.selectedMsgId === id) this.selectedMsgId = null
-      this.modified = true
-      this.modifiedAt = Date.now()
+      this._localDirty = true
 
       // 异步发送
       try {
@@ -584,8 +537,7 @@ export const useEditorStore = defineStore('editor', {
       if (oldCache) {
         this.messageCache[this.selectedMsgId] = { ...oldCache, [field]: value }
       }
-      this.modified = true
-      this.modifiedAt = Date.now()
+      this._localDirty = true
 
       // 使用 API 队列（防抖 + 队列 + 超时）
       const queueKey = `message_${this.selectedMsgId}_${field}`
@@ -644,7 +596,7 @@ export const useEditorStore = defineStore('editor', {
       if (idx >= 0) {
         this.messages[idx] = { ...this.messages[idx], signal_count: msg.signals.length }
       }
-      markModified(this)
+      this._localDirty = true
 
       // 异步发送
       try {
@@ -694,7 +646,7 @@ export const useEditorStore = defineStore('editor', {
       // 后端已自动推入撤销栈
 
       sig[field] = value
-      markModified(this)
+      this._localDirty = true
 
       // 使用 API 队列（防抖 + 队列 + 超时）
       const queueKey = `signal_${sigUuid}_${field}`
@@ -736,7 +688,7 @@ export const useEditorStore = defineStore('editor', {
       if (idx >= 0 && msg) {
         this.messages[idx] = { ...this.messages[idx], signal_count: msg.signals.length }
       }
-      markModified(this)
+      this._localDirty = true
 
       // 异步发送
       try {
@@ -812,7 +764,7 @@ export const useEditorStore = defineStore('editor', {
       if (idx >= 0) {
         this.messages[idx] = { ...this.messages[idx], signal_count: msg.signals.length }
       }
-      markModified(this)
+      this._localDirty = true
       this.isLoading = true
 
       // 异步批量发送（调用批量端点，原子撤销）
@@ -861,11 +813,12 @@ export const useEditorStore = defineStore('editor', {
     /**
      * 检查 API 健康状态
      * 由 App.vue 定时调用（每 15 秒）
+     * 同时通过 _syncBackendStatus 更新 backendDirty、undo/redo 计数
      * @returns {Promise<void>}
      */
     async checkApiHealth() {
       try {
-        await api('GET', '/api/status')
+        await this._syncBackendStatus()
         this._healthFailCount = 0
         this.apiStatus = 'connected'
       } catch (_) {
@@ -903,8 +856,7 @@ export const useEditorStore = defineStore('editor', {
       this.messageCache = {}
       this.messages = []
       this.signalErrors = []
-      this.modified = false
-      this.modifiedAt = 0
+      this._localDirty = false
       this._healthFailCount = 0
       this.clearUndoStack()
       this.isLoading = true
@@ -936,7 +888,7 @@ export const useEditorStore = defineStore('editor', {
       try {
         const data = await api('PUT', '/api/session', { name })
         this.currentFileName = data.file_name || ''
-        this._scheduleModifiedCheck()
+        this._localDirty = true
         useUiStore().showToast(t('toast.renamed'))
       } catch (e) {
         useUiStore().showToast(e.message, true)
@@ -953,7 +905,7 @@ export const useEditorStore = defineStore('editor', {
         this.messageCache = {}
         this.messages = []
         this.signalErrors = []
-        this.modified = false
+        this._localDirty = false
         this.clearUndoStack()
         useUiStore().showToast(t('toast.newSessionCreated'))
       } catch (e) {
@@ -974,7 +926,7 @@ export const useEditorStore = defineStore('editor', {
       this.messageCache = {}
       this.messages = []
       this.signalErrors = []
-      this.modified = false
+      this._localDirty = false
       this.clearUndoStack()
       return sid
     },

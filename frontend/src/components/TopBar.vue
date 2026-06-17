@@ -9,7 +9,7 @@
     <button class="btn" @click="onNew">{{ t('topbar.new') }}</button>
     <button class="btn" @click="importFile">{{ t('topbar.import') }}</button>
     <button class="btn btn-accent" @click="exportFile('dbc')">{{ t('topbar.export') }}</button>
-    <button class="btn" @click="save" :disabled="!store.modified" title="保存 (Ctrl+S)">{{ t('topbar.save') }}</button>
+    <button class="btn" @click="save" :disabled="!store.backendDirty" title="保存 (Ctrl+S)">{{ t('topbar.save') }}</button>
     <span class="topbar-spacer"></span>
     <button class="btn btn-icon" @click="ui.toggleLocale" title="切换语言">{{ ui.locale === 'zh' ? '中' : 'EN' }}</button>
     <button class="btn btn-icon" @click="ui.toggleTheme" title="切换主题">{{ ui.theme === 'dark' ? '☀' : '☾' }}</button>

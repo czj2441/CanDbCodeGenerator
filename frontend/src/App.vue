@@ -90,7 +90,7 @@ onMounted(() => {
     }
     
     // 如果有未保存的修改，弹出确认对话框
-    if (sid && store.modified) {
+    if (sid && store._localDirty) {
       // 尝试保存数据（sendBeacon 不支持自定义请求头，使用 URL 参数）
       navigator.sendBeacon('/api/save?sid=' + encodeURIComponent(sid))
       

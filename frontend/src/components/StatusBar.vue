@@ -3,7 +3,7 @@
     <span>{{ store.messageCount }} {{ store.messageCount === 1 ? t('status.message') : t('status.messages') }}</span>
     <span>{{ store.signalCount }} {{ store.signalCount === 1 ? t('status.signal') : t('status.signals') }}</span>
     <span class="spacer"></span>
-    <span v-if="store.modified" class="modified">{{ t('status.modified') }}</span>
+    <span v-if="store.backendDirty" class="modified">{{ t('status.modified') }}</span>
   </div>
 </template>
 
