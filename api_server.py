@@ -149,22 +149,8 @@ class ApiHandler(BaseHTTPRequestHandler):
         return _temp_db()
 
     def _auto_save(self) -> None:
-        """变更后自动保存（延迟写入，不阻塞 API 响应）。"""
-        session_id = self.headers.get("X-Session-Id", "")
-        if session_id:
-            # 在后台线程中延迟保存，避免阻塞 HTTP 响应
-            def _save_later(sid):
-                import time as _t
-                _t.sleep(0.5)  # 延迟 500ms，等待响应返回客户端
-                t_save = time.monotonic()
-                print(f"[API] auto_save START session={sid[:8]}...")
-                try:
-                    SESSION_MGR.save(sid)
-                    elapsed = (time.monotonic() - t_save) * 1000
-                    print(f"[API] auto_save DONE +{elapsed:.1f}ms")
-                except Exception as e:
-                    print(f"[WARN] auto_save failed for session {sid}: {e}")
-            threading.Thread(target=_save_later, args=(session_id,), daemon=True).start()
+        """（已废弃）变更后不再立即落盘，由定时自动保存器处理。"""
+        pass
 
     def _push_undo(self, snapshot: dict) -> None:
         """推入撤销快照（如果存在 session）。"""
@@ -798,13 +784,14 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._send_json(400, _resp(False, error=f"Import failed: {e}"))
             return
 
-        # 替换当前会话的 DB 并自动保存
+        # 替换当前会话的 DB 并标记已修改
         session_id = self.headers.get("X-Session-Id", "")
         if session_id:
             s = SESSION_MGR.get(session_id)
             if s:
                 s.db = new_db
-                self._auto_save()
+                # 导入后立即保存（全量替换，数据量大，值得即时持久化）
+                SESSION_MGR.save(session_id)
 
         self._send_json(200, _resp(True, {"message_count": len(new_db.messages)}))
 
@@ -851,7 +838,6 @@ class ApiHandler(BaseHTTPRequestHandler):
             "data": msg.to_dict()
         })
         
-        self._auto_save()
         self._send_json(201, _resp(True, msg.to_dict()))
 
     def _put_message(self, id_str: str) -> None:
@@ -895,7 +881,6 @@ class ApiHandler(BaseHTTPRequestHandler):
                 "next": {k: v for k, v in body.items() if k != "id"}
             })
         
-        self._auto_save()
         self._send_json(200, _resp(True, db.get_message(msg_id).to_dict()))
 
     def _delete_message(self, id_str: str) -> None:
@@ -921,7 +906,6 @@ class ApiHandler(BaseHTTPRequestHandler):
             "data": msg_data
         })
         
-        self._auto_save()
         self._send_json(200, _resp(True, {"deleted": f"0x{msg_id:X}"}))
 
     def _post_signals(self, id_str: str) -> None:
@@ -952,7 +936,6 @@ class ApiHandler(BaseHTTPRequestHandler):
             "data": sig.to_dict()
         })
         
-        self._auto_save()
         self._send_json(201, _resp(True, sig.to_dict()))
 
     def _post_signals_batch(self, id_str: str) -> None:
@@ -995,7 +978,6 @@ class ApiHandler(BaseHTTPRequestHandler):
             ]
         })
 
-        self._auto_save()
         self._send_json(201, _resp(True, {
             "created": [sig.to_dict() for sig in created_signals],
             "errors": errors,
@@ -1046,7 +1028,6 @@ class ApiHandler(BaseHTTPRequestHandler):
         
         msg = db.get_message(msg_id)
         sig = next((s for s in msg.signals if s.uuid == idx_str), None) if msg else None
-        self._auto_save()
         self._send_json(200, _resp(True, sig.to_dict() if sig else {}))
 
     def _delete_signal(self, id_str: str, uuid_str: str) -> None:
@@ -1078,7 +1059,6 @@ class ApiHandler(BaseHTTPRequestHandler):
             "data": sig_data
         })
         
-        self._auto_save()
         self._send_json(200, _resp(True, {"deleted": uuid_str}))
 
 
@@ -1411,28 +1391,31 @@ def main() -> None:
     def save_all_sessions():
         """保存所有活跃会话（优雅关闭）。"""
         print("\n[INFO] Saving all active sessions...")
-        saved_count = 0
-        failed_count = 0
-        for sid in list(SESSION_MGR._sessions.keys()):
-            try:
-                session = SESSION_MGR.get(sid)
-                if session and session.db.modified:
-                    SESSION_MGR.save(sid)
-                    print(f"  ✅ Saved session {sid[:8]}... ({session.db.name})")
-                    saved_count += 1
-                else:
-                    print(f"  ⏭️  Skipped session {sid[:8]}... (no changes)")
-            except Exception as e:
-                print(f"  ❌ Failed to save {sid[:8]}: {e}")
-                failed_count += 1
-        
-        if saved_count > 0 or failed_count > 0:
-            print(f"\n[INFO] Save complete: {saved_count} saved, {failed_count} failed")
+        count = SESSION_MGR.save_all_dirty()
+        if count > 0:
+            print(f"[INFO] Save complete: {count} session(s) saved")
         else:
-            print(f"\n[INFO] No modified sessions to save.")
+            print(f"[INFO] No modified sessions to save.")
     
     # 注册退出处理器（进程正常退出时触发）
     atexit.register(save_all_sessions)
+
+    # ── 定时自动保存（每 5 分钟） ──
+    AUTO_SAVE_INTERVAL = 300  # 5 分钟
+    
+    def _periodic_auto_saver():
+        while True:
+            time.sleep(AUTO_SAVE_INTERVAL)
+            try:
+                count = SESSION_MGR.save_all_dirty()
+                if count > 0:
+                    print(f"[AUTO-SAVE] Periodic save: {count} session(s) saved to disk")
+            except Exception as e:
+                print(f"[AUTO-SAVE] Error: {e}")
+    
+    auto_save_thread = threading.Thread(target=_periodic_auto_saver, daemon=True)
+    auto_save_thread.start()
+    print(f"[AUTO-SAVE] Periodic auto-save started (interval={AUTO_SAVE_INTERVAL}s)")
     
     # 注册信号处理器（捕获 Ctrl+C 和 kill 信号）
     def graceful_shutdown(signum, frame):

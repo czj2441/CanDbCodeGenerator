@@ -256,6 +256,30 @@ class SessionManager:
             session.db.modified = False
         return True
 
+    def save_all_dirty(self) -> int:
+        """遍历所有活跃会话，保存所有已修改的。
+
+        用于定时自动保存。（线程安全，不长期持锁）
+
+        Returns:
+            成功保存的会话数量
+        """
+        with self._lock:
+            sids = list(self._sessions.keys())
+        saved = 0
+        for sid in sids:
+            session = self.get(sid)
+            if not session:
+                continue
+            if not session.db.modified:
+                continue
+            try:
+                if self.save(sid):
+                    saved += 1
+            except Exception as e:
+                print(f"[WARN] save_all_dirty: failed to save {sid[:8]}: {e}")
+        return saved
+
     def destroy(self, session_id: str) -> bool:
         """销毁会话（内存 + 磁盘文件）。"""
         with self._lock:
@@ -435,13 +459,12 @@ class SessionManager:
             # 推入 redo 栈
             session.redo_stack.append(snap)
             
-            # 执行撤销逻辑 + 自动保存（统一持有 db 锁，保证原子性）
+            # 执行撤销逻辑（统一持有 db 锁，保证原子性）
+            # 不立即落盘，由定时自动保存器或手动保存处理
             try:
                 with session.db.with_lock():
                     self._execute_undo(session, snap)
-                    # 自动保存
-                    self._write_file(session)
-                    session.db.modified = False
+                    session.db.modified = True  # undo 绕过 CRUD，需显式标记
                 
                 return {
                     "success": True,
@@ -479,13 +502,12 @@ class SessionManager:
             # 推回 undo 栈
             session.undo_stack.append(snap)
             
-            # 执行重做逻辑 + 自动保存（统一持有 db 锁，保证原子性）
+            # 执行重做逻辑（统一持有 db 锁，保证原子性）
+            # 不立即落盘，由定时自动保存器或手动保存处理
             try:
                 with session.db.with_lock():
                     self._execute_redo(session, snap)
-                    # 自动保存
-                    self._write_file(session)
-                    session.db.modified = False
+                    session.db.modified = True  # redo 绕过 CRUD，需显式标记
                 
                 return {
                     "success": True,
