@@ -970,13 +970,14 @@ export const useEditorStore = defineStore('editor', {
     },
 
     /**
-     * 释放当前 session 的文件锁（返回文件浏览器时调用）
+     * 释放当前 session 的文件锁（返回文件浏览器时调用）。
+     * 传递 abort=true 同时销毁 session，丢弃未保存的变更。
      */
     async releaseSession() {
       const sid = sessionStorage.getItem('canmatrix_session_id')
       if (sid) {
         try {
-          await api('POST', '/api/release', null, { 'X-Session-Id': sid })
+          await api('POST', '/api/release', { abort: true }, { 'X-Session-Id': sid })
         } catch (_) {
           // 忽略释放失败
         }

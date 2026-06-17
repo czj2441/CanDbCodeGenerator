@@ -616,19 +616,28 @@ class ApiHandler(BaseHTTPRequestHandler):
         self._send_json(status_code, _resp(result["success"], data=result.get("data"), error=result.get("message") if not result["success"] else None))
 
     def _post_release(self) -> None:
-        """POST /api/release - 主动释放当前 session 的文件锁。
+        """POST /api/release - 释放当前 session 的文件锁。
 
+        支持查询参数 ?abort=1 以同时销毁 session（丢弃未保存变更）。
         支持从 X-Session-Id 请求头或 URL 查询参数 ?sid=xxx 读取 session ID，
         以便 navigator.sendBeacon() 使用（beacon 不支持自定义请求头）。
+        常规 API 调用也可通过 JSON body {"abort": true} 传递。
         """
         sid = self.headers.get("X-Session-Id", "")
+        abort = False
         if not sid:
             params = self._url_params()
             sid_list = params.get("sid", [])
             if sid_list:
                 sid = sid_list[0]
+            abort_list = params.get("abort", [])
+            if abort_list:
+                abort = abort_list[0] in ("1", "true", "yes")
+        else:
+            body = self._read_body() or {}
+            abort = body.get("abort", False)
         if sid:
-            SESSION_MGR.release_session(sid)
+            SESSION_MGR.release_session(sid, abort=abort)
         self._send_json(200, _resp(True))
 
     def _post_heartbeat(self) -> None:

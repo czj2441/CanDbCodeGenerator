@@ -706,11 +706,21 @@ class SessionManager:
             sids = self._active_files.get(norm_path, set())
             return bool(sids - {exclude_session})
 
-    def release_session(self, session_id: str) -> bool:
-        """释放指定 session 的文件锁。（公共 API，线程安全）"""
+    def release_session(self, session_id: str, abort: bool = False) -> bool:
+        """释放指定 session 的文件锁。
+
+        Args:
+            session_id: 会话 ID
+            abort: 是否同时销毁 session（丢弃未保存变更）
+
+        Returns:
+            是否成功
+        """
         with self._lock:
             if session_id not in self._sessions:
                 return False
+            if abort:
+                return self._destroy(session_id)
             self._unregister_active(session_id)
             self._heartbeats.pop(session_id, None)
             return True
