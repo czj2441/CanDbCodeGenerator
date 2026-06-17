@@ -29,7 +29,6 @@ class FileLockedError(Exception):
 from models import Signal, Message, CanDatabase
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
-SESSION_TIMEOUT = 30 * 60  # 30 分钟无操作自动过期
 HEARTBEAT_TIMEOUT = 30       # 30 秒无心跳则视为离线，自动释放文件锁
 HEARTBEAT_CHECK_INTERVAL = 30  # 每 30 秒检查一次心跳超时
 
@@ -54,9 +53,6 @@ class Session:
 
     def touch(self):
         self.last_access = time.time()
-
-    def is_expired(self, timeout: float = SESSION_TIMEOUT) -> bool:
-        return time.time() - self.last_access > timeout
 
     def to_info(self) -> dict:
         return {
@@ -145,9 +141,6 @@ class SessionManager:
         with self._lock:
             session = self._sessions.get(session_id)
             if session:
-                if session.is_expired():
-                    self._destroy(session_id)
-                    return None
                 session.touch()
             return session
 
@@ -169,9 +162,6 @@ class SessionManager:
             # 先检查内存中是否已有
             session = self._sessions.get(session_id)
             if session:
-                if session.is_expired():
-                    self._destroy(session_id)
-                    return None
                 # 检查锁：如果内存中的 session 被其他标签页占用，拒绝恢复
                 if exclude_session and session_id != exclude_session:
                     if self.is_file_locked(session.file_path, exclude_session=exclude_session):
@@ -288,7 +278,6 @@ class SessionManager:
     def list_sessions(self) -> list[dict]:
         """列出所有活跃会话信息。"""
         with self._lock:
-            self._cleanup_expired()
             return [s.to_info() for s in self._sessions.values()]
 
     def list_history(self, exclude_session: str = '') -> list[dict]:
