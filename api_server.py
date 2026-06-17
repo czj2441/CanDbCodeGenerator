@@ -1069,17 +1069,12 @@ class ApiHandler(BaseHTTPRequestHandler):
 
 
 def _parse_id(s: Any) -> int | None:
-    """解析报文ID（支持十进制、0x十六进制）。"""
+    """解析报文ID（仅接受十进制整数或整数字符串）。"""
     if isinstance(s, int):
         return s
     if not isinstance(s, str):
         return None
     s = s.strip()
-    if s.startswith("0x") or s.startswith("0X"):
-        try:
-            return int(s, 16)
-        except ValueError:
-            return None
     try:
         return int(s)
     except ValueError:

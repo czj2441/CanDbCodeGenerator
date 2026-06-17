@@ -304,7 +304,7 @@ export const useEditorStore = defineStore('editor', {
         this.clearUndoStack() // 新会话初始化时清空撤销栈
 
         await api('POST', '/api/messages', {
-          id: '0x100', name: 'EngineStatus', dlc: 8, cycle_time: 10, sender: 'ECU1',
+          id: 256, name: 'EngineStatus', dlc: 8, cycle_time: 10, sender: 'ECU1',
           signals: [
             { name: 'RPM', start_bit: 0, length: 16, factor: 0.25, unit: 'rpm', min_val: 0, max_val: 16000 },
             { name: 'Speed', start_bit: 16, length: 16, factor: 0.1, unit: 'km/h', min_val: 0, max_val: 300 },
@@ -313,7 +313,7 @@ export const useEditorStore = defineStore('editor', {
         })
 
         await api('POST', '/api/messages', {
-          id: '0x200', name: 'BatteryInfo', dlc: 6, cycle_time: 100, sender: 'BMS',
+          id: 512, name: 'BatteryInfo', dlc: 6, cycle_time: 100, sender: 'BMS',
           signals: [
             { name: 'Voltage', start_bit: 0, length: 12, factor: 0.01, unit: 'V', min_val: 0, max_val: 500 },
             { name: 'Current', start_bit: 12, length: 12, factor: -0.1, offset: 204.7, unit: 'A', min_val: -200, max_val: 200 },
@@ -1057,7 +1057,7 @@ export const useEditorStore = defineStore('editor', {
         : orig.id + 0x10
       try {
         await api('POST', '/api/messages', {
-          id: `0x${maxId.toString(16)}`,
+          id: maxId,
           name: orig.name + '_copy',
           dlc: orig.dlc,
           cycle_time: orig.cycle_time,

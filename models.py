@@ -118,7 +118,7 @@ class Message:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Message:
-        """从字典创建。"""
+        """从字典创建。id 字段应为整数。"""
         return cls(
             id=int(data.get("id", 0)),
             name=str(data.get("name", "")),
