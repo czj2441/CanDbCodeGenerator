@@ -524,6 +524,10 @@ class SessionManager:
         elif snap_type == "signal_add":
             # 撤销添加信号 = 删除信号
             self._delete_signal(session, snap["msgId"], snap["sigUuid"])
+        elif snap_type == "batch_signal_add":
+            # 撤销批量添加信号 = 逐个删除
+            for sig in snap["signals"]:
+                self._delete_signal(session, snap["msgId"], sig["uuid"])
         else:
             raise ValueError(f"Unknown undo type: {snap_type}")
 
@@ -549,6 +553,10 @@ class SessionManager:
         elif snap_type == "signal_add":
             # 重做添加信号 = 再次创建
             self._restore_signal(session, snap["msgId"], snap["data"])
+        elif snap_type == "batch_signal_add":
+            # 重做批量添加信号 = 逐个重新创建
+            for sig in snap["signals"]:
+                self._restore_signal(session, snap["msgId"], sig["data"])
         else:
             raise ValueError(f"Unknown redo type: {snap_type}")
 

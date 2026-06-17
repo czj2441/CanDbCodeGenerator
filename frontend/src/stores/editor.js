@@ -187,17 +187,16 @@ export const useEditorStore = defineStore('editor', {
     async undo() {
       try {
         const result = await api('POST', '/api/undo')
-        if (result.success) {
-          // 刷新数据
-          await this.loadMessages()
-          if (this.selectedMsgId != null) {
-            await this.loadSelectedMessage()
-          }
-          // 同步计数
-          await this._syncUndoRedoCounts()
-          useUiStore().showToast('撤销成功', false)
-          this.addLogEntry('undo', '撤销操作')
+        // api() 已在内部校验 success，返回值即为操作结果数据
+        // 刷新数据
+        await this.loadMessages()
+        if (this.selectedMsgId != null) {
+          await this.loadSelectedMessage()
         }
+        // 同步计数
+        await this._syncUndoRedoCounts()
+        useUiStore().showToast('撤销成功', false)
+        this.addLogEntry('undo', '撤销操作')
       } catch (e) {
         console.error('[STORE] undo() failed:', e)
         useUiStore().showToast(e.message || '撤销失败', true)
@@ -212,17 +211,16 @@ export const useEditorStore = defineStore('editor', {
     async redo() {
       try {
         const result = await api('POST', '/api/redo')
-        if (result.success) {
-          // 刷新数据
-          await this.loadMessages()
-          if (this.selectedMsgId != null) {
-            await this.loadSelectedMessage()
-          }
-          // 同步计数
-          await this._syncUndoRedoCounts()
-          useUiStore().showToast('重做成功', false)
-          this.addLogEntry('redo', '重做操作')
+        // api() 已在内部校验 success，返回值即为操作结果数据
+        // 刷新数据
+        await this.loadMessages()
+        if (this.selectedMsgId != null) {
+          await this.loadSelectedMessage()
         }
+        // 同步计数
+        await this._syncUndoRedoCounts()
+        useUiStore().showToast('重做成功', false)
+        this.addLogEntry('redo', '重做操作')
       } catch (e) {
         console.error('[STORE] redo() failed:', e)
         useUiStore().showToast(e.message || '重做失败', true)
@@ -814,32 +812,34 @@ export const useEditorStore = defineStore('editor', {
       markModified(this)
       this.isLoading = true
 
-      // 异步批量发送
+      // 异步批量发送（调用批量端点，原子撤销）
       let created = 0
-      const results = [] // 收集后端返回的完整信号数据（含真实 UUID）
       try {
-        const promises = newSigs.map(sig =>
-          api('POST', `/api/messages/${this.selectedMsgId}/signals`, {
+        const result = await api('POST', `/api/messages/${this.selectedMsgId}/signals/batch`, {
+          signals: newSigs.map(sig => ({
             name: sig.name, start_bit: sig.start_bit, length: sig.length,
             byte_order: sig.byte_order, factor: sig.factor, offset: sig.offset,
             min_val: sig.min_val, max_val: sig.max_val, unit: sig.unit, comment: sig.comment,
-          }).then(result => {
-            created++
-            if (result && result.uuid) {
-              results.push({ uuid: result.uuid, data: result })
-              // 替换乐观更新中的 clientUuid 为真实 UUID
-              const idxInMsg = msg.signals.findIndex(s => s.uuid === sig.uuid)
+          }))
+        })
+
+        if (result && result.created) {
+          created = result.created.length
+          // 替换乐观更新中的 clientUuid 为真实 UUID
+          for (const serverSig of result.created) {
+            const clientSig = newSigs.find(s => s.name === serverSig.name)
+            if (clientSig) {
+              const idxInMsg = msg.signals.findIndex(s => s.uuid === clientSig.uuid)
               if (idxInMsg >= 0) {
-                msg.signals[idxInMsg] = result
+                msg.signals[idxInMsg] = serverSig
               }
             }
-          }).catch(e => {
-            console.error('[STORE] batchAddSignals() 单个信号创建失败:', sig.name, e)
-          })
-        )
-        await Promise.all(promises)
+          }
+        }
 
-        // 后端已自动推入撤销栈
+        if (result && result.errors && result.errors.length > 0) {
+          console.warn('[STORE] batchAddSignals() 部分信号创建失败:', result.errors)
+        }
 
         useUiStore().showToast(t('toast.batchCreated', { count: created }))
       } catch (e) {
@@ -848,7 +848,7 @@ export const useEditorStore = defineStore('editor', {
         if (oldMessageIdx >= 0 && oldMessageData) {
           this.messages[oldMessageIdx] = oldMessageData
         }
-        useUiStore().showToast(t('toast.batchFailed', { idx: created + 1, msg: e.message }), true)
+        useUiStore().showToast(t('toast.batchFailed', { idx: 1, msg: e.message }), true)
       } finally {
         this.isLoading = false
         this.loadSignalErrors()

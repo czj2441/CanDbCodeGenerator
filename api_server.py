@@ -312,6 +312,9 @@ class ApiHandler(BaseHTTPRequestHandler):
         elif len(parts) == 4 and parts[0:2] == ["api", "session"] and parts[3] == "load":
             # POST /api/session/{id}/load
             self._post_session_load(parts[2])
+        elif len(parts) == 5 and parts[0:3] == ["api", "messages", parts[2]] and parts[3] == "signals" and parts[4] == "batch":
+            # POST /api/messages/{id}/signals/batch
+            self._post_signals_batch(parts[2])
         elif len(parts) == 4 and parts[0:3] == ["api", "messages", parts[2]] and parts[3] == "signals":
             # POST /api/messages/{id}/signals
             self._post_signals(parts[2])
@@ -951,6 +954,53 @@ class ApiHandler(BaseHTTPRequestHandler):
         
         self._auto_save()
         self._send_json(201, _resp(True, sig.to_dict()))
+
+    def _post_signals_batch(self, id_str: str) -> None:
+        """POST /api/messages/{id}/signals/batch - 批量添加信号（原子撤销）。"""
+        db = self._get_db()
+        msg_id = _parse_id(id_str)
+        if msg_id is None:
+            self._send_json(400, _resp(False, error="Invalid message ID"))
+            return
+        body = self._read_body()
+        signals_data = body if isinstance(body, list) else body.get("signals", [])
+        if not signals_data or not isinstance(signals_data, list):
+            self._send_json(400, _resp(False, error="Expected non-empty signals array"))
+            return
+
+        created_signals = []
+        errors = []
+        for i, sig_dict in enumerate(signals_data):
+            sig = Signal.from_dict(sig_dict)
+            ok, err, _ = db.validate_signal(msg_id, sig)
+            if not ok:
+                errors.append({"index": i, "name": sig.name, "error": err})
+                continue
+            if db.add_signal_to_message(msg_id, sig):
+                created_signals.append(sig)
+            else:
+                errors.append({"index": i, "name": sig.name, "error": f"Message 0x{msg_id:X} not found"})
+
+        if not created_signals:
+            self._send_json(400, _resp(False, error="No signals created", details=errors))
+            return
+
+        # 推入单个 batch_signal_add 撤销快照
+        self._push_undo({
+            "type": "batch_signal_add",
+            "msgId": msg_id,
+            "signals": [
+                {"uuid": sig.uuid, "data": sig.to_dict()}
+                for sig in created_signals
+            ]
+        })
+
+        self._auto_save()
+        self._send_json(201, _resp(True, {
+            "created": [sig.to_dict() for sig in created_signals],
+            "errors": errors,
+            "count": len(created_signals)
+        }))
 
     def _put_signal(self, id_str: str, idx_str: str) -> None:
         """PUT /api/messages/{id}/signals/{uuid} - 更新信号。"""
