@@ -17,6 +17,13 @@
       <StatusBar />
       <BatchModal v-model:visible="ui.batchModalOpen" />
       <LoadingOverlay />
+      <div v-if="store.apiStatus === 'dead'" class="dead-overlay">
+        <div class="dead-overlay-box">
+          <span class="dead-overlay-icon">⚠️</span>
+          <p>{{ t('overlay.deadTitle') }}</p>
+          <p class="dead-overlay-sub">{{ t('overlay.deadSub') }}</p>
+        </div>
+      </div>
       <ContextMenu :items="contextMenuItems" />
     </template>
     <!-- Toast 在所有模式下都渲染 -->
@@ -159,6 +166,7 @@ async function goBack() {
 // 健康检查定时器管理
 function startHealthCheck() {
   stopHealthCheck()
+  store._healthFailCount = 0
   healthTimer = setInterval(() => store.checkApiHealth(), 15000)
 }
 
@@ -358,5 +366,41 @@ body {
   min-width: 0;
   border-left: 1px solid var(--border);
   border-right: 1px solid var(--border);
+}
+
+/* ── 连接中断遮罩 ── */
+.dead-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  background: oklch(0 0 0 / 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: not-allowed;
+}
+.dead-overlay-box {
+  background: var(--bg-raised);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-lg);
+  padding: 32px 48px;
+  text-align: center;
+  max-width: 400px;
+}
+.dead-overlay-icon {
+  font-size: 36px;
+  display: block;
+  margin-bottom: 12px;
+}
+.dead-overlay-box p {
+  margin: 4px 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+.dead-overlay-sub {
+  font-size: 12px !important;
+  font-weight: 400 !important;
+  color: var(--text-dim) !important;
 }
 </style>

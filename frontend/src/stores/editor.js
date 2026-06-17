@@ -145,6 +145,7 @@ export const useEditorStore = defineStore('editor', {
     modifiedAt: 0,
     signalErrors: [],
     _modifiedTimer: null,
+    _healthFailCount: 0,
     logEntries: [],
 
     // ── 剪贴板 ──
@@ -281,6 +282,7 @@ export const useEditorStore = defineStore('editor', {
             this.clearUndoStack() // 切换会话时清空撤销栈
             await this.loadMessages()
             this.apiStatus = 'connected'
+            this._healthFailCount = 0
             useUiStore().showToast(t('toast.restored', { name: data.file_name }))
             return
           }
@@ -324,6 +326,7 @@ export const useEditorStore = defineStore('editor', {
         this.selectedMsgId = 0x100
         await this.loadMessages()
         this.apiStatus = 'connected'
+        this._healthFailCount = 0
       } catch (e) {
         this.apiStatus = 'offline'
         useUiStore().showToast(t('toast.serverOffline'), true)
@@ -863,9 +866,15 @@ export const useEditorStore = defineStore('editor', {
     async checkApiHealth() {
       try {
         await api('GET', '/api/status')
+        this._healthFailCount = 0
         this.apiStatus = 'connected'
       } catch (_) {
-        this.apiStatus = 'offline'
+        this._healthFailCount++
+        if (this._healthFailCount >= 2) {
+          this.apiStatus = 'dead'
+        } else {
+          this.apiStatus = 'offline'
+        }
       }
     },
 
@@ -896,6 +905,7 @@ export const useEditorStore = defineStore('editor', {
       this.signalErrors = []
       this.modified = false
       this.modifiedAt = 0
+      this._healthFailCount = 0
       this.clearUndoStack()
       this.isLoading = true
 

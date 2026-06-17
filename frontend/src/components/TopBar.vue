@@ -23,7 +23,9 @@
     </button>
     <span class="api-status" :class="store.apiStatus">
       <span class="dot"></span>
-      {{ store.apiStatus === 'connected' ? t('topbar.connected') : t('topbar.offline') }}
+      <template v-if="store.apiStatus === 'connected'">{{ t('topbar.connected') }}</template>
+      <template v-else-if="store.apiStatus === 'dead'">{{ t('topbar.dead') }}</template>
+      <template v-else>{{ t('topbar.offline') }}</template>
     </span>
   </div>
 
@@ -303,7 +305,8 @@ async function save() {
   gap: 4px;
 }
 .api-status.connected { color: var(--accent); }
-.api-status.offline { color: var(--danger); }
+.api-status.offline,
+.api-status.dead { color: var(--danger); }
 
 .dot {
   width: 7px; height: 7px;
