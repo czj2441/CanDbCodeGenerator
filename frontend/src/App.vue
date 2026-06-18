@@ -89,7 +89,8 @@ onMounted(() => {
     }
     
     // 如果有未保存的修改，弹出确认对话框（防止误关闭/刷新）
-    if (sid && store._localDirty) {
+    // _localDirty: 前端本地有编辑但API尚未完成；backendDirty: 后端数据未落盘（含undo/redo）
+    if (sid && (store._localDirty || store.backendDirty)) {
       e.preventDefault()
       e.returnValue = '您有未保存的更改，确定要离开吗？'
       return e.returnValue

@@ -250,8 +250,8 @@ export const useEditorStore = defineStore('editor', {
         if (this.selectedMsgId != null) {
           await this.loadSelectedMessage()
         }
-        // 同步计数
-        await this._syncUndoRedoCounts()
+        // 同步 backendDirty + undo/redo 计数（undo/redo 会改变后端 modified 状态）
+        await this._syncBackendStatus()
         useUiStore().showToast('撤销成功', false)
         this.addLogEntry('undo', '撤销操作')
       } catch (e) {
@@ -275,8 +275,8 @@ export const useEditorStore = defineStore('editor', {
         if (this.selectedMsgId != null) {
           await this.loadSelectedMessage()
         }
-        // 同步计数
-        await this._syncUndoRedoCounts()
+        // 同步 backendDirty + undo/redo 计数（undo/redo 会改变后端 modified 状态）
+        await this._syncBackendStatus()
         useUiStore().showToast('重做成功', false)
         this.addLogEntry('redo', '重做操作')
       } catch (e) {
@@ -287,27 +287,11 @@ export const useEditorStore = defineStore('editor', {
     },
 
     /**
-     * 同步撤销/重做计数器（从后端获取）
-     * @private
-     */
-    async _syncUndoRedoCounts() {
-      try {
-        const status = await api('GET', '/api/status')
-        this.undoCount = status.undo_count || 0
-        this.redoCount = status.redo_count || 0
-      } catch (_) {
-        // 忽略错误，保持当前计数
-        this.undoCount = 0
-        this.redoCount = 0
-      }
-    },
-
-    /**
      * 清空撤销/重做栈（切换会话时调用）
      * 同时清理 API 队列
      */
     clearUndoStack() {
-      this._syncUndoRedoCounts()
+      this._syncBackendStatus()
       // 清理 API 队列（防止内存泄漏）
       if (apiQueue) {
         apiQueue.cleanup()
