@@ -79,7 +79,7 @@ onMounted(() => {
     }
   )
 
-  // 页面关闭/刷新时：保存数据 + 释放文件锁 + 确认对话框
+  // 页面关闭/刷新时：释放文件锁 + 确认对话框（不隐式保存数据）
   beforeUnloadHandler = (e) => {
     const sid = getSessionId()
     
@@ -88,12 +88,8 @@ onMounted(() => {
       navigator.sendBeacon('/api/release?sid=' + encodeURIComponent(sid))
     }
     
-    // 如果有未保存的修改，弹出确认对话框
+    // 如果有未保存的修改，弹出确认对话框（防止误关闭/刷新）
     if (sid && store._localDirty) {
-      // 尝试保存数据（sendBeacon 不支持自定义请求头，使用 URL 参数）
-      navigator.sendBeacon('/api/save?sid=' + encodeURIComponent(sid))
-      
-      // 弹出确认对话框（防止误关闭/刷新）
       e.preventDefault()
       e.returnValue = '您有未保存的更改，确定要离开吗？'
       return e.returnValue
