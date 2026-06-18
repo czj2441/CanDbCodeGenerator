@@ -551,6 +551,7 @@ export const useEditorStore = defineStore('editor', {
         // 后端已自动推入撤销栈
 
         useUiStore().showToast(t('toast.messageAdded'))
+        await this._syncBackendStatus()
       } catch (e) {
         useUiStore().showToast(e.message, true)
         await this._doFullReload()
@@ -578,6 +579,7 @@ export const useEditorStore = defineStore('editor', {
       try {
         await api('DELETE', `/api/messages/${id}`)
         useUiStore().showToast(t('toast.messageDeleted'))
+        await this._syncBackendStatus()
       } catch (e) {
         useUiStore().showToast(e.message, true)
         await this._doFullReload()
@@ -621,7 +623,7 @@ export const useEditorStore = defineStore('editor', {
       // 使用 API 队列（防抖 + 队列 + 超时）
       const queueKey = `message_${this.selectedMsgId}_${field}`
       try {
-        await apiQueue.enqueue(
+        const queued = await apiQueue.enqueue(
           queueKey,
           () => api('PUT', `/api/messages/${this.selectedMsgId}`, { [field]: value }),
           { oldMessages, oldCache },  // fallbackValue
@@ -630,6 +632,9 @@ export const useEditorStore = defineStore('editor', {
             this.messageCache[this.selectedMsgId] = fallback.oldCache
           }
         )
+        // 防抖跳过的中间值不触发状态同步
+        if (queued?.skipped) return
+        await this._syncBackendStatus()
       } catch (e) {
         if (!e.message.includes('Queue cleaned up')) {
           useUiStore().showToast(e.message, true)
@@ -689,6 +694,7 @@ export const useEditorStore = defineStore('editor', {
         // 后端已自动推入撤销栈
 
         useUiStore().showToast(t('toast.signalAdded'))
+        await this._syncBackendStatus()
         this.loadSignalErrors()
       } catch (e) {
         useUiStore().showToast(e.message, true)
@@ -734,8 +740,9 @@ export const useEditorStore = defineStore('editor', {
           oldVal,  // fallbackValue
           (fallbackVal) => { sig[field] = fallbackVal }  // onRollback
         )
-        // 防抖跳过的中间值不重复加载信号错误
+        // 防抖跳过的中间值不触发状态同步
         if (queued?.skipped) return
+        await this._syncBackendStatus()
         this.loadSignalErrors()
       } catch (e) {
         if (!e.message.includes('Queue cleaned up')) {
@@ -774,6 +781,7 @@ export const useEditorStore = defineStore('editor', {
       try {
         await api('DELETE', `/api/messages/${this.selectedMsgId}/signals/${sigUuid}`)
         useUiStore().showToast(t('toast.signalDeleted'))
+        await this._syncBackendStatus()
         this.loadSignalErrors()
       } catch (e) {
         useUiStore().showToast(e.message, true)
@@ -870,6 +878,7 @@ export const useEditorStore = defineStore('editor', {
         }
 
         useUiStore().showToast(t('toast.batchCreated', { count: created }))
+        await this._syncBackendStatus()
       } catch (e) {
         useUiStore().showToast(t('toast.batchFailed', { idx: 1, msg: e.message }), true)
         await this._doFullReload()
@@ -947,6 +956,7 @@ export const useEditorStore = defineStore('editor', {
         const data = await api('PUT', '/api/session', { name })
         this.currentFileName = data.file_name || ''
         this._localDirty = true
+        await this._syncBackendStatus()
         useUiStore().showToast(t('toast.renamed'))
       } catch (e) {
         useUiStore().showToast(e.message, true)
