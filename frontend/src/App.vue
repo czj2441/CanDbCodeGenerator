@@ -17,15 +17,16 @@
       <StatusBar />
       <BatchModal v-model:visible="ui.batchModalOpen" />
       <LoadingOverlay />
-      <div v-if="store.apiStatus === 'dead'" class="dead-overlay">
-        <div class="dead-overlay-box">
-          <span class="dead-overlay-icon">⚠️</span>
-          <p>{{ t('overlay.deadTitle') }}</p>
-          <p class="dead-overlay-sub">{{ t('overlay.deadSub') }}</p>
-        </div>
-      </div>
       <ContextMenu :items="contextMenuItems" />
     </template>
+    <!-- 死遮罩：全局覆盖所有模式 -->
+    <div v-if="store.apiStatus === 'dead'" class="dead-overlay">
+      <div class="dead-overlay-box">
+        <span class="dead-overlay-icon">⚠️</span>
+        <p>{{ t('overlay.deadTitle') }}</p>
+        <p class="dead-overlay-sub">{{ t('overlay.deadSub') }}</p>
+      </div>
+    </div>
     <!-- Toast 在所有模式下都渲染 -->
     <Toast />
   </div>
@@ -72,6 +73,9 @@ onMounted(() => {
   document.addEventListener('click', hideMenu)
   document.documentElement.setAttribute('data-theme', ui.theme)
 
+  // 全局启动健康检查（覆盖文件浏览器和编辑器两种模式）
+  store.startPeriodicReload()
+
   // 初始化多标签页同步（steal 通知）
   initTabSync(
     (stolenSessionId) => {
@@ -114,7 +118,6 @@ async function openFile(sessionId) {
   try {
     await store.loadHistorySession(sessionId)
     mode.value = 'editor'
-    startHealthCheck()
     startLockCheck()  // 启动文件锁状态检查
     startHeartbeat()  // 启动心跳
   } catch (e) {
@@ -132,7 +135,6 @@ async function createNewFile() {
   try {
     await store.newFile()
     mode.value = 'editor'
-    startHealthCheck()
     startLockCheck()  // 启动文件锁状态检查
     startHeartbeat()  // 启动心跳
   } catch (e) {
@@ -152,10 +154,9 @@ async function goBack() {
   store.messages = []
   store.signalErrors = []
   store.editorState = null
-  // 停止健康检查
-  stopHealthCheck()
-  stopLockCheck()  // 停止文件锁状态检查
-  stopHeartbeat()  // 停止心跳
+  // 停止文件锁检查与心跳（健康检查保持全局运行）
+  stopLockCheck()
+  stopHeartbeat()
   mode.value = 'browser'
 }
 
