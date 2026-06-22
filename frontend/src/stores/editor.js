@@ -145,6 +145,7 @@ export const useEditorStore = defineStore('editor', {
     signalErrors: [],
     _healthFailCount: 0,
     _fullReloadTimer: null,     // 5s 自复位全量轮询定时器
+    _healthTimer: null,          // 独立健康检查定时器
     logEntries: [],
 
     // ── 剪贴板 ──
@@ -184,6 +185,7 @@ export const useEditorStore = defineStore('editor', {
       this.stopPeriodicReload()
       this._healthFailCount = 0
       this._scheduleNextReload()
+      this._startHealthCheck()
     },
 
     /**
@@ -195,27 +197,34 @@ export const useEditorStore = defineStore('editor', {
         clearTimeout(this._fullReloadTimer)
         this._fullReloadTimer = null
       }
+      if (this._healthTimer) {
+        clearInterval(this._healthTimer)
+        this._healthTimer = null
+      }
     },
 
     /**
      * 执行一次全量数据重载
-     * 调 loadMessages() 从后端拉取最新数据，成功/失败均更新 apiStatus。
+     * 调 loadMessages() 从后端拉取最新数据，不涉及健康状态判断。
      * 完成后自动调度下一次 5s 后的轮询。
      * @returns {Promise<void>}
      * @private
      */
     async _doFullReload() {
+      if (this.apiStatus === 'dead') {
+        this._scheduleNextReload()
+        return
+      }
       try {
-        await this.loadMessages()
-        this._healthFailCount = 0
-        this.apiStatus = 'connected'
-      } catch (_) {
-        this._healthFailCount++
-        if (this._healthFailCount >= 2) {
-          this.apiStatus = 'dead'
-        } else {
-          this.apiStatus = 'offline'
-        }
+        // 超时保护：防止后端关闭时 fetch() 挂死
+        await Promise.race([
+          this.loadMessages(),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Reload timeout')), 10000)
+          ),
+        ])
+      } catch (e) {
+        console.warn('[STORE] _doFullReload failed:', e.message)
       } finally {
         this._scheduleNextReload()
       }
@@ -230,6 +239,39 @@ export const useEditorStore = defineStore('editor', {
     _scheduleNextReload() {
       if (this._fullReloadTimer) clearTimeout(this._fullReloadTimer)
       this._fullReloadTimer = setTimeout(() => this._doFullReload(), 5000)
+    },
+
+    /**
+     * 启动独立健康检查定时器
+     * 每 5s 调用一次 _checkHealth()，连续失败 2 次标记为 dead。
+     * @private
+     */
+    _startHealthCheck() {
+      if (this._healthTimer) clearInterval(this._healthTimer)
+      this._healthTimer = setInterval(() => this._checkHealth(), 2000)
+    },
+
+    /**
+     * 执行一次轻量健康检查
+     * 仅调用 /api/status 判断后端是否存活，不涉及数据加载。
+     * @private
+     */
+    async _checkHealth() {
+      try {
+        await Promise.race([
+          api('GET', '/api/status'),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Health check timeout')), 1500)
+          ),
+        ])
+        this._healthFailCount = 0
+        this.apiStatus = 'connected'
+      } catch (_) {
+        this._healthFailCount++
+        if (this._healthFailCount >= 1) {
+          this.apiStatus = 'dead'
+        }
+      }
     },
 
     // ═══════════════════════════════════════════
