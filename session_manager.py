@@ -28,7 +28,14 @@ class FileLockedError(Exception):
 # 数据模型统一从 models.py 导入
 from models import Signal, Message, CanDatabase
 
-DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+# 打包后数据目录放在用户 AppData，未打包时在源码目录
+import sys as _sys
+if getattr(_sys, 'frozen', False):
+    # PyInstaller 打包：使用 %APPDATA%/CanMatrixEditor/data
+    _app_data = os.path.join(os.environ.get('APPDATA', os.path.expanduser('~')), 'CanMatrixEditor')
+    DATA_DIR = os.path.join(_app_data, 'data')
+else:
+    DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 HEARTBEAT_TIMEOUT = 30       # 30 秒无心跳则视为离线，自动释放文件锁
 HEARTBEAT_CHECK_INTERVAL = 30  # 每 30 秒检查一次心跳超时
 

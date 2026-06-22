@@ -50,6 +50,54 @@ python api_server.py
 
 
 
+## 打包为桌面应用（exe）
+
+项目支持打包成单文件 exe，无需安装 Python 或浏览器，双击即可运行。
+
+### 打包前置条件
+
+```bash
+pip install pywebview pyinstaller
+```
+
+### 构建前端（若尚未构建）
+
+```bash
+cd frontend
+npm install
+npm run build
+cd ..
+```
+
+### 打包
+
+```bash
+pyinstaller desktop.spec --noconfirm
+```
+
+生成文件：`dist/CanMatrixEditor.exe`（约 30 MB）
+
+### 分发与使用
+
+1. 将 `CanMatrixEditor.exe` 复制到目标机器任意位置
+2. 双击运行，自动弹出编辑器窗口（基于系统 WebView2，Windows 10/11 已内置）
+3. 用户数据保存在 `%APPDATA%\CanMatrixEditor\data\`
+
+> **说明：** Windows 10 1803+ 及 Windows 11 均自带 WebView2 Runtime，无需额外安装。
+> 若目标系统未安装，可从微软官网下载 [WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)。
+
+### 重新打包
+
+每次修改代码后，重新执行打包命令即可：
+
+```bash
+# 若修改了前端代码，先重新构建前端
+cd frontend && npm run build && cd ..
+
+# 重新打包（--noconfirm 覆盖旧版本）
+pyinstaller desktop.spec --noconfirm
+```
+
 ## 使用工作流
 
 ```bash
@@ -102,6 +150,8 @@ git commit -m "修改 EngineSpeed 因子"
 ```
 canmatrix_editor/
 ├── api_server.py                  Web 后端服务（HTTP API + 静态文件）
+├── desktop.py                     桌面应用入口（pywebview）
+├── desktop.spec                   PyInstaller 打包配置
 ├── session_manager.py             会话管理器（自动持久化、历史恢复）
 ├── cli.py                         命令行入口
 ├── requirements.txt               依赖清单
@@ -124,10 +174,12 @@ canmatrix_editor/
 │       └── components/            UI 组件
 ├── docs/                          架构与设计文档
 │   ├── ARCHITECTURE.md            架构特征参考
-│   ├── ARCHITECTURE_REFACTOR_PLAN.md  重构方案
 │   ├── PRODUCT_POSITIONING.md     产品定位与技术路线
 │   └── DESIGN_DOC.md              软件详细设计文档
-└── dist/                          前端构建产物（由 Vite 生成）
+└── dist/                          前端构建产物 / exe 输出目录
+    ├── index.html                 Vite 生成的入口
+    ├── assets/                    JS/CSS 资源
+    └── CanMatrixEditor.exe        打包后的桌面应用（执行打包后生成）
 ```
 
 ## 依赖
@@ -138,10 +190,11 @@ canmatrix_editor/
 | cantools | 39.0.0 | DBC 文件解析与生成 |
 | toml | 0.10.2 | TOML 格式读写 |
 | Node.js | 18+ | 前端构建（仅开发/部署时） |
+| pywebview | 5.0+ | 桌面窗口（仅打包时需要） |
+| pyinstaller | 6.0+ | 打包为 exe（仅打包时需要） |
 
 ## 文档
 
 - [架构特征](docs/ARCHITECTURE.md) - Store 设计、撤销机制、乐观更新模式
 - [产品定位](docs/PRODUCT_POSITIONING.md) - 目标用户、核心价值、技术路线
 - [详细设计](docs/DESIGN_DOC.md) - 模块设计、数据流、API 规范
-- [重构方案](docs/ARCHITECTURE_REFACTOR_PLAN.md) - 前端架构重构方案

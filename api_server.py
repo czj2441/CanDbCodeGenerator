@@ -184,7 +184,11 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._send_json(403, _resp(False, error="Forbidden"))
             return
 
-        base_dir = os.path.dirname(os.path.abspath(__file__))
+        # PyInstaller 打包后 __file__ 指向 _MEIPASS 临时目录，前端资源在那里
+        if getattr(sys, 'frozen', False):
+            base_dir = sys._MEIPASS
+        else:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
 
         # Legacy HTML always served from root
         if safe_path == "canmatrix_web_editor.html":
@@ -1433,6 +1437,42 @@ def main() -> None:
         server.serve_forever()
     except KeyboardInterrupt:
         print("\nShutting down.")
+
+
+def start_server_background(port: int = 8080) -> "HTTPServer":
+    """在后台线程启动 API 服务器，返回 server 对象供外部控制关闭。
+    用于桌面应用（pywebview）集成。
+    """
+    server = HTTPServer(("localhost", port), ApiHandler)
+    print(f"\nCanMatrix Editor API server running at http://localhost:{port}")
+
+    # 定时自动保存（每 5 分钟）
+    AUTO_SAVE_INTERVAL = 300
+    def _periodic_auto_saver():
+        while True:
+            time.sleep(AUTO_SAVE_INTERVAL)
+            try:
+                count = SESSION_MGR.save_all_dirty()
+                if count > 0:
+                    print(f"[AUTO-SAVE] Periodic save: {count} session(s) saved")
+            except Exception as e:
+                print(f"[AUTO-SAVE] Error: {e}")
+
+    auto_save_thread = threading.Thread(target=_periodic_auto_saver, daemon=True)
+    auto_save_thread.start()
+
+    # 注册 atexit 保存
+    def save_all_sessions():
+        print("\n[INFO] Saving all active sessions...")
+        count = SESSION_MGR.save_all_dirty()
+        if count > 0:
+            print(f"[INFO] Save complete: {count} session(s) saved")
+    atexit.register(save_all_sessions)
+
+    # 在守护线程中运行 serve_forever
+    server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+    server_thread.start()
+    return server
 
 
 if __name__ == "__main__":
