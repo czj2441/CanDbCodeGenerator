@@ -719,7 +719,12 @@ export const useEditorStore = defineStore('editor', {
 
         // 后端已自动推入撤销栈
 
-        useUiStore().showToast(t('toast.signalAdded'))
+        // 检测 warning（如 overlap），提示用户但不阻止创建
+        if (result?.warning) {
+          useUiStore().showToast(result.warning, true)
+        } else {
+          useUiStore().showToast(t('toast.signalAdded'))
+        }
         await this._syncBackendStatus()
         this.loadSignalErrors()
       } catch (e) {
@@ -903,7 +908,12 @@ export const useEditorStore = defineStore('editor', {
           console.warn('[STORE] batchAddSignals() 部分信号创建失败:', result.errors)
         }
 
-        useUiStore().showToast(t('toast.batchCreated', { count: created }))
+        // 检测 warnings（如 overlap），提示用户但不阻止创建
+        if (result && result.warnings && result.warnings.length > 0) {
+          useUiStore().showToast(`${created} signals created, ${result.warnings.length} with overlap warnings`, true)
+        } else {
+          useUiStore().showToast(t('toast.batchCreated', { count: created }))
+        }
         await this._syncBackendStatus()
       } catch (e) {
         useUiStore().showToast(t('toast.batchFailed', { idx: 1, msg: e.message }), true)

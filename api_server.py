@@ -988,8 +988,8 @@ class ApiHandler(BaseHTTPRequestHandler):
         body = self._read_body()
         sig = Signal.from_dict(body)
 
-        # 防御性校验：信号所有 bit 必须在报文范围内
-        ok, err, _ = db.validate_signal(msg_id, sig)
+        # 校验（前端已自动顺延，后端仅做防御性验证）
+        ok, err, _info = db.validate_signal(msg_id, sig)
         if not ok:
             self._send_json(400, _resp(False, error=err))
             return
@@ -1005,7 +1005,7 @@ class ApiHandler(BaseHTTPRequestHandler):
             "sigUuid": sig.uuid,
             "data": sig.to_dict()
         })
-        
+
         self._send_json(201, _resp(True, sig.to_dict()))
 
     def _post_signals_batch(self, id_str: str) -> None:
@@ -1025,7 +1025,8 @@ class ApiHandler(BaseHTTPRequestHandler):
         errors = []
         for i, sig_dict in enumerate(signals_data):
             sig = Signal.from_dict(sig_dict)
-            ok, err, _ = db.validate_signal(msg_id, sig)
+            # 校验（前端已自动顺延，后端仅做防御性验证）
+            ok, err, _info = db.validate_signal(msg_id, sig)
             if not ok:
                 errors.append({"index": i, "name": sig.name, "error": err})
                 continue
