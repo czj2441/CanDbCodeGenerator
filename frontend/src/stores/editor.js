@@ -127,6 +127,69 @@ if (typeof window !== 'undefined') {
   window.__apiQueue__ = apiQueue
 }
 
+// ── 信号位布局计算（与后端 models.py 保持一致） ──
+
+/**
+ * 计算信号占用的 bit 位置集合
+ * @param {number} startBit - 起始位
+ * @param {number} length - 信号长度
+ * @param {string} byteOrder - 'motorola' | 'intel'
+ * @returns {Set<number>} 占用的 bit 位置
+ */
+function getSignalBits(startBit, length, byteOrder) {
+  const bits = new Set()
+  const bo = (byteOrder || 'motorola').toLowerCase()
+  if (bo === 'motorola') {
+    let current = startBit
+    for (let i = 0; i < length; i++) {
+      bits.add(current)
+      if (current % 8 === 0) {
+        current += 15 // 回绕到下一字节 MSB
+      } else {
+        current -= 1  // 字节内向低位递减
+      }
+    }
+  } else {
+    for (let i = 0; i < length; i++) {
+      bits.add(startBit + i)
+    }
+  }
+  return bits
+}
+
+/**
+ * 在报文中寻找第一个足够大的空闲区间
+ * @param {Array} signals - 当前报文的信号列表
+ * @param {number} dlc - 报文 DLC
+ * @param {number} length - 新信号长度
+ * @param {string} byteOrder - 新信号字节序
+ * @returns {number|null} 推荐的 start_bit，无空闲位置返回 null
+ */
+function findNextAvailableStartBit(signals, dlc, length, byteOrder) {
+  const maxBits = dlc * 8
+  if (length > maxBits) return null
+
+  const used = new Set()
+  for (const s of signals) {
+    for (const b of getSignalBits(s.start_bit, s.length, s.byte_order)) {
+      used.add(b)
+    }
+  }
+
+  for (let candidate = 0; candidate < maxBits; candidate++) {
+    const candidateBits = getSignalBits(candidate, length, byteOrder)
+    let valid = true
+    for (const b of candidateBits) {
+      if (b < 0 || b >= maxBits || used.has(b)) {
+        valid = false
+        break
+      }
+    }
+    if (valid) return candidate
+  }
+  return null
+}
+
 export const useEditorStore = defineStore('editor', {
   state: () => ({
     // ── 核心数据 ──
@@ -680,9 +743,21 @@ export const useEditorStore = defineStore('editor', {
       if (this.selectedMsgId == null) return
 
       // 补充完整默认值，确保 UI 上所有字段都有值
+      const msg = this.messageCache[this.selectedMsgId]
+      if (!msg) return
+
+      // 自动顺延：如果未指定 start_bit，计算下一个空闲位置
+      let defaultStartBit = 0
+      if (signalData?.start_bit == null) {
+        const newLength = signalData?.length ?? 8
+        const newByteOrder = signalData?.byte_order ?? 'motorola'
+        const available = findNextAvailableStartBit(msg.signals, msg.dlc, newLength, newByteOrder)
+        if (available != null) defaultStartBit = available
+      }
+
       const fullData = {
         name: 'NewSignal',
-        start_bit: 0,
+        start_bit: defaultStartBit,
         length: 8,
         byte_order: 'motorola',
         factor: 1.0,
@@ -693,9 +768,6 @@ export const useEditorStore = defineStore('editor', {
         comment: '',
         ...signalData,
       }
-
-      const msg = this.messageCache[this.selectedMsgId]
-      if (!msg) return
       const clientUuid = crypto.randomUUID ? crypto.randomUUID().slice(0, 8) : Math.random().toString(16).slice(2, 10)
       const newSig = { uuid: clientUuid, ...fullData }
 
@@ -718,13 +790,8 @@ export const useEditorStore = defineStore('editor', {
         }
 
         // 后端已自动推入撤销栈
-
-        // 检测 warning（如 overlap），提示用户但不阻止创建
-        if (result?.warning) {
-          useUiStore().showToast(result.warning, true)
-        } else {
-          useUiStore().showToast(t('toast.signalAdded'))
-        }
+        useUiStore().showToast(t('toast.signalAdded'))
+        this.addLogEntry('signal_add', `添加信号: name=${fullData.name}, start_bit=${fullData.start_bit}, length=${fullData.length}, byte_order=${fullData.byte_order}`)
         await this._syncBackendStatus()
         this.loadSignalErrors()
       } catch (e) {
@@ -908,12 +975,7 @@ export const useEditorStore = defineStore('editor', {
           console.warn('[STORE] batchAddSignals() 部分信号创建失败:', result.errors)
         }
 
-        // 检测 warnings（如 overlap），提示用户但不阻止创建
-        if (result && result.warnings && result.warnings.length > 0) {
-          useUiStore().showToast(`${created} signals created, ${result.warnings.length} with overlap warnings`, true)
-        } else {
-          useUiStore().showToast(t('toast.batchCreated', { count: created }))
-        }
+        useUiStore().showToast(t('toast.batchCreated', { count: created }))
         await this._syncBackendStatus()
       } catch (e) {
         useUiStore().showToast(t('toast.batchFailed', { idx: 1, msg: e.message }), true)
