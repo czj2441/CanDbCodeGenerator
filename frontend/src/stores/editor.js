@@ -212,6 +212,7 @@ export const useEditorStore = defineStore('editor', {
     backendDirty: false,        // 后端 db.modified —— 是否还有未落盘数据（从 /api/status 同步）
     signalErrors: [],
     _healthFailCount: 0,
+    _defaultSignalLength: 8,  // 新信号默认 length；用户修改某信号 length 后自动同步为该值
     _fullReloadTimer: null,     // 5s 自复位全量轮询定时器
     _healthTimer: null,          // 独立健康检查定时器
     logEntries: [],
@@ -425,6 +426,7 @@ export const useEditorStore = defineStore('editor', {
           if (data && data.session_id) {
             this.currentFileName = data.file_name || ''
             this._localDirty = false
+            this._defaultSignalLength = 8
             this.clearUndoStack() // 切换会话时清空撤销栈
             await this.loadMessages()
             this.apiStatus = 'connected'
@@ -449,6 +451,7 @@ export const useEditorStore = defineStore('editor', {
         const session = await api('POST', '/api/session', { name: 'DemoCAN' })
         setSessionId(session.session_id)
         this.currentFileName = session.file_name || ''
+        this._defaultSignalLength = 8
         this.clearUndoStack() // 新会话初始化时清空撤销栈
 
         await api('POST', '/api/messages', {
@@ -754,7 +757,7 @@ export const useEditorStore = defineStore('editor', {
       // 自动顺延：如果未指定 start_bit，计算下一个空闲位置
       let defaultStartBit = 0
       if (signalData?.start_bit == null) {
-        const newLength = signalData?.length ?? 8
+        const newLength = signalData?.length ?? this._defaultSignalLength
         const newByteOrder = signalData?.byte_order ?? 'motorola'
         const available = findNextAvailableStartBit(msg.signals, msg.dlc, newLength, newByteOrder)
         if (available != null) defaultStartBit = available
@@ -763,7 +766,7 @@ export const useEditorStore = defineStore('editor', {
       const fullData = {
         name: 'NewSignal',
         start_bit: defaultStartBit,
-        length: 8,
+        length: this._defaultSignalLength,
         byte_order: 'motorola',
         factor: 1.0,
         offset: 0.0,
@@ -829,6 +832,11 @@ export const useEditorStore = defineStore('editor', {
       const newValStr = value != null ? String(value) : ''
 
       // 后端已自动推入撤销栈
+
+      // 记忆用户修改的 length，作为后续新信号的默认值
+      if (field === 'length') {
+        this._defaultSignalLength = value
+      }
 
       sig[field] = value
       this._localDirty = true
@@ -1027,6 +1035,7 @@ export const useEditorStore = defineStore('editor', {
       this.messages = []
       this.signalErrors = []
       this._localDirty = false
+      this._defaultSignalLength = 8
       this._healthFailCount = 0
       this.clearUndoStack()
       this.isLoading = true
@@ -1077,6 +1086,7 @@ export const useEditorStore = defineStore('editor', {
         this.messages = []
         this.signalErrors = []
         this._localDirty = false
+        this._defaultSignalLength = 8
         this.clearUndoStack()
         useUiStore().showToast(t('toast.newSessionCreated'))
       } catch (e) {
@@ -1098,6 +1108,7 @@ export const useEditorStore = defineStore('editor', {
       this.messages = []
       this.signalErrors = []
       this._localDirty = false
+      this._defaultSignalLength = 8
       this.clearUndoStack()
       return sid
     },
