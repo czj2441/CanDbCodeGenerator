@@ -129,6 +129,64 @@ class ApiHandler(BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         return urllib.parse.parse_qs(parsed.query)
 
+    def _get_download(self) -> None:
+        """GET /api/download?format=dbc&sid=xxx - 直接返回文件内容（触发浏览器保存对话框）。
+
+        通过 Content-Disposition: attachment 让浏览器/WebView 原生弹出保存位置。
+        支持从 URL 查询参数读取 sid（window.location 无法设置自定义请求头）。
+        """
+        params = self._url_params()
+        fmt = (params.get("format", ["dbc"])[0]).lower()
+        sid = params.get("sid", [""])[0]
+
+        # 获取数据库
+        db = None
+        if sid:
+            s = SESSION_MGR.get(sid)
+            if s:
+                db = s.db
+        if db is None:
+            db = _temp_db()
+
+        # 生成导出内容
+        try:
+            if fmt == "dbc":
+                content = db.to_dbc_str()
+                mime = "text/plain"
+                ext = ".dbc"
+            elif fmt == "toml":
+                content = db.to_toml_str()
+                mime = "text/plain"
+                ext = ".toml"
+            elif fmt == "json":
+                content = json.dumps(db.to_dict(), ensure_ascii=False, indent=2)
+                mime = "application/json"
+                ext = ".json"
+            else:
+                self._send_json(400, _resp(False, error=f"Unsupported format: {fmt}"))
+                return
+        except Exception as e:
+            self._send_json(500, _resp(False, error=f"Export failed: {e}"))
+            return
+
+        # 文件名
+        file_name = db.name or "export"
+        if not file_name.endswith(ext):
+            file_name = file_name.rsplit(".", 1)[0] + ext
+
+        # 直接返回二进制流 + Content-Disposition
+        payload = content.encode("utf-8")
+        self.send_response(200)
+        self._cors_headers()
+        self.send_header("Content-Type", f"{mime}; charset=utf-8")
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Content-Disposition", f'attachment; filename="{file_name}"')
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.wfile.write(payload)
+        self.wfile.flush()
+        print(f"[API] GET /api/download -> {file_name} ({len(payload)} bytes)")
+
     def _path_parts(self) -> list[str]:
         """返回路径部分（不含query string），以'/'分割并过滤空字符串。"""
         parsed = urllib.parse.urlparse(self.path)
@@ -257,6 +315,8 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._get_session_info(parts[2])
         elif parts == ["api", "sessions"]:
             self._get_sessions()
+        elif parts == ["api", "download"]:
+            self._get_download()
         else:
             self._serve_static()
 

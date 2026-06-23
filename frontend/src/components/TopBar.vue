@@ -83,7 +83,7 @@ import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { useEditorStore } from '../stores/editor.js'
 import { useUiStore } from '../stores/uiStore.js'
 import { t } from '../i18n.js'
-import { api } from '../api/client.js'
+import { api, getSessionId } from '../api/client.js'
 
 defineEmits(['back'])
 
@@ -207,38 +207,25 @@ async function confirmImport() {
 async function exportFile(fmt) {
   const ui = useUiStore()
   try {
-    const data = await api('POST', '/api/export', { format: fmt })
-    
-    // 根据格式设置 MIME 类型和文件扩展名
-    const mimeMap = {
-      dbc: 'text/plain',
-      toml: 'text/plain',
-      json: 'application/json'
+    // 先保存当前会话确保数据最新
+    await store.saveSession()
+    const sid = getSessionId() || ''
+
+    // ── pywebview 桌面模式：调用原生保存对话框 ──
+    if (window.pywebview?.api?.save_file) {
+      ui.showToast('正在打开保存对话框...', false)
+      const raw = await window.pywebview.api.save_file(fmt, sid)
+      const result = typeof raw === 'string' ? JSON.parse(raw) : raw
+      if (result.success) {
+        ui.showToast(`已保存到: ${result.path}`, false)
+      } else if (result.error !== '用户取消') {
+        ui.showToast(`导出失败: ${result.error}`, true)
+      }
+      return
     }
-    const extMap = {
-      dbc: '.dbc',
-      toml: '.toml',
-      json: '.json'
-    }
-    
-    // 从当前文件名提取基础名称（去掉扩展名）
-    const currentName = store.currentFileName || 'export'
-    const baseName = currentName.replace(/\.[^.]+$/, '')
-    const ext = extMap[fmt] || `.${fmt}`
-    const mime = mimeMap[fmt] || 'application/octet-stream'
-    
-    // 创建 Blob 并触发下载
-    const blob = new Blob([data.content], { type: mime })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = baseName + ext
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
-    
-    ui.showToast(`已导出为 ${fmt.toUpperCase()} 格式`, false)
+
+    // pywebview API 不可用
+    ui.showToast('导出功能仅在桌面版中可用', true)
   } catch (e) {
     ui.showToast(`导出失败: ${e.message}`, true)
   }
