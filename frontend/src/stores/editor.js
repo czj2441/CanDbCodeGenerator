@@ -176,7 +176,12 @@ function findNextAvailableStartBit(signals, dlc, length, byteOrder) {
     }
   }
 
-  for (let candidate = 0; candidate < maxBits; candidate++) {
+  // Motorola: MSB 应为每个字节的最高位 (bit 7, 15, 23, 31...)
+  // Intel: 从 bit 0 开始连续填充
+  const step = byteOrder === 'motorola' ? 8 : 1
+  const startCandidate = byteOrder === 'motorola' ? 7 : 0
+
+  for (let candidate = startCandidate; candidate < maxBits; candidate += step) {
     const candidateBits = getSignalBits(candidate, length, byteOrder)
     let valid = true
     for (const b of candidateBits) {
