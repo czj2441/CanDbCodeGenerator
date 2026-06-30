@@ -176,12 +176,57 @@ function findNextAvailableStartBit(signals, dlc, length, byteOrder) {
     }
   }
 
-  // Motorola: MSB 应为每个字节的最高位 (bit 7, 15, 23, 31...)
   // Intel: 从 bit 0 开始连续填充
-  const step = byteOrder === 'motorola' ? 8 : 1
-  const startCandidate = byteOrder === 'motorola' ? 7 : 0
+  if (byteOrder !== 'motorola') {
+    for (let candidate = 0; candidate < maxBits; candidate++) {
+      const candidateBits = getSignalBits(candidate, length, byteOrder)
+      let valid = true
+      for (const b of candidateBits) {
+        if (b < 0 || b >= maxBits || used.has(b)) {
+          valid = false
+          break
+        }
+      }
+      if (valid) return candidate
+    }
+    return null
+  }
 
-  for (let candidate = startCandidate; candidate < maxBits; candidate += step) {
+  // Motorola: 三轮扫描策略
+  // 第一轮：按字节遍历，优先尝试字节内紧凑位置（不跨字节）
+  // 例: length=2 时顺序为 7,5,3,1,15,13,11,9,23,...
+  for (let byteIdx = 0; byteIdx < dlc; byteIdx++) {
+    const byteBase = byteIdx * 8
+    for (let offset = 7; offset >= length - 1 && offset >= 0; offset -= length) {
+      const candidate = byteBase + offset
+      if (candidate >= maxBits) continue
+      const candidateBits = getSignalBits(candidate, length, byteOrder)
+      let valid = true
+      for (const b of candidateBits) {
+        if (b < 0 || b >= maxBits || used.has(b)) {
+          valid = false
+          break
+        }
+      }
+      if (valid) return candidate
+    }
+  }
+
+  // 第二轮：优先尝试字节边界 MSB（7,15,23...），长信号通常从此开始
+  for (let candidate = 7; candidate < maxBits; candidate += 8) {
+    const candidateBits = getSignalBits(candidate, length, byteOrder)
+    let valid = true
+    for (const b of candidateBits) {
+      if (b < 0 || b >= maxBits || used.has(b)) {
+        valid = false
+        break
+      }
+    }
+    if (valid) return candidate
+  }
+
+  // 第三轮：全位扫描兜底（与后端保持一致），确保不遗漏任何有效位置
+  for (let candidate = 0; candidate < maxBits; candidate++) {
     const candidateBits = getSignalBits(candidate, length, byteOrder)
     let valid = true
     for (const b of candidateBits) {
