@@ -1,4 +1,5 @@
-const API_BASE = import.meta.env.DEV ? '' : 'http://localhost:8080'
+// DEV 模式走 Vite 代理（相对路径），生产模式由 api_server 同源提供（也是相对路径）
+const API_BASE = ''
 
 let currentSessionId = sessionStorage.getItem('canmatrix_session_id') || ''
 
