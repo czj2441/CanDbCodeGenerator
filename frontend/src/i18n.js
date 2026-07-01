@@ -176,6 +176,16 @@ const dict = {
     'signal.fixBtn': '自动修复',
     'signal.noErrors': '无布局错误',
 
+    // Backend validation toasts
+    'toast.validation.message_name_empty': '报文名称不能为空',
+    'toast.validation.dlc_invalid': 'DLC 值不合法，合法值：1-8, 12, 16, 20, 24, 32, 48, 64',
+    'toast.validation.dlc_reduce_conflict': 'DLC 缩小会导致信号 "{name}" 超出范围',
+    'toast.validation.signal_name_empty': '信号名称不能为空',
+    'toast.validation.signal_name_duplicate': '信号名称 "{name}" 已存在',
+    'toast.validation.signal_length_invalid': '信号长度必须 ≥ 1',
+    'toast.validation.invalid_number': '“{field}” 请输入有效数字',
+    'toast.validation.factor_zero': '缩放因子不能为零',
+
     // Layout view
     'layout.backToTable': '返回表格',
     'layout.viewLayout': '布局视图',
@@ -373,6 +383,16 @@ const dict = {
     'signal.errorOverlap': '{name} vs {other}: overlap at bits {bits}',
     'signal.fixBtn': 'Auto Fix',
     'signal.noErrors': 'No layout errors',
+
+    // Backend validation toasts
+    'toast.validation.message_name_empty': 'Message name cannot be empty',
+    'toast.validation.dlc_invalid': 'Invalid DLC, valid: 1-8, 12, 16, 20, 24, 32, 48, 64',
+    'toast.validation.dlc_reduce_conflict': 'DLC reduction would make signal "{name}" out of bounds',
+    'toast.validation.signal_name_empty': 'Signal name cannot be empty',
+    'toast.validation.signal_name_duplicate': 'Signal name "{name}" already exists',
+    'toast.validation.signal_length_invalid': 'Signal length must be ≥ 1',
+    'toast.validation.invalid_number': 'Please enter a valid number for "{field}"',
+    'toast.validation.factor_zero': 'Factor cannot be zero',
 
     // Layout view
     'layout.backToTable': 'Back to Table',

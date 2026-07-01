@@ -141,6 +141,9 @@ class CanDatabase:
     包含完整的 CRUD、验证、序列化功能。
     """
 
+    # 合法 DLC 值集合（CAN 2.0B + CAN FD）
+    VALID_DLC_VALUES = frozenset({1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20, 24, 32, 48, 64})
+
     def __init__(self, name: str = "Untitled") -> None:
         self.name: str = name
         self.messages: dict[int, Message] = {}
@@ -190,6 +193,54 @@ class CanDatabase:
             if changed:
                 self.modified = True
             return True
+
+    def validate_message_fields(self, msg_id: int, updates: dict) -> tuple[bool, str, dict]:
+        """校验报文更新字段。返回 (ok, error_msg, details)。
+        
+        在 update_message() 之前调用，阻止非法值写入数据模型。
+        """
+        # #3: name 非空
+        if "name" in updates:
+            name = updates["name"]
+            if not isinstance(name, str) or not name.strip():
+                return False, "Message name cannot be empty", {
+                    "error_code": "message_name_empty", "field": "name"
+                }
+
+        # #4: DLC 范围
+        if "dlc" in updates:
+            dlc = updates["dlc"]
+            if dlc is None or not isinstance(dlc, (int, float)):
+                return False, f"Invalid DLC value, valid: {sorted(self.VALID_DLC_VALUES)}", {
+                    "error_code": "dlc_invalid", "field": "dlc",
+                    "valid_values": sorted(self.VALID_DLC_VALUES)
+                }
+            try:
+                dlc_int = int(dlc)
+            except (ValueError, TypeError):
+                return False, f"Invalid DLC value, valid: {sorted(self.VALID_DLC_VALUES)}", {
+                    "error_code": "dlc_invalid", "field": "dlc",
+                    "valid_values": sorted(self.VALID_DLC_VALUES)
+                }
+            if dlc_int not in self.VALID_DLC_VALUES:
+                return False, f"Invalid DLC value, valid: {sorted(self.VALID_DLC_VALUES)}", {
+                    "error_code": "dlc_invalid", "field": "dlc",
+                    "valid_values": sorted(self.VALID_DLC_VALUES)
+                }
+            # DLC 缩小时检查现有信号是否越界
+            msg = self.messages.get(msg_id)
+            if msg and dlc_int < msg.dlc:
+                max_bits = dlc_int * 8
+                for sig in msg.signals:
+                    sig_bits = self._get_signal_bits(sig.start_bit, sig.length, sig.byte_order)
+                    oob = [b for b in sig_bits if b >= max_bits]
+                    if oob:
+                        return False, f"DLC reduction would make signal '{sig.name}' out of bounds", {
+                            "error_code": "dlc_reduce_conflict", "field": "dlc",
+                            "name": sig.name, "new_max_bit": max_bits - 1
+                        }
+
+        return True, "", {"error_code": "ok"}
 
     def move_message(self, old_id: int, new_id: int) -> bool:
         """修改报文 ID。"""

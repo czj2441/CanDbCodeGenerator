@@ -11,6 +11,7 @@ CanMatrix Editor - REST API Server
 """
 
 import json
+import math
 import os
 import signal
 import atexit
@@ -896,6 +897,30 @@ class ApiHandler(BaseHTTPRequestHandler):
         if msg_id is None:
             self._send_json(400, _resp(False, error="Invalid or missing message ID"))
             return
+        # ★ 字段级校验（name 非空、DLC 范围）
+        if "name" in body:
+            name = body["name"]
+            if not isinstance(name, str) or not name.strip():
+                self._send_json(400, _resp(False, error="Message name cannot be empty",
+                    details={"error_code": "message_name_empty", "field": "name"}))
+                return
+        if "dlc" in body:
+            dlc = body["dlc"]
+            if dlc is None or not isinstance(dlc, (int, float)):
+                self._send_json(400, _resp(False, error="Invalid DLC value",
+                    details={"error_code": "dlc_invalid", "field": "dlc"}))
+                return
+            try:
+                dlc_int = int(dlc)
+            except (ValueError, TypeError):
+                self._send_json(400, _resp(False, error="Invalid DLC value",
+                    details={"error_code": "dlc_invalid", "field": "dlc"}))
+                return
+            if dlc_int not in db.VALID_DLC_VALUES:
+                self._send_json(400, _resp(False, error=f"Invalid DLC, valid: {sorted(db.VALID_DLC_VALUES)}",
+                    details={"error_code": "dlc_invalid", "field": "dlc",
+                             "valid_values": sorted(db.VALID_DLC_VALUES)}))
+                return
         msg = Message.from_dict(body)
         msg.id = msg_id
         if not db.add_message(msg):
@@ -922,11 +947,20 @@ class ApiHandler(BaseHTTPRequestHandler):
         
         # 获取旧值（用于撤销）
         msg = db.get_message(msg_id)
+        if not msg:
+            self._send_json(404, _resp(False, error=f"Message 0x{msg_id:X} not found"))
+            return
+        
+        # ★ 字段级校验（name 非空、DLC 范围、DLC 缩小冲突）
+        ok, err, info = db.validate_message_fields(msg_id, body)
+        if not ok:
+            self._send_json(400, _resp(False, error=err, details=info))
+            return
+        
         old_values = {}
-        if msg:
-            for key in body.keys():
-                if key != "id" and hasattr(msg, key):
-                    old_values[key] = getattr(msg, key)
+        for key in body.keys():
+            if key != "id" and hasattr(msg, key):
+                old_values[key] = getattr(msg, key)
         
         # 允许更新id（即移动key）
         new_id = _parse_id(body.get("id", msg_id))
@@ -987,12 +1021,52 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._send_json(400, _resp(False, error="Invalid message ID"))
             return
         body = self._read_body()
+        msg = db.get_message(msg_id)
+        if not msg:
+            self._send_json(404, _resp(False, error=f"Message 0x{msg_id:X} not found"))
+            return
+        
+        # ★ 信号字段级校验
+        if "name" in body:
+            name = body["name"]
+            if not isinstance(name, str) or not name.strip():
+                self._send_json(400, _resp(False, error="Signal name cannot be empty",
+                    details={"error_code": "signal_name_empty", "field": "name"}))
+                return
+            for existing in msg.signals:
+                if existing.name == name.strip():
+                    self._send_json(400, _resp(False, error=f"Signal name '{name}' already exists",
+                        details={"error_code": "signal_name_duplicate", "field": "name",
+                                 "name": name}))
+                    return
+        if "length" in body:
+            length = body["length"]
+            if length is None or not isinstance(length, (int, float)) or int(length) < 1:
+                self._send_json(400, _resp(False, error="Signal length must be at least 1",
+                    details={"error_code": "signal_length_invalid", "field": "length"}))
+                return
+        for num_field in ("factor", "offset", "min_val", "max_val"):
+            if num_field in body:
+                val = body[num_field]
+                if val is None or not isinstance(val, (int, float)):
+                    self._send_json(400, _resp(False, error=f"Invalid {num_field} value",
+                        details={"error_code": "invalid_number", "field": num_field}))
+                    return
+                if isinstance(val, float) and (math.isnan(val) or math.isinf(val)):
+                    self._send_json(400, _resp(False, error=f"{num_field} cannot be NaN or Infinity",
+                        details={"error_code": "invalid_number", "field": num_field}))
+                    return
+        if "factor" in body and body["factor"] == 0:
+            self._send_json(400, _resp(False, error="Factor cannot be zero",
+                details={"error_code": "factor_zero", "field": "factor"}))
+            return
+        
         sig = Signal.from_dict(body)
 
         # 校验（前端已自动顺延，后端仅做防御性验证）
         ok, err, _info = db.validate_signal(msg_id, sig)
         if not ok:
-            self._send_json(400, _resp(False, error=err))
+            self._send_json(400, _resp(False, error=err, details=_info))
             return
 
         if not db.add_signal_to_message(msg_id, sig):
@@ -1076,11 +1150,46 @@ class ApiHandler(BaseHTTPRequestHandler):
             if hasattr(sig, key):
                 old_values[key] = getattr(sig, key)
 
+        # ★ 信号字段级校验
+        if "name" in body:
+            name = body["name"]
+            if not isinstance(name, str) or not name.strip():
+                self._send_json(400, _resp(False, error="Signal name cannot be empty",
+                    details={"error_code": "signal_name_empty", "field": "name"}))
+                return
+            for existing in msg.signals:
+                if existing.uuid != idx_str and existing.name == name.strip():
+                    self._send_json(400, _resp(False, error=f"Signal name '{name}' already exists",
+                        details={"error_code": "signal_name_duplicate", "field": "name",
+                                 "name": name}))
+                    return
+        if "length" in body:
+            length = body["length"]
+            if length is None or not isinstance(length, (int, float)) or int(length) < 1:
+                self._send_json(400, _resp(False, error="Signal length must be at least 1",
+                    details={"error_code": "signal_length_invalid", "field": "length"}))
+                return
+        for num_field in ("factor", "offset", "min_val", "max_val"):
+            if num_field in body:
+                val = body[num_field]
+                if val is None or not isinstance(val, (int, float)):
+                    self._send_json(400, _resp(False, error=f"Invalid {num_field} value",
+                        details={"error_code": "invalid_number", "field": num_field}))
+                    return
+                if isinstance(val, float) and (math.isnan(val) or math.isinf(val)):
+                    self._send_json(400, _resp(False, error=f"{num_field} cannot be NaN or Infinity",
+                        details={"error_code": "invalid_number", "field": num_field}))
+                    return
+        if "factor" in body and body["factor"] == 0:
+            self._send_json(400, _resp(False, error="Factor cannot be zero",
+                details={"error_code": "factor_zero", "field": "factor"}))
+            return
+
         # 防御性校验：更新后的信号所有 bit 必须在报文范围内
         test_sig = Signal.from_dict({**sig.to_dict(), **body})
-        ok, err, _ = db.validate_signal(msg_id, test_sig, exclude_uuid=idx_str)
+        ok, err, _info = db.validate_signal(msg_id, test_sig, exclude_uuid=idx_str)
         if not ok:
-            self._send_json(400, _resp(False, error=err))
+            self._send_json(400, _resp(False, error=err, details=_info))
             return
 
         ok = db.update_signal_in_message(msg_id, idx_str, **body)

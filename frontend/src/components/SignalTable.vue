@@ -43,17 +43,17 @@
             <td><input class="hex" :value="idx" readonly></td>
             <td><input :value="sig.name" @blur="e => update(sig.uuid, 'name', e.target.value)"></td>
             <td><input class="mono" type="number" :value="displayStartBit(sig)" @blur="e => updateStartBit(sig, parseInt(e.target.value)||0)"></td>
-            <td><input class="mono" type="number" :value="sig.length" @blur="e => update(sig.uuid, 'length', parseInt(e.target.value)||8)"></td>
+            <td><input class="mono" type="number" :value="sig.length" @blur="e => update(sig.uuid, 'length', parseInt(e.target.value))"></td>
             <td>
               <select :value="sig.byte_order" @change="e => update(sig.uuid, 'byte_order', e.target.value)">
                 <option value="intel">Intel</option>
                 <option value="motorola">Motorola</option>
               </select>
             </td>
-            <td><input class="mono" type="number" step="any" :value="sig.factor" @blur="e => update(sig.uuid, 'factor', parseFloat(e.target.value)||1)"></td>
-            <td><input class="mono" type="number" step="any" :value="sig.offset" @blur="e => update(sig.uuid, 'offset', parseFloat(e.target.value)||0)"></td>
-            <td><input class="mono" type="number" step="any" :value="sig.min_val" @blur="e => update(sig.uuid, 'min_val', parseFloat(e.target.value)||0)"></td>
-            <td><input class="mono" type="number" step="any" :value="sig.max_val" @blur="e => update(sig.uuid, 'max_val', parseFloat(e.target.value)||0)"></td>
+            <td><input class="mono" type="number" step="any" :value="sig.factor" @blur="e => update(sig.uuid, 'factor', parseFloat(e.target.value))"></td>
+            <td><input class="mono" type="number" step="any" :value="sig.offset" @blur="e => update(sig.uuid, 'offset', parseFloat(e.target.value))"></td>
+            <td><input class="mono" type="number" step="any" :value="sig.min_val" @blur="e => update(sig.uuid, 'min_val', parseFloat(e.target.value))"></td>
+            <td><input class="mono" type="number" step="any" :value="sig.max_val" @blur="e => update(sig.uuid, 'max_val', parseFloat(e.target.value))"></td>
             <td><input :value="sig.unit" @blur="e => update(sig.uuid, 'unit', e.target.value)"></td>
             <td><input :value="sig.comment" @blur="e => update(sig.uuid, 'comment', e.target.value)"></td>
             <td><button class="action-delete" @click.stop="store.deleteSignal(sig.uuid)" title="删除">×</button></td>

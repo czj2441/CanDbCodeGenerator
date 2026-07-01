@@ -3,6 +3,18 @@ import { api, setSessionId, clearSession, getSessionId } from '../api/client.js'
 import { t } from '../i18n.js'
 import { useUiStore } from './uiStore.js'
 
+/**
+ * 将后端校验错误翻译为 i18n 文本。
+ * 若 error_code 对应的翻译不存在，则 fallback 到原始 e.message。
+ */
+function _translateError(e) {
+  const errorCode = e.details?.error_code
+  if (!errorCode) return e.message
+  const i18nKey = `toast.validation.${errorCode}`
+  const translated = t(i18nKey, e.details || {})
+  return translated !== i18nKey ? translated : e.message
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // API 请求队列工具类（内联避免 Tree Shaking 问题）
 // ═══════════════════════════════════════════════════════════════════════════
@@ -788,7 +800,7 @@ export const useEditorStore = defineStore('editor', {
         await this._syncBackendStatus()
       } catch (e) {
         if (!e.message.includes('Queue cleaned up')) {
-          useUiStore().showToast(e.message, true)
+          useUiStore().showToast(_translateError(e), true)
           await this._doFullReload()
         }
       }
@@ -857,7 +869,7 @@ export const useEditorStore = defineStore('editor', {
         await this._syncBackendStatus()
         this.loadSignalErrors()
       } catch (e) {
-        useUiStore().showToast(e.message, true)
+        useUiStore().showToast(_translateError(e), true)
         await this._doFullReload()
       }
     },
@@ -911,7 +923,7 @@ export const useEditorStore = defineStore('editor', {
         this.loadSignalErrors()
       } catch (e) {
         if (!e.message.includes('Queue cleaned up')) {
-          useUiStore().showToast(e.message, true)
+          useUiStore().showToast(_translateError(e), true)
           await this._doFullReload()
         }
       }

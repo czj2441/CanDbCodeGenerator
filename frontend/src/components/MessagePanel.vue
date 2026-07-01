@@ -15,7 +15,7 @@
           </div>
           <div class="field">
             <label>{{ t('panel.signalLength') }}</label>
-            <input class="mono" type="number" min="1" max="64" :value="selectedSig.length" @blur="e => updateSignal('length', parseInt(e.target.value)||8)">
+            <input class="mono" type="number" min="1" max="64" :value="selectedSig.length" @blur="e => updateSignal('length', parseInt(e.target.value))">
           </div>
         </div>
         <div class="field">
@@ -28,21 +28,21 @@
         <div class="field-row">
           <div class="field">
             <label>{{ t('panel.signalFactor') }}</label>
-            <input class="mono" type="number" step="any" :value="selectedSig.factor" @blur="e => updateSignal('factor', parseFloat(e.target.value)||1)">
+            <input class="mono" type="number" step="any" :value="selectedSig.factor" @blur="e => updateSignal('factor', parseFloat(e.target.value))">
           </div>
           <div class="field">
             <label>{{ t('panel.signalOffset') }}</label>
-            <input class="mono" type="number" step="any" :value="selectedSig.offset" @blur="e => updateSignal('offset', parseFloat(e.target.value)||0)">
+            <input class="mono" type="number" step="any" :value="selectedSig.offset" @blur="e => updateSignal('offset', parseFloat(e.target.value))">
           </div>
         </div>
         <div class="field-row">
           <div class="field">
             <label>{{ t('panel.signalMin') }}</label>
-            <input class="mono" type="number" step="any" :value="selectedSig.min_val" @blur="e => updateSignal('min_val', parseFloat(e.target.value)||0)">
+            <input class="mono" type="number" step="any" :value="selectedSig.min_val" @blur="e => updateSignal('min_val', parseFloat(e.target.value))">
           </div>
           <div class="field">
             <label>{{ t('panel.signalMax') }}</label>
-            <input class="mono" type="number" step="any" :value="selectedSig.max_val" @blur="e => updateSignal('max_val', parseFloat(e.target.value)||0)">
+            <input class="mono" type="number" step="any" :value="selectedSig.max_val" @blur="e => updateSignal('max_val', parseFloat(e.target.value))">
           </div>
         </div>
         <div class="field">
@@ -76,11 +76,11 @@
         <div class="field-row">
           <div class="field">
             <label>{{ t('panel.dlc') }}</label>
-            <input class="mono" type="number" min="0" max="8" :value="msg.dlc" @blur="e => update('dlc', parseInt(e.target.value)||8)">
+            <input class="mono" type="number" min="1" max="8" :value="msg.dlc" @blur="e => update('dlc', parseInt(e.target.value))">
           </div>
           <div class="field">
             <label>{{ t('panel.cycle') }}</label>
-            <input class="mono" type="number" min="0" :value="msg.cycle_time" @blur="e => update('cycle_time', parseInt(e.target.value)||0)">
+            <input class="mono" type="number" min="0" :value="msg.cycle_time" @blur="e => update('cycle_time', parseInt(e.target.value))">
           </div>
         </div>
         <div class="field">
