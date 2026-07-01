@@ -628,8 +628,7 @@ export const useEditorStore = defineStore('editor', {
     async loadSelectedMessage() {
       if (this.selectedMsgId == null) return
       try {
-        const msg = await api('GET', `/api/messages/${this.selectedMsgId}`)
-        this.messageCache[this.selectedMsgId] = msg
+        this.messageCache[this.selectedMsgId] = await api('GET', `/api/messages/${this.selectedMsgId}`)
         this.loadSignalErrors()
       } catch (e) {
         useUiStore().showToast(e.message, true)

@@ -6,16 +6,16 @@
         <div class="panel-section-title">{{ t('panel.signalProperties') }}</div>
         <div class="field">
           <label>{{ t('panel.signalName') }}</label>
-          <input :value="selectedSig.name" @blur="e => updateSignal('name', e.target.value)">
+          <input v-lazy-value="selectedSig.name" @blur="e => updateSignal('name', e.target.value)">
         </div>
         <div class="field-row">
           <div class="field">
             <label>{{ t('panel.signalStart') }}</label>
-            <input class="mono" type="number" min="0" :value="showDisplayStartBit()" @blur="e => modifyDisplayStartBit(parseInt(e.target.value)||0)">
+            <input class="mono" type="number" min="0" v-lazy-value="showDisplayStartBit()" @blur="e => modifyDisplayStartBit(parseInt(e.target.value)||0)">
           </div>
           <div class="field">
             <label>{{ t('panel.signalLength') }}</label>
-            <input class="mono" type="number" min="1" max="64" :value="selectedSig.length" @blur="e => updateSignal('length', parseInt(e.target.value))">
+            <input class="mono" type="number" min="1" max="64" v-lazy-value="selectedSig.length" @blur="e => updateSignal('length', parseInt(e.target.value))">
           </div>
         </div>
         <div class="field">
@@ -28,30 +28,30 @@
         <div class="field-row">
           <div class="field">
             <label>{{ t('panel.signalFactor') }}</label>
-            <input class="mono" type="number" step="any" :value="selectedSig.factor" @blur="e => updateSignal('factor', parseFloat(e.target.value))">
+            <input class="mono" type="number" step="any" v-lazy-value="selectedSig.factor" @blur="e => updateSignal('factor', parseFloat(e.target.value))">
           </div>
           <div class="field">
             <label>{{ t('panel.signalOffset') }}</label>
-            <input class="mono" type="number" step="any" :value="selectedSig.offset" @blur="e => updateSignal('offset', parseFloat(e.target.value))">
+            <input class="mono" type="number" step="any" v-lazy-value="selectedSig.offset" @blur="e => updateSignal('offset', parseFloat(e.target.value))">
           </div>
         </div>
         <div class="field-row">
           <div class="field">
             <label>{{ t('panel.signalMin') }}</label>
-            <input class="mono" type="number" step="any" :value="selectedSig.min_val" @blur="e => updateSignal('min_val', parseFloat(e.target.value))">
+            <input class="mono" type="number" step="any" v-lazy-value="selectedSig.min_val" @blur="e => updateSignal('min_val', parseFloat(e.target.value))">
           </div>
           <div class="field">
             <label>{{ t('panel.signalMax') }}</label>
-            <input class="mono" type="number" step="any" :value="selectedSig.max_val" @blur="e => updateSignal('max_val', parseFloat(e.target.value))">
+            <input class="mono" type="number" step="any" v-lazy-value="selectedSig.max_val" @blur="e => updateSignal('max_val', parseFloat(e.target.value))">
           </div>
         </div>
         <div class="field">
           <label>{{ t('panel.signalUnit') }}</label>
-          <input :value="selectedSig.unit" @blur="e => updateSignal('unit', e.target.value)">
+          <input v-lazy-value="selectedSig.unit" @blur="e => updateSignal('unit', e.target.value)">
         </div>
         <div class="field">
           <label>{{ t('panel.signalComment') }}</label>
-          <textarea rows="3" :value="selectedSig.comment" @blur="e => updateSignal('comment', e.target.value)"></textarea>
+          <textarea rows="3" v-lazy-value="selectedSig.comment" @blur="e => updateSignal('comment', e.target.value)"></textarea>
         </div>
       </div>
       <div class="panel-section">
@@ -71,25 +71,25 @@
         </div>
         <div class="field">
           <label>{{ t('panel.name') }}</label>
-          <input :value="msg.name" @blur="e => update('name', e.target.value)">
+          <input v-lazy-value="msg.name" @blur="e => update('name', e.target.value)">
         </div>
         <div class="field-row">
           <div class="field">
             <label>{{ t('panel.dlc') }}</label>
-            <input class="mono" type="number" min="1" max="8" :value="msg.dlc" @blur="e => update('dlc', parseInt(e.target.value))">
+            <input class="mono" type="number" min="1" max="8" v-lazy-value="msg.dlc" @blur="e => update('dlc', parseInt(e.target.value))">
           </div>
           <div class="field">
             <label>{{ t('panel.cycle') }}</label>
-            <input class="mono" type="number" min="0" :value="msg.cycle_time" @blur="e => update('cycle_time', parseInt(e.target.value))">
+            <input class="mono" type="number" min="0" v-lazy-value="msg.cycle_time" @blur="e => update('cycle_time', parseInt(e.target.value))">
           </div>
         </div>
         <div class="field">
           <label>{{ t('panel.sender') }}</label>
-          <input :value="msg.sender" @blur="e => update('sender', e.target.value)">
+          <input v-lazy-value="msg.sender" @blur="e => update('sender', e.target.value)">
         </div>
         <div class="field">
           <label>{{ t('panel.comment') }}</label>
-          <textarea rows="2" :value="msg.comment" @blur="e => update('comment', e.target.value)"></textarea>
+          <textarea rows="2" v-lazy-value="msg.comment" @blur="e => update('comment', e.target.value)"></textarea>
         </div>
       </div>
       <div class="panel-section">
@@ -111,6 +111,7 @@ import { useUiStore } from '../stores/uiStore.js'
 import { toHex, parseHex } from '../utils/format.js'
 import { t } from '../i18n.js'
 import { toDisplayStartBit, toStorageStartBit } from '../utils/signalLayout.js'
+import { vLazyValue } from '../directives/lazyValue.js'
 
 function showToast(msg, isError = false) {
   useUiStore().showToast(msg, isError)
