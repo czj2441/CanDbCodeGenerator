@@ -57,6 +57,7 @@ class Session:
         self.undo_stack: list[dict] = []
         self.redo_stack: list[dict] = []
         self._undo_lock = threading.RLock()  # 撤销操作并发保护
+        self.save_error: str | None = None  # 自动保存失败时的错误信息
 
     def touch(self):
         self.last_access = time.time()
@@ -273,7 +274,9 @@ class SessionManager:
             try:
                 if self.save(sid):
                     saved += 1
+                    session.save_error = None  # 成功：清除旧错误
             except Exception as e:
+                session.save_error = str(e)    # 失败：记录错误
                 print(f"[WARN] save_all_dirty: failed to save {sid[:8]}: {e}")
         return saved
 

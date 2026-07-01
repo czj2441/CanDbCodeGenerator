@@ -161,6 +161,9 @@ const dict = {
     // Dead overlay
     'overlay.deadTitle': '与后端连接中断',
     'overlay.deadSub': '请重启 API 服务器，连接恢复后可继续编辑',
+    'toast.autoSaveFailed': '自动保存失败：{error}，请手动保存（Ctrl+S）',
+    'overlay.reconnectTitle': '正在重新连接...',
+    'overlay.reconnectSub': '后端暂时不可用，连接恢复后可继续编辑',
     'toast.batchCreated': '已创建 {count} 个信号',
     'toast.batchFailed': '批量创建在第 #{idx} 个失败：{msg}',
     'toast.signalOutOfBounds': '信号 "{name}" 超出范围（DLC={dlc}，最大位 {max}）',
@@ -356,6 +359,9 @@ const dict = {
     // Dead overlay
     'overlay.deadTitle': 'Backend connection lost',
     'overlay.deadSub': 'Please restart the API server. Editing will resume when connection is restored.',
+    'toast.autoSaveFailed': 'Auto-save failed: {error}. Please save manually (Ctrl+S).',
+    'overlay.reconnectTitle': 'Reconnecting...',
+    'overlay.reconnectSub': 'Backend temporarily unavailable. Editing will resume when connection is restored.',
     'toast.batchCreated': 'Created {count} signals',
     'toast.batchFailed': 'Batch create failed at #{idx}: {msg}',
     'toast.signalOutOfBounds': 'Signal "{name}" out of bounds (DLC={dlc}, max bit {max})',

@@ -542,6 +542,7 @@ class ApiHandler(BaseHTTPRequestHandler):
         if s:
             status_data["undo_count"] = len(s.undo_stack)
             status_data["redo_count"] = len(s.redo_stack)
+            status_data["save_error"] = s.save_error
         
         self._send_json(200, _resp(True, status_data))
 

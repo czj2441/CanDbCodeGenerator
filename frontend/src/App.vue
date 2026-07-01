@@ -15,6 +15,14 @@
         <MessagePanel />
       </div>
       <StatusBar />
+      <!-- 离线编辑遮罩：覆盖编辑区域，不遮挡 TopBar -->
+      <div v-if="store._hasBeenConnected && store.apiStatus !== 'connected' && store.apiStatus !== 'dead'" class="offline-overlay">
+        <div class="dead-overlay-box" style="border-color: var(--warn);">
+          <div class="offline-spinner"></div>
+          <p>{{ t('overlay.reconnectTitle') }}</p>
+          <p class="dead-overlay-sub">{{ t('overlay.reconnectSub') }}</p>
+        </div>
+      </div>
       <BatchModal v-model:visible="ui.batchModalOpen" />
       <LoadingOverlay />
       <ContextMenu :items="contextMenuItems" />
@@ -395,4 +403,26 @@ body {
   font-weight: 400 !important;
   color: var(--text-dim) !important;
 }
+
+/* ── 离线编辑遮罩 ── */
+.offline-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 499;  /* 低于 dead-overlay(500)，高于 LoadingOverlay(150) */
+  background: oklch(0 0 0 / 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: not-allowed;
+}
+.offline-spinner {
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--border-light);
+  border-top-color: var(--warn);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin: 0 auto 12px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 </style>

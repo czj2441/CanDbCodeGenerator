@@ -257,6 +257,7 @@ export const useEditorStore = defineStore('editor', {
     backendDirty: false,        // 后端 db.modified —— 是否还有未落盘数据（从 /api/status 同步）
     signalErrors: [],
     _healthFailCount: 0,
+    _hasBeenConnected: false,  // 是否曾成功连接过后端（防止初始加载闪遮罩）
     _defaultSignalLength: 8,  // 新信号默认 length；用户修改某信号 length 后自动同步为该值
     _fullReloadTimer: null,     // 5s 自复位全量轮询定时器
     _healthTimer: null,          // 独立健康检查定时器
@@ -337,6 +338,7 @@ export const useEditorStore = defineStore('editor', {
             setTimeout(() => reject(new Error('Reload timeout')), 10000)
           ),
         ])
+        await this._syncBackendStatus()  // 检测 save_error，确保空闲用户也能收到通知
       } catch (e) {
         console.warn('[STORE] _doFullReload failed:', e.message)
       } finally {
@@ -357,7 +359,7 @@ export const useEditorStore = defineStore('editor', {
 
     /**
      * 启动独立健康检查定时器
-     * 每 5s 调用一次 _checkHealth()，连续失败 2 次标记为 dead。
+     * 每 2s 调用一次 _checkHealth()，1 次失败标记 offline，连续 2 次失败标记 dead。
      * @private
      */
     _startHealthCheck() {
@@ -380,10 +382,13 @@ export const useEditorStore = defineStore('editor', {
         ])
         this._healthFailCount = 0
         this.apiStatus = 'connected'
+        this._hasBeenConnected = true
       } catch (_) {
         this._healthFailCount++
-        if (this._healthFailCount >= 1) {
+        if (this._healthFailCount >= 2) {
           this.apiStatus = 'dead'
+        } else {
+          this.apiStatus = 'offline'
         }
       }
     },
@@ -580,6 +585,10 @@ export const useEditorStore = defineStore('editor', {
         this.backendDirty = status.modified || false
         this.undoCount = status.undo_count || 0
         this.redoCount = status.redo_count || 0
+        // 检测自动保存失败
+        if (status.save_error) {
+          useUiStore().showToast(t('toast.autoSaveFailed', { error: status.save_error }), true)
+        }
       } catch (_) {
         /* ignore */
       }
