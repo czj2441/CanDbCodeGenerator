@@ -80,10 +80,11 @@ def _resp(success: bool, data: Any = None, error: str = "", details: dict | None
 class ApiHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
+    _last_status: int = 200  # tracked for compact log
+
     def log_message(self, fmt: str, *args: Any) -> None:
-        """调试日志。"""
-        msg = fmt % args
-        print(f"[HTTP] {msg}")
+        """Suppress default access log — we emit a single compact line per request."""
+        pass
 
     # ── CORS ──
 
@@ -100,7 +101,6 @@ class ApiHandler(BaseHTTPRequestHandler):
     # ── 工具方法 ──
 
     def _send_json(self, status: int, body: dict) -> None:
-        t_resp_start = time.monotonic()
         payload = json.dumps(body, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self._cors_headers()
@@ -110,8 +110,7 @@ class ApiHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(payload)
         self.wfile.flush()
-        elapsed = (time.monotonic() - t_resp_start) * 1000
-        print(f"[API] response: {status} {len(payload)} bytes +{elapsed:.1f}ms")
+        self._last_status = status
 
     def _read_body(self) -> dict:
         try:
@@ -186,7 +185,7 @@ class ApiHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(payload)
         self.wfile.flush()
-        print(f"[API] GET /api/download -> {file_name} ({len(payload)} bytes)")
+        self._last_status = 200
 
     def _path_parts(self) -> list[str]:
         """返回路径部分（不含query string），以'/'分割并过滤空字符串。"""
@@ -269,6 +268,7 @@ class ApiHandler(BaseHTTPRequestHandler):
         try:
             with open(full_path, "rb") as f:
                 content = f.read()
+            self._last_status = 200
             self.send_response(200)
             self._cors_headers()
             self.send_header("Content-Type", mime_type)
@@ -284,18 +284,21 @@ class ApiHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         t_start = time.monotonic()
+        self._last_status = 200
         try:
             self._handle_GET()
-            elapsed = (time.monotonic() - t_start) * 1000
-            print(f"[API] GET {self.path} DONE +{elapsed:.1f}ms")
         except Exception as e:
             print(f"[ERROR] do_GET: {e}", flush=True)
             import traceback
             traceback.print_exc()
+            self._last_status = 500
             try:
                 self._send_json(500, _resp(False, error="Internal server error"))
             except:
                 pass
+        finally:
+            elapsed = (time.monotonic() - t_start) * 1000
+            print(f"[API] {self._last_status} GET {self.path} +{elapsed:.1f}ms")
 
     def _handle_GET(self) -> None:
         parts = self._path_parts()
@@ -323,18 +326,21 @@ class ApiHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         t_start = time.monotonic()
+        self._last_status = 200
         try:
             self._handle_POST()
-            elapsed = (time.monotonic() - t_start) * 1000
-            print(f"[API] POST {self.path} DONE +{elapsed:.1f}ms")
         except Exception as e:
             print(f"[ERROR] do_POST: {e}", flush=True)
             import traceback
             traceback.print_exc()
+            self._last_status = 500
             try:
                 self._send_json(500, _resp(False, error="Internal server error"))
             except:
                 pass
+        finally:
+            elapsed = (time.monotonic() - t_start) * 1000
+            print(f"[API] {self._last_status} POST {self.path} +{elapsed:.1f}ms")
 
     def _handle_POST(self) -> None:
         parts = self._path_parts()
@@ -374,35 +380,53 @@ class ApiHandler(BaseHTTPRequestHandler):
 
     def do_PUT(self) -> None:
         t_start = time.monotonic()
-        parts = self._path_parts()
-        if len(parts) == 3 and parts[0:2] == ["api", "messages"]:
-            # PUT /api/messages/{id}
-            self._put_message(parts[2])
-        elif len(parts) == 5 and parts[0:3] == ["api", "messages", parts[2]] and parts[3] == "signals":
-            # PUT /api/messages/{id}/signals/{uuid}
-            self._put_signal(parts[2], parts[4])
-        elif parts == ["api", "session"]:
-            # PUT /api/session - 更新数据库名称
-            self._put_session()
-        else:
-            self._send_json(404, _resp(False, error="Not found"))
-        elapsed = (time.monotonic() - t_start) * 1000
-        print(f"[API] PUT {self.path} DONE +{elapsed:.1f}ms")
+        self._last_status = 200
+        try:
+            parts = self._path_parts()
+            if len(parts) == 3 and parts[0:2] == ["api", "messages"]:
+                self._put_message(parts[2])
+            elif len(parts) == 5 and parts[0:3] == ["api", "messages", parts[2]] and parts[3] == "signals":
+                self._put_signal(parts[2], parts[4])
+            elif parts == ["api", "session"]:
+                self._put_session()
+            else:
+                self._last_status = 404
+                self._send_json(404, _resp(False, error="Not found"))
+        except Exception as e:
+            print(f"[ERROR] do_PUT: {e}", flush=True)
+            self._last_status = 500
+            try:
+                self._send_json(500, _resp(False, error="Internal server error"))
+            except:
+                pass
+        finally:
+            elapsed = (time.monotonic() - t_start) * 1000
+            print(f"[API] {self._last_status} PUT {self.path} +{elapsed:.1f}ms")
 
     def do_DELETE(self) -> None:
         t_start = time.monotonic()
-        parts = self._path_parts()
-        if len(parts) == 3 and parts[0:2] == ["api", "messages"]:
-            # DELETE /api/messages/{id}
-            self._delete_message(parts[2])
-        elif len(parts) == 5 and parts[0:3] == ["api", "messages", parts[2]] and parts[3] == "signals":
-            # DELETE /api/messages/{id}/signals/{uuid}
-            self._delete_signal(parts[2], parts[4])
-        elif len(parts) == 3 and parts[0:2] == ["api", "session"]:
-            # DELETE /api/session/{id}
-            self._delete_session(parts[2])
-        else:
-            self._send_json(404, _resp(False, error="Not found"))
+        self._last_status = 200
+        try:
+            parts = self._path_parts()
+            if len(parts) == 3 and parts[0:2] == ["api", "messages"]:
+                self._delete_message(parts[2])
+            elif len(parts) == 5 and parts[0:3] == ["api", "messages", parts[2]] and parts[3] == "signals":
+                self._delete_signal(parts[2], parts[4])
+            elif len(parts) == 3 and parts[0:2] == ["api", "session"]:
+                self._delete_session(parts[2])
+            else:
+                self._last_status = 404
+                self._send_json(404, _resp(False, error="Not found"))
+        except Exception as e:
+            print(f"[ERROR] do_DELETE: {e}", flush=True)
+            self._last_status = 500
+            try:
+                self._send_json(500, _resp(False, error="Internal server error"))
+            except:
+                pass
+        finally:
+            elapsed = (time.monotonic() - t_start) * 1000
+            print(f"[API] {self._last_status} DELETE {self.path} +{elapsed:.1f}ms")
 
     # ── 端点实现 ──
 
