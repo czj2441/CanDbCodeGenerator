@@ -139,7 +139,13 @@ function confirmNew() {
 function rename(event) {
   let name = event.target.value.replace(/\.toml$/i, '').trim()
   name = name.replace(/^[a-f0-9]{12}_/i, '').trim()
-  if (!name) return
+  // 去除可能残留的前导下划线
+  name = name.replace(/^_+/, '').trim()
+  if (!name) {
+    // 恢复显示当前文件名，避免输入框显示空值
+    event.target.value = store.currentFileName
+    return
+  }
   store.renameSession(name)
 }
 

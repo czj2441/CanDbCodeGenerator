@@ -539,6 +539,8 @@ class NewFileHandler:
     def __call__(self, data: dict) -> HandlerResult:
         sid = data.get("session_id", "")
         name = data.get("name", "Untitled")
+        if not name or not str(name).strip():
+            name = "Untitled"
         # 先保存当前会话
         if sid:
             try:
@@ -730,6 +732,8 @@ class CreateSessionHandler:
 
     def __call__(self, data: dict) -> HandlerResult:
         db_name = data.get("name", "Untitled")
+        if not db_name or not str(db_name).strip():
+            db_name = "Untitled"
         content = data.get("content", None)
         if content:
             db = CanDatabase.from_dict(content)
@@ -781,6 +785,15 @@ class RenameSessionHandler:
         new_name = data.get("name", "")
         if not new_name:
             raise HandlerError("VALUE_INVALID", "Name is required")
+        # 去前缀 + .toml 后校验：防止空名称文件被创建
+        check = new_name.strip()
+        if check.endswith(".toml"):
+            check = check[:-5]
+        if check.startswith(sid + "_"):
+            check = check[len(sid) + 1:]
+        check = check.strip()
+        if not check or not check.strip("_"):
+            raise HandlerError("VALUE_INVALID", "文件名不能为空")
         ok = self._sm.rename(sid, new_name)
         if not ok:
             raise HandlerError("SESSION_NOT_FOUND", "Session not found")

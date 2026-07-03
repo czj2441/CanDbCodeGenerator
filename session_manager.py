@@ -135,6 +135,10 @@ class SessionManager:
             session_id
         """
         session_id = uuid.uuid4().hex[:12]
+        # 校验文件名：去掉 .toml 后不能为空（含纯下划线）
+        base_name = file_name[:-5].strip() if file_name.endswith('.toml') else file_name.strip()
+        if not base_name or not base_name.strip("_"):
+            file_name = "Untitled.toml"
         file_path = os.path.join(self._data_dir, file_name)
 
         with self._lock:
@@ -216,6 +220,10 @@ class SessionManager:
             pure_name = pure_name[len(session_id) + 1:]
         if pure_name.endswith(".toml"):
             pure_name = pure_name[:-5]
+
+        # 防御：去前缀后名称不能为空（含纯下划线）
+        if not pure_name or not pure_name.strip("_"):
+            pure_name = "Untitled"
 
         old_path = session.file_path
         # 新文件名: {session_id}_{pure_name}.toml
@@ -823,6 +831,11 @@ class SessionManager:
             base = base[:-10] + ".toml"
         elif not base.endswith(".toml"):
             base += ".toml"
+        # 兜底：确保去掉 session_id 前缀和 .toml 后缀后不为空
+        check = base[len(session.id) + 1:] if base.startswith(session.id + "_") else base
+        check = check[:-5].strip() if check.endswith('.toml') else check.strip()
+        if not check or not check.strip("_"):
+            base = f"{session.id}_Untitled.toml"
         file_path = os.path.join(self._data_dir, base)
         session.file_path = file_path
 
