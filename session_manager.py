@@ -16,7 +16,7 @@ import json
 import os
 import threading
 import time
-import toml
+import tomlkit
 import uuid
 from typing import Optional
 
@@ -337,9 +337,14 @@ class SessionManager:
                 sig_count = 0
                 try:
                     with open(fpath, "r", encoding="utf-8") as f:
-                        data = toml.load(f)
-                    msg_count = len(data.get("messages", []))
-                    sig_count = sum(len(m.get("signals", [])) for m in data.get("messages", []))
+                        data = tomlkit.parse(f.read())
+                    messages = data.get("messages", {})
+                    if isinstance(messages, dict):
+                        msg_count = len(messages)
+                        sig_count = sum(len(m.get("signals", {})) for m in messages.values() if isinstance(m, dict))
+                    else:
+                        msg_count = 0
+                        sig_count = 0
                 except Exception:
                     pass
             

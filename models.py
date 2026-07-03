@@ -547,48 +547,101 @@ class CanDatabase:
         return db
 
     def to_toml_str(self) -> str:
-        """序列化为 TOML 字符串。"""
-        import toml
+        """序列化为 TOML 字符串（纯 dotted keys 格式，零 table/section）。"""
+        import tomlkit
 
         with self.__lock:
-            data = {"name": self.name, "messages": []}
+            doc = tomlkit.document()
+            doc.add(tomlkit.comment("CanMatrix Editor - CAN Database Definition"))
+            doc.add(tomlkit.nl())
+
+            # database.name = "..."
+            doc.add(tomlkit.key(["database", "name"]), self.name)
+            doc.add(tomlkit.nl())
+
             for mid in sorted(self.messages):
                 msg = self.messages[mid]
-                m_dict = {
-                    "id": f"0x{mid:X}",
-                    "name": msg.name,
-                    "dlc": msg.dlc,
-                    "cycle_time": msg.cycle_time,
-                    "sender": msg.sender,
-                    "comment": msg.comment,
-                    "signals": [],
-                }
-                for sig in msg.signals:
-                    s_dict = {k: v for k, v in sig.to_dict().items() if v != _SIGNAL_DEFAULTS.get(k)}
-                    m_dict["signals"].append(s_dict)
-                data["messages"].append(m_dict)
-            return toml.dumps(data)
+                mid_key = f"0x{mid:X}"
+                mp = ["messages", mid_key]  # message prefix
+
+                doc.add(tomlkit.key(mp + ["name"]), msg.name)
+                doc.add(tomlkit.key(mp + ["dlc"]), msg.dlc)
+                doc.add(tomlkit.key(mp + ["cycle_time"]), msg.cycle_time)
+                if msg.sender:
+                    doc.add(tomlkit.key(mp + ["sender"]), msg.sender)
+                if msg.comment:
+                    doc.add(tomlkit.key(mp + ["comment"]), msg.comment)
+
+                if msg.signals:
+                    doc.add(tomlkit.nl())
+                    seen: set[str] = set()
+                    for sig in msg.signals:
+                        sig_key = _make_signal_key(sig, seen)
+                        sp = mp + ["signals", sig_key]  # signal prefix
+
+                        doc.add(tomlkit.key(sp + ["uuid"]), sig.uuid)
+                        doc.add(tomlkit.key(sp + ["name"]), sig.name)
+                        doc.add(tomlkit.key(sp + ["start_bit"]), sig.start_bit)
+                        doc.add(tomlkit.key(sp + ["length"]), sig.length)
+                        doc.add(tomlkit.key(sp + ["byte_order"]), sig.byte_order)
+
+                        if sig.is_signed != _SIGNAL_DEFAULTS["is_signed"]:
+                            doc.add(tomlkit.key(sp + ["is_signed"]), sig.is_signed)
+                        if sig.factor != _SIGNAL_DEFAULTS["factor"]:
+                            doc.add(tomlkit.key(sp + ["factor"]), sig.factor)
+                        if sig.offset != _SIGNAL_DEFAULTS["offset"]:
+                            doc.add(tomlkit.key(sp + ["offset"]), sig.offset)
+                        if sig.min_val != _SIGNAL_DEFAULTS["min_val"]:
+                            doc.add(tomlkit.key(sp + ["min_val"]), sig.min_val)
+                        if sig.max_val != _SIGNAL_DEFAULTS["max_val"]:
+                            doc.add(tomlkit.key(sp + ["max_val"]), sig.max_val)
+                        if sig.unit:
+                            doc.add(tomlkit.key(sp + ["unit"]), sig.unit)
+                        if sig.comment:
+                            doc.add(tomlkit.key(sp + ["comment"]), sig.comment)
+                        if sig.receivers:
+                            doc.add(tomlkit.key(sp + ["receivers"]), sig.receivers[:])
+                        if sig.multiplexer_mode != _SIGNAL_DEFAULTS["multiplexer_mode"]:
+                            doc.add(tomlkit.key(sp + ["multiplexer_mode"]), sig.multiplexer_mode)
+                            if sig.multiplexer_mode == "multiplexed":
+                                doc.add(tomlkit.key(sp + ["multiplexer_value"]), sig.multiplexer_value)
+
+                doc.add(tomlkit.nl())
+
+            return doc.as_string()
 
     @classmethod
     def from_toml_str(cls, content: str) -> CanDatabase:
-        """从 TOML 字符串创建。"""
-        import toml
+        """从 TOML 字符串创建（纯 dotted keys 格式）。"""
+        import tomlkit
 
-        data = toml.loads(content)
-        db = cls(name=data.get("name", "Untitled"))
-        for m_dict in data.get("messages", []):
-            mid_raw = m_dict["id"]
-            mid = int(mid_raw, 16) if isinstance(mid_raw, str) and mid_raw.startswith("0x") else int(mid_raw)
+        data = tomlkit.parse(content)
+        db_section = data.get("database", {})
+        db_name = str(db_section.get("name", "Untitled")) if isinstance(db_section, dict) else "Untitled"
+        db = cls(name=db_name)
+        messages = data.get("messages", {})
+        if not isinstance(messages, dict):
+            return db
+        for mid_key, msg_data in messages.items():
+            if not isinstance(msg_data, dict):
+                continue
+            try:
+                mid = int(mid_key, 16) if isinstance(mid_key, str) and mid_key.startswith("0x") else int(mid_key)
+            except (ValueError, TypeError):
+                continue
             msg = Message(
                 id=mid,
-                name=m_dict.get("name", ""),
-                dlc=m_dict.get("dlc", 8),
-                cycle_time=m_dict.get("cycle_time", 0),
-                sender=m_dict.get("sender", ""),
-                comment=m_dict.get("comment", ""),
+                name=str(msg_data.get("name", "")),
+                dlc=int(msg_data.get("dlc", 8)),
+                cycle_time=int(msg_data.get("cycle_time", 0)),
+                sender=str(msg_data.get("sender", "")),
+                comment=str(msg_data.get("comment", "")),
             )
-            for s_dict in m_dict.get("signals", []):
-                msg.signals.append(Signal.from_dict(s_dict))
+            signals_data = msg_data.get("signals", {})
+            if isinstance(signals_data, dict):
+                for _sig_key, sig_data in signals_data.items():
+                    if isinstance(sig_data, dict):
+                        msg.signals.append(Signal.from_dict(sig_data))
             db.messages[mid] = msg
         return db
 
@@ -721,3 +774,26 @@ _SIGNAL_DEFAULTS = {
     "multiplexer_mode": "none",
     "multiplexer_value": 0,
 }
+
+
+# ---------------------------------------------------------------------------
+# TOML dotted keys 辅助函数
+# ---------------------------------------------------------------------------
+
+def _make_signal_key(sig: Signal, seen: set[str]) -> str:
+    """为信号生成唯一 TOML key。优先用 name，空名/重名时回退到 uuid。"""
+    name = sig.name.strip() if sig.name else ""
+    if name and name not in seen:
+        seen.add(name)
+        return name
+    fallback = sig.uuid or uuid.uuid4().hex[:8]
+    if fallback in seen:
+        counter = len(seen)
+        while f"{fallback}_{counter}" in seen:
+            counter += 1
+        fallback = f"{fallback}_{counter}"
+    seen.add(fallback)
+    return fallback
+
+
+
