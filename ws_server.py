@@ -22,6 +22,9 @@ class WsServer:
     def __init__(self, transport: WsTransport, router: MessageRouter):
         self._transport = transport
         self._router = router
+        self._thread: threading.Thread | None = None
+        self._running = False
+        self._lock = threading.Lock()
 
     # ── 连接生命周期协程 ──
 
@@ -164,7 +167,12 @@ class WsServer:
     # ── 服务启动 ──
 
     async def _serve(self):
-        """启动 websockets.serve 并永久运行。"""
+        """启动 websockets.serve 并运行直到 stop_event 被设置。"""
+        stop_event = asyncio.Event()
+
+        # 跨线程桥接：从外部线程触发 asyncio.Event.set()
+        self._stop_event_bridge = lambda: self._transport.loop.call_soon_threadsafe(stop_event.set)
+
         async with websockets.serve(
             self._handler,
             self._transport.host,
@@ -172,21 +180,65 @@ class WsServer:
             ping_interval=None,     # 禁用库内置 ping（由应用层心跳管理）
             close_timeout=5,
             max_size=10 * 1024 * 1024  # 10MB
-        ):
-            await asyncio.Future()  # 永久运行
+        ) as ws_server:
+            self._ws_server = ws_server
+            self._running = True
+            await stop_event.wait()
+
+        self._running = False
 
     def start_in_thread(self):
         """在独立守护线程中启动 WS 服务。返回线程对象。"""
         ready = threading.Event()
+        self._ws_server = None
+        self._stop_event_bridge = None
 
         def _run():
             self._transport.loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self._transport.loop)
             ready.set()
-            self._transport.loop.run_until_complete(self._serve())
+            try:
+                self._transport.loop.run_until_complete(self._serve())
+            except Exception as e:
+                print(f"[WS] Event loop error: {type(e).__name__}: {e}")
+            finally:
+                self._running = False
+                try:
+                    self._transport.loop.close()
+                except Exception:
+                    pass
 
-        t = threading.Thread(target=_run, daemon=True, name="ws-server")
-        t.start()
-        ready.wait(timeout=3)
+        self._thread = threading.Thread(target=_run, daemon=True, name="ws-server")
+        self._thread.start()
+        ready.wait(timeout=5)
         print(f"[WS] WebSocket server started on ws://{self._transport.host}:{self._transport.port}/ws")
-        return t
+        return self._thread
+
+    def shutdown(self, timeout: float = 5.0):
+        """从任意线程安全停止 WS 服务器。幂等，多次调用安全。"""
+        with self._lock:
+            if not self._running and self._thread is None:
+                return
+            was_running = self._running
+            self._running = False
+
+        if was_running:
+            print("[WS] Initiating shutdown...")
+
+        # 1. 桥接触发 asyncio.Event → _serve() 退出 async with
+        bridge = getattr(self, '_stop_event_bridge', None)
+        if bridge:
+            try:
+                bridge()
+            except Exception as e:
+                print(f"[WS] Stop bridge error: {e}")
+
+        # 2. 等待线程退出
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=timeout)
+            if self._thread.is_alive():
+                print(f"[WS] WARNING: Thread did not exit within {timeout}s")
+
+        # 3. 确保 transport 资源清理
+        self._transport.close()
+        print("[WS] Shutdown complete")

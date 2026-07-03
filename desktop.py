@@ -12,7 +12,6 @@ import os
 import queue
 import threading
 import time
-import urllib.request
 import json
 import uuid
 
@@ -153,19 +152,19 @@ if HAS_WEBBROWSER_INTEROP:
             save_path = dialog.FileName
 
             try:
-                url = (
-                    f'http://localhost:{self._port}/api/download'
-                    f'?format={format_str}&sid={session_id}'
-                )
-                req = urllib.request.Request(url)
-                with urllib.request.urlopen(req, timeout=30) as resp:
-                    content = resp.read()
+                from api_server import SESSION_MGR
+                from handlers import DownloadFileHandler
 
-                with open(save_path, 'wb') as f:
+                handler = DownloadFileHandler(SESSION_MGR)
+                result = handler({"session_id": session_id, "format": format_str})
+                content = result.data["content"]
+
+                with open(save_path, 'w', encoding='utf-8') as f:
                     f.write(content)
 
                 return json.dumps({'success': True, 'path': save_path})
             except Exception as e:
+                print(f"[Desktop] save_file error: {type(e).__name__}: {e}")
                 return json.dumps({'success': False, 'error': str(e)})
 else:
     class DesktopApi:
@@ -635,24 +634,40 @@ class MainWindow:
                 start_server_background,
                 check_port_available,
             )
+            bundle = self.server_ref[0]
+
+            # 1. 关闭服务器（BackgroundServer.shutdown 自动处理 HTTP + WS）
             try:
-                self.server_ref[0].shutdown()
-                self.server_ref[0].server_close()
+                bundle.shutdown()
+                bundle.server_close()
             except Exception as e:
                 self._append_log(f"[Desktop] 停止服务器异常: {e}")
 
-            # 等待端口释放
-            for _ in range(20):
+            # 2. 等待双端口释放
+            http_ok = False
+            ws_ok = False
+            for i in range(20):
                 time.sleep(0.25)
-                if check_port_available(self.port):
+                if not http_ok and check_port_available(self.port):
+                    http_ok = True
+                if not ws_ok and check_port_available(self.port + 1):
+                    ws_ok = True
+                if http_ok and ws_ok:
                     break
 
-            self._append_log(f"[Desktop] 端口 {self.port} 已释放")
+            if not http_ok or not ws_ok:
+                self._append_log(
+                    f"[Desktop] WARNING: 端口未完全释放 "
+                    f"(HTTP:{http_ok} WS:{ws_ok})，仍尝试重启"
+                )
 
+            self._append_log(f"[Desktop] 端口 {self.port}/{self.port+1} 状态: HTTP={http_ok} WS={ws_ok}")
+
+            # 3. 重启
             try:
-                new_server = start_server_background(self.port)
-                self.server_ref[0] = new_server
-                self._append_log(f"[Desktop] 后端已重启，端口 {self.port}")
+                new_bundle = start_server_background(self.port)
+                self.server_ref[0] = new_bundle
+                self._append_log(f"[Desktop] 后端已重启，端口 {self.port}/{self.port+1}")
                 self.form.Invoke(System.Action(lambda: self._set_status('running')))
             except Exception as e:
                 self._append_log(f"[Desktop] 重启失败: {e}")

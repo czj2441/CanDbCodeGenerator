@@ -202,3 +202,31 @@ class WsTransport:
                 with self.diag._counter_lock:
                     self.diag.broadcast_fails += 1
                 self.diag.warn("broadcast_fail", error=str(e))
+
+    # ── 关闭 ──
+
+    def close(self):
+        """关闭所有连接并停止事件循环。线程安全，幂等。"""
+        loop = self.loop
+        if not loop or loop.is_closed():
+            return
+
+        # 1. 关闭所有客户端连接
+        with self._lock:
+            all_sids = list(self._clients.keys())
+        for sid in all_sids:
+            with self._lock:
+                clients = self._clients.pop(sid, set())
+            for ws in clients:
+                try:
+                    asyncio.run_coroutine_threadsafe(
+                        ws.close(1001, "server shutting down"), loop
+                    )
+                except Exception:
+                    pass
+
+        # 2. 停止事件循环
+        try:
+            loop.call_soon_threadsafe(loop.stop)
+        except Exception:
+            pass

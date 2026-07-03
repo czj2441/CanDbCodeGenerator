@@ -677,8 +677,57 @@ def main() -> None:
         print("\nShutting down.")
 
 
-def start_server_background(port: int = 8080) -> "HTTPServer":
-    """在后台线程启动 API 服务器，返回 server 对象供外部控制关闭。
+class BackgroundServer:
+    """HTTP + WS 服务器的统一生命周期管理。
+
+    - 幂等 shutdown（可安全多次调用）
+    - 有序关闭：先 WS 后 HTTP
+    - 异常隔离：任一组件关闭失败不影响其他组件
+    """
+
+    def __init__(self, http_server, ws_server, ws_transport, port):
+        self._http = http_server
+        self._ws = ws_server
+        self._ws_transport = ws_transport
+        self._port = port
+        self._stopped = False
+        self._lock = threading.Lock()
+
+    @property
+    def port(self) -> int:
+        return self._port
+
+    @property
+    def ws_port(self) -> int:
+        return self._port + 1
+
+    def shutdown(self):
+        """有序关闭 HTTP + WS 服务器。幂等，线程安全。"""
+        with self._lock:
+            if self._stopped:
+                return
+            self._stopped = True
+
+        try:
+            self._ws.shutdown(timeout=5)
+        except Exception as e:
+            print(f"[BackgroundServer] WS shutdown error: {e}")
+
+        try:
+            self._http.shutdown()
+        except Exception as e:
+            print(f"[BackgroundServer] HTTP shutdown error: {e}")
+
+    def server_close(self):
+        """关闭 HTTP server socket（释放端口）。"""
+        try:
+            self._http.server_close()
+        except Exception as e:
+            print(f"[BackgroundServer] HTTP server_close error: {e}")
+
+
+def start_server_background(port: int = 8080) -> "BackgroundServer":
+    """在后台线程启动 API 服务器，返回 BackgroundServer 对象供外部控制关闭。
     用于桌面应用（pywebview）集成。
     """
     server = ThreadingHTTPServer(("localhost", port), ApiHandler)
@@ -741,33 +790,37 @@ def start_server_background(port: int = 8080) -> "HTTPServer":
     # 让 ApiHandler 能访问 ws_transport（供 _get_diag 使用）
     ApiHandler._ws_transport = ws_transport
 
-    # 定时自动保存（每 5 分钟）
-    AUTO_SAVE_INTERVAL = 300
-    def _periodic_auto_saver():
-        while True:
-            time.sleep(AUTO_SAVE_INTERVAL)
-            try:
-                count = SESSION_MGR.save_all_dirty()
-                if count > 0:
-                    print(f"[AUTO-SAVE] Periodic save: {count} session(s) saved")
-            except Exception as e:
-                print(f"[AUTO-SAVE] Error: {e}")
+    # 防止重启时 atexit/auto_save 重复注册
+    if not hasattr(start_server_background, '_initialized'):
+        start_server_background._initialized = True
 
-    auto_save_thread = threading.Thread(target=_periodic_auto_saver, daemon=True)
-    auto_save_thread.start()
+        # 定时自动保存（每 5 分钟）
+        AUTO_SAVE_INTERVAL = 300
+        def _periodic_auto_saver():
+            while True:
+                time.sleep(AUTO_SAVE_INTERVAL)
+                try:
+                    count = SESSION_MGR.save_all_dirty()
+                    if count > 0:
+                        print(f"[AUTO-SAVE] Periodic save: {count} session(s) saved")
+                except Exception as e:
+                    print(f"[AUTO-SAVE] Error: {e}")
 
-    # 注册 atexit 保存
-    def save_all_sessions():
-        print("\n[INFO] Saving all active sessions...")
-        count = SESSION_MGR.save_all_dirty()
-        if count > 0:
-            print(f"[INFO] Save complete: {count} session(s) saved")
-    atexit.register(save_all_sessions)
+        auto_save_thread = threading.Thread(target=_periodic_auto_saver, daemon=True)
+        auto_save_thread.start()
+
+        # 注册 atexit 保存
+        def save_all_sessions():
+            print("\n[INFO] Saving all active sessions...")
+            count = SESSION_MGR.save_all_dirty()
+            if count > 0:
+                print(f"[INFO] Save complete: {count} session(s) saved")
+        atexit.register(save_all_sessions)
 
     # 在守护线程中运行 serve_forever
     server_thread = threading.Thread(target=server.serve_forever, daemon=True)
     server_thread.start()
-    return server
+    return BackgroundServer(server, ws_server, ws_transport, port)
 
 
 if __name__ == "__main__":
