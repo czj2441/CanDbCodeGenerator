@@ -1050,7 +1050,9 @@ export const useEditorStore = defineStore('editor', {
         await this._waitForWsReady()
 
         // WS 已连接，发送 load_session 请求（服务端 restore + session 切换 + full_sync）
-        const data = await this._wsRequest('load_session', {
+        // 注意：不能用 _wsRequest，它会用 getSessionId() 覆盖 session_id，
+        // 而这里 session_id 必须是目标文件的 ID，不是当前会话 ID。
+        const data = await this._wsClient.request('load_session', {
           session_id: sessionId,
           current_session_id: currentSid
         })
