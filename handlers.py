@@ -18,13 +18,17 @@ from ws_router import HandlerResult, HandlerError, EDITABLE_SIGNAL_FIELDS
 # ═══════════════════════════════════════════
 
 def _parse_id(s) -> int | None:
-    """解析报文 ID（十进制整数或整数字符串）。"""
+    """解析报文 ID。仅接受 int 或十进制整数字符串。
+
+    注意：不要使用 int(s, 0) — base=0 会附带引入 0x/0o/0b 前缀解析，
+    且拒绝前导零字符串（如 "010"）。前端在发送前已通过 parseHex()
+    将用户输入转为十进制整数，后端只需处理 int 和纯十进制字符串。
+    """
     if isinstance(s, int):
         return s
     if isinstance(s, str):
-        s = s.strip()
         try:
-            return int(s)
+            return int(s.strip())
         except ValueError:
             return None
     return None
