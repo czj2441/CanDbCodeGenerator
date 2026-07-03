@@ -83,7 +83,7 @@ import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { useEditorStore } from '../stores/editor.js'
 import { useUiStore } from '../stores/uiStore.js'
 import { t } from '../i18n.js'
-import { api, getSessionId } from '../api/client.js'
+import { getSessionId } from '../api/client.js'
 
 defineEmits(['back'])
 
@@ -185,15 +185,14 @@ async function confirmImport() {
     // 读取文件内容
     const content = await file.text()
     
-    // 调用导入 API
-    const data = await api('POST', '/api/import', {
+    // 通过 WS 导入文件
+    const data = await store._wsRequest('import_file', {
       format: format,
       content: content,
       filename: file.name
     })
     
-    // 刷新会话数据
-    await store.loadMessages()
+    // full_sync 广播将自动更新所有数据
     
     ui.showToast(`成功导入 ${file.name}（${data.message_count || 0} 个报文）`, false)
   } catch (e) {

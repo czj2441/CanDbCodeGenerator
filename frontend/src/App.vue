@@ -45,7 +45,7 @@ import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useEditorStore } from './stores/editor.js'
 import { useUiStore } from './stores/uiStore.js'
 import { t } from './i18n.js'
-import { api, initTabSync, cleanupTabSync, getSessionId, clearSession } from './api/client.js'
+import { getSessionId } from './api/client.js'
 import FileBrowser from './components/FileBrowser.vue'
 import TopBar from './components/TopBar.vue'
 import MessageList from './components/MessageList.vue'
@@ -61,47 +61,38 @@ import LogPanel from './components/LogPanel.vue'
 
 const store = useEditorStore()
 const ui = useUiStore()
-let lockCheckTimer = null  // 文件锁状态检查定时器
-let heartbeatTimer = null  // 心跳定时器
 let beforeUnloadHandler = null  // beforeunload 事件处理器
+let navigateHandler = null     // navigate-browser 事件处理器
 
 // 应用模式：'browser' | 'editor'
 const mode = ref('browser')
 
 function handleSessionStolen(stolenSessionId) {
-  // 当前 session 被其他标签页抢占，自动返回文件浏览器
-  console.warn(`[TabSync] handleSessionStolen called: session ${stolenSessionId} was stolen by another tab`)
+  // WS lock_stolen 事件触发时调用
+  console.warn(`[LockStolen] session ${stolenSessionId} was stolen`)
   ui.showToast(t('toast.sessionStolen'), true)
   goBack()
 }
 
 onMounted(() => {
-  // 默认进入文件浏览器模式
   mode.value = 'browser'
   document.addEventListener('click', hideMenu)
   document.documentElement.setAttribute('data-theme', ui.theme)
 
-  // 全局启动健康检查（覆盖文件浏览器和编辑器两种模式）
-  store.startPeriodicReload()
-
-  // 初始化多标签页同步（steal 通知）
-  initTabSync(
-    (stolenSessionId) => {
-      handleSessionStolen(stolenSessionId)
+  // 监听 WS lock_stolen 导航事件
+  navigateHandler = () => {
+    if (mode.value === 'editor') {
+      goBack()
     }
-  )
+  }
+  window.addEventListener('navigate-browser', navigateHandler)
 
-  // 页面关闭/刷新时：释放文件锁 + 确认对话框（不隐式保存数据）
+  // 页面关闭/刷新时：释放文件锁 + 确认对话框
   beforeUnloadHandler = (e) => {
     const sid = getSessionId()
-    
-    // 无论是否有修改，都释放文件锁（必须优先执行）
     if (sid) {
       navigator.sendBeacon('/api/release?sid=' + encodeURIComponent(sid))
     }
-    
-    // 如果有未保存的修改，弹出确认对话框（防止误关闭/刷新）
-    // _localDirty: 前端本地有编辑但API尚未完成；backendDirty: 后端数据未落盘（含undo/redo）
     if (sid && (store._localDirty || store.backendDirty)) {
       e.preventDefault()
       e.returnValue = '您有未保存的更改，确定要离开吗？'
@@ -112,9 +103,11 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  store.stopPeriodicReload()
   document.removeEventListener('click', hideMenu)
-  cleanupTabSync()
+  if (navigateHandler) {
+    window.removeEventListener('navigate-browser', navigateHandler)
+    navigateHandler = null
+  }
   if (beforeUnloadHandler) {
     window.removeEventListener('beforeunload', beforeUnloadHandler)
     beforeUnloadHandler = null
@@ -126,13 +119,10 @@ async function openFile(sessionId) {
   try {
     await store.loadHistorySession(sessionId)
     mode.value = 'editor'
-    startLockCheck()  // 启动文件锁状态检查
-    startHeartbeat()  // 启动心跳
+    // WS 连接已在 loadHistorySession 中启动
   } catch (e) {
-    // 加载失败，保持在浏览器模式
     console.error('Failed to open file:', e)
-    // 409 错误显示提示
-    if (e.status === 409) {
+    if (e.code === 'FILE_LOCKED') {
       ui.showToast(e.message, true)
     }
   }
@@ -143,18 +133,23 @@ async function createNewFile() {
   try {
     await store.newFile()
     mode.value = 'editor'
-    startLockCheck()  // 启动文件锁状态检查
-    startHeartbeat()  // 启动心跳
+    // WS 连接已在 newFile 中启动
   } catch (e) {
-    // 创建失败，保持在浏览器模式
     console.error('Failed to create new file:', e)
   }
 }
 
 // 返回文件浏览器
 async function goBack() {
-  // 释放文件锁（等待完成后再切换模式）
+  // 先释放文件锁（需要 WS 连接），再断开 WS
   await store.releaseSession()
+  // sendBeacon 兆底（WS 可能已断开）
+  const sid = getSessionId()
+  if (sid) {
+    navigator.sendBeacon('/api/release?sid=' + encodeURIComponent(sid) + '&abort=1')
+  }
+  // 停止 WS 连接
+  store.stopEditorSync()
   // 清理编辑器状态
   store.clearUndoStack()
   store.selectedMsgId = null
@@ -162,72 +157,9 @@ async function goBack() {
   store.messages = []
   store.signalErrors = []
   store.editorState = null
-  // 停止文件锁检查与心跳（健康检查保持全局运行）
-  stopLockCheck()
-  stopHeartbeat()
   mode.value = 'browser'
 }
 
-// 全量轮询（5s 自复位定时器，由 store 内部管理）
-function startHealthCheck() {
-  store.startPeriodicReload()
-}
-
-function stopHealthCheck() {
-  store.stopPeriodicReload()
-}
-
-// 文件锁状态检查定时器管理
-function startLockCheck() {
-  stopLockCheck()
-  lockCheckTimer = setInterval(async () => {
-    if (mode.value !== 'editor') return
-    const currentSid = getSessionId()
-    if (!currentSid) return
-    
-    try {
-      // 请求当前 session 的信息，后端会检查文件锁状态
-      const res = await api('GET', `/api/session/${currentSid}/info`)
-      // 如果后端返回 session 信息，说明当前标签页仍有权限
-    } catch (e) {
-      // 409 Conflict 表示文件已被其他标签页抢占
-      if (e.message && e.message.includes('409')) {
-        console.warn('[LockCheck] Session stolen by another tab')
-        ui.showToast(t('toast.noEditPermission'), true)
-        goBack()
-      }
-    }
-  }, 500)
-}
-
-function stopLockCheck() {
-  if (lockCheckTimer) {
-    clearInterval(lockCheckTimer)
-    lockCheckTimer = null
-  }
-}
-
-// 心跳定时器管理（每 10 秒发送一次，通知后端该标签页仍在编辑）
-function startHeartbeat() {
-  stopHeartbeat()
-  heartbeatTimer = setInterval(async () => {
-    const sid = getSessionId()
-    if (!sid) return
-    try {
-      await api('POST', '/api/heartbeat', { session_id: sid })
-    } catch (e) {
-      // 心跳失败不提示用户，静默处理
-      console.warn('[Heartbeat] failed:', e.message)
-    }
-  }, 10000)
-}
-
-function stopHeartbeat() {
-  if (heartbeatTimer) {
-    clearInterval(heartbeatTimer)
-    heartbeatTimer = null
-  }
-}
 
 function hideMenu() {
   ui.hideContextMenu()

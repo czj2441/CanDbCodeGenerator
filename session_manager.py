@@ -110,6 +110,8 @@ class SessionManager:
         self._heartbeat_timer: Optional[threading.Timer] = None
         # 已销毁会话的撤销栈（重新打开页面时可恢复）
         self._orphan_stacks: dict[str, dict] = {}
+        # 锁释放回调（WS 架构下用于广播 lock_stolen）
+        self._lock_released_callback: Optional[callable] = None
         os.makedirs(self._data_dir, exist_ok=True)
         self._start_heartbeat_checker()
 
@@ -737,6 +739,22 @@ class SessionManager:
             self._heartbeats[session_id] = time.time()
             return True
 
+    def set_lock_released_callback(self, cb: callable):
+        """注册锁释放回调。WS 架构下用于广播 lock_stolen 事件。"""
+        self._lock_released_callback = cb
+
+    def has_lock(self, session_id: str) -> bool:
+        """检查指定 session 是否仍持有文件锁。"""
+        with self._lock:
+            return session_id in self._heartbeats
+
+    def mark_stale(self, session_id: str):
+        """将心跳前推至即将超时，使 _cleanup_stale_heartbeats 尽快释放锁。
+        WS disconnection finally 块中调用。"""
+        with self._lock:
+            if session_id in self._heartbeats:
+                self._heartbeats[session_id] = time.time() - (HEARTBEAT_TIMEOUT - 10)
+
     def _cleanup_stale_heartbeats(self):
         """清理超时未心跳的 session，自动释放其文件锁。
 
@@ -751,6 +769,12 @@ class SessionManager:
 
         for sid in stale_sids:
             self.release_session(sid)
+            # 锁释放回调（WS 架构下广播 lock_stolen）
+            if self._lock_released_callback:
+                try:
+                    self._lock_released_callback(sid)
+                except Exception as e:
+                    print(f"[SessionManager] lock_released_callback error: {e}")
 
         # 重新调度下一次检查
         self._start_heartbeat_checker()

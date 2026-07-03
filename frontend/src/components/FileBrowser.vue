@@ -127,9 +127,10 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { api, getSessionId, notifySessionStolen } from '../api/client.js'
+import { getSessionId } from '../api/client.js'
 import { useUiStore } from '../stores/uiStore.js'
 import { t } from '../i18n.js'
+import { WsSyncClient } from '../utils/ws-client.js'
 
 const emit = defineEmits(['open'])
 
@@ -141,7 +142,8 @@ const deleteModalOpen = ref(false)
 const pendingDeleteFiles = ref([])
 const selectedFiles = ref([])  // 存储选中的 session_id
 const deleting = ref(false)
-let refreshTimer = null
+let wsClient = null       // FileBrowser 独立 WS 连接
+let refreshTimer = null   // 周期性刷新列表
 
 // 计算属性：是否全选
 const selectAll = computed(() => {
@@ -156,9 +158,14 @@ const displayedDeleteFiles = computed(() => {
 
 async function loadFiles() {
   try {
-    // 文件浏览器模式下，不应排除任何 session，以便正确显示所有文件的锁定状态
-    files.value = await api('GET', '/api/sessions', null, { 'X-Session-Id': '' })
-    // 清除已不存在的文件的选中状态
+    if (!wsClient?.connected) {
+      // WS 未连接时跳过
+      return
+    }
+    const result = await wsClient.request('get_sessions', {
+      current_session_id: ''  // 文件浏览器不排除任何 session
+    })
+    files.value = result
     const validIds = new Set(files.value.map(f => f.session_id))
     selectedFiles.value = selectedFiles.value.filter(id => validIds.has(id))
   } catch (e) {
@@ -217,10 +224,12 @@ async function executeDelete() {
   let failedCount = 0
   
   try {
-    // 循环调用单个删除 API
     for (const file of pendingDeleteFiles.value) {
       try {
-        await api('DELETE', `/api/session/${file.session_id}`)
+        await wsClient.request('delete_session', {
+          session_id: file.session_id,
+          current_session_id: getSessionId() || ''
+        })
         successCount++
       } catch (e) {
         console.error(`Failed to delete ${file.name}:`, e)
@@ -235,7 +244,6 @@ async function executeDelete() {
       ui.showToast(`${t('toast.deleteFailed')}: ${failedCount} 个文件`, true)
     }
     
-    // 清空选中状态并刷新列表
     selectedFiles.value = []
     await loadFiles()
   } catch (e) {
@@ -276,23 +284,15 @@ async function executeSteal() {
   try {
     const ui = useUiStore()
     
-    // 调用后端 API 释放目标 session 的文件锁
-    await api('POST', '/api/steal', { 
-      target_session_id: targetSid 
+    await wsClient.request('steal_lock', {
+      target_session_id: targetSid,
+      current_session_id: getSessionId() || ''
     })
     
-    // 通知其他标签页该 session 已被抢占
-    notifySessionStolen(targetSid)
-    
     ui.showToast(t('toast.stealSuccess') + ': ' + targetFileName)
-    
-    // 关闭对话框
     closeStealModal()
-    
-    // 重新加载文件列表
     await loadFiles()
     
-    // 从更新后的列表中找到该文件并打开
     const updatedFile = files.value.find(f => f.name === targetFileName)
     if (updatedFile && !updatedFile.is_locked) {
       open(updatedFile)
@@ -306,7 +306,7 @@ async function executeSteal() {
 
 async function createNew() {
   try {
-    const data = await api('POST', '/api/new', { name: 'Untitled' })
+    const data = await wsClient.request('new_file', { name: 'Untitled' })
     emit('open', data.session_id)
   } catch (e) {
     const ui = useUiStore()
@@ -320,12 +320,33 @@ function formatTime(ts) {
 }
 
 onMounted(() => {
-  loadFiles()
-  refreshTimer = setInterval(loadFiles, 500)
+  // 建立 FileBrowser 独立 WS 连接
+  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const wsPort = parseInt(location.port) + 1
+  const wsUrl = `${protocol}//${location.hostname}:${wsPort}/ws`
+
+  wsClient = new WsSyncClient({
+    url: wsUrl,
+    sessionId: '',  // 服务端自动创建 session
+    onMessage: () => {},  // FileBrowser 不处理广播
+    onStatusChange: (status) => {
+      if (status === 'connected') {
+        loadFiles()  // 连接成功后加载文件列表
+      }
+    }
+  })
+  wsClient.connect()
+
+  // 周期性刷新文件列表（3秒，比旧的 500ms 更宽松）
+  refreshTimer = setInterval(loadFiles, 3000)
 })
 
 onUnmounted(() => {
   if (refreshTimer) clearInterval(refreshTimer)
+  if (wsClient) {
+    wsClient.disconnect()
+    wsClient = null
+  }
 })
 </script>
 

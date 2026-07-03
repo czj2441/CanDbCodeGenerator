@@ -1,7 +1,8 @@
 import { defineStore } from 'pinia'
-import { api, setSessionId, clearSession, getSessionId } from '../api/client.js'
+import { setSessionId, getSessionId } from '../api/client.js'
 import { t } from '../i18n.js'
 import { useUiStore } from './uiStore.js'
+import { WsSyncClient, ApiError as WsApiError, WsFrontendDiag } from '../utils/ws-client.js'
 
 /**
  * 将后端校验错误翻译为 i18n 文本。
@@ -15,128 +16,12 @@ function _translateError(e) {
   return translated !== i18nKey ? translated : e.message
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// API 请求队列工具类（内联避免 Tree Shaking 问题）
-// ═══════════════════════════════════════════════════════════════════════════
-
-class ApiQueue {
-  constructor({ debounceDelay = 500, timeout = 5000 } = {}) {
-    this.debounceDelay = debounceDelay
-    this.timeout = timeout
-    this.queues = new Map()
-    this.debounceTimers = new Map()
-    this.activeRequests = new Map()
-  }
-
-  enqueue(key, apiCall, fallbackValue, onRollback) {
-    const existingTimer = this.debounceTimers.get(key)
-    if (existingTimer) clearTimeout(existingTimer)
-
-    let entry = this.queues.get(key)
-    if (!entry) {
-      entry = { key, pending: [], running: false }
-      this.queues.set(key, entry)
-    }
-
-    return new Promise((resolve, reject) => {
-      entry.pending.push({ apiCall, fallbackValue, onRollback, resolve, reject })
-
-      const timerId = setTimeout(() => {
-        this.debounceTimers.delete(key)
-        this._executeQueue(key)
-      }, this.debounceDelay)
-
-      this.debounceTimers.set(key, timerId)
-    })
-  }
-
-  async _executeQueue(key) {
-    const entry = this.queues.get(key)
-    if (!entry || entry.pending.length === 0) {
-      this.queues.delete(key)
-      return
-    }
-    if (entry.running) return
-
-    entry.running = true
-    const lastRequest = entry.pending[entry.pending.length - 1]
-
-    for (let i = 0; i < entry.pending.length - 1; i++) {
-      entry.pending[i].resolve({ skipped: true, reason: 'debounced' })
-    }
-    entry.pending = [lastRequest]
-
-    try {
-      const result = await this._executeWithTimeout(key, lastRequest)
-      lastRequest.resolve(result)
-    } catch (error) {
-      lastRequest.onRollback(lastRequest.fallbackValue)
-      lastRequest.reject(error)
-    } finally {
-      entry.running = false
-      entry.pending = []
-      if (entry.pending.length > 0) {
-        this._executeQueue(key)
-      } else {
-        this.queues.delete(key)
-      }
-    }
-  }
-
-  _executeWithTimeout(key, request) {
-    return new Promise((resolve, reject) => {
-      const timeoutTimer = setTimeout(() => {
-        this.activeRequests.delete(key)
-        reject(new Error(`API request timeout after ${this.timeout}ms (key: ${key})`))
-      }, this.timeout)
-
-      this.activeRequests.set(key, { timeoutTimer })
-
-      request.apiCall()
-        .then(result => {
-          this.activeRequests.delete(key)
-          clearTimeout(timeoutTimer)
-          resolve(result)
-        })
-        .catch(error => {
-          this.activeRequests.delete(key)
-          clearTimeout(timeoutTimer)
-          reject(error)
-        })
-    })
-  }
-
-  cleanup() {
-    for (const [key, timerId] of this.debounceTimers) clearTimeout(timerId)
-    this.debounceTimers.clear()
-    for (const [key, activeReq] of this.activeRequests) clearTimeout(activeReq.timeoutTimer)
-    this.activeRequests.clear()
-    for (const [key, entry] of this.queues) {
-      for (const req of entry.pending) req.reject(new Error('Queue cleaned up'))
-    }
-    this.queues.clear()
-    console.log('[ApiQueue] cleanup() completed')
-  }
-
-  getStatus() {
-    return {
-      queueCount: this.queues.size,
-      activeRequestCount: this.activeRequests.size,
-      debounceTimerCount: this.debounceTimers.size,
-      queues: Array.from(this.queues.keys()),
-    }
-  }
-}
-
-// ── 全局 API 队列单例 ──
-const apiQueue = new ApiQueue({
-  debounceDelay: 500,  // 500ms 防抖（与自动保存一致）
-  timeout: 5000,       // 5s 超时
-})
+// ── WS 防抖 Map（信号编辑 300ms 合并）──
+const PENDING_EDITS = new Map()  // key → { timer, reject }
 
 // 暴露到全局便于调试
 if (typeof window !== 'undefined') {
-  window.__apiQueue__ = apiQueue
+  window.__pendingEdits__ = PENDING_EDITS
 }
 
 // ── 信号位布局计算（与后端 models.py 保持一致） ──
@@ -271,9 +156,14 @@ export const useEditorStore = defineStore('editor', {
     _healthFailCount: 0,
     _hasBeenConnected: false,  // 是否曾成功连接过后端（防止初始加载闪遮罩）
     _defaultSignalLength: 8,  // 新信号默认 length；用户修改某信号 length 后自动同步为该值
-    _fullReloadTimer: null,     // 5s 自复位全量轮询定时器
-    _healthTimer: null,          // 独立健康检查定时器
     logEntries: [],
+
+    // ── WebSocket 状态 ──
+    _dataVersion: 0,
+    _wsConnected: false,
+    _wsClient: null,
+    _wsIntentionalClose: false,
+    _healthTimer: null,          // 健康检查定时器（2s 间隔）
 
     // ── 剪贴板 ──
     clipboard: null,
@@ -300,109 +190,284 @@ export const useEditorStore = defineStore('editor', {
 
   actions: {
     // ═══════════════════════════════════════════
-    // 区域：周期全量轮询（自复位 5s 定时器）
+    // 区域 WS：WebSocket 连接管理 + 消息分发
     // ═══════════════════════════════════════════
 
     /**
-     * 启动周期全量轮询
-     * 进入编辑器模式时由 App.vue 调用。
-     * 清除旧定时器，重置失败计数，调度首次 5s 后轮询。
+     * 进入编辑器模式时调用（openFile / createNewFile 成功后）
      */
-    startPeriodicReload() {
-      this.stopPeriodicReload()
-      this._healthFailCount = 0
-      this._scheduleNextReload()
-      this._startHealthCheck()
+    startEditorSync() {
+      this._connectWebSocket()
+      // 启动健康检查定时器（2s 间隔）
+      if (this._healthTimer) clearInterval(this._healthTimer)
+      this._healthTimer = setInterval(() => this.checkApiHealth(), 2000)
     },
 
     /**
-     * 停止周期全量轮询
-     * 离开编辑器模式时由 App.vue 调用。
+     * 离开编辑器模式时调用（goBack / releaseSession 前）
      */
-    stopPeriodicReload() {
-      if (this._fullReloadTimer) {
-        clearTimeout(this._fullReloadTimer)
-        this._fullReloadTimer = null
+    stopEditorSync() {
+      this._wsIntentionalClose = true
+      if (this._healthTimer) { clearInterval(this._healthTimer); this._healthTimer = null }
+      if (this._wsClient) {
+        this._wsClient.disconnect()
+        this._wsClient = null
       }
-      if (this._healthTimer) {
-        clearInterval(this._healthTimer)
-        this._healthTimer = null
-      }
+      this._wsConnected = false
     },
 
     /**
-     * 执行一次全量数据重载
-     * 调 loadMessages() 从后端拉取最新数据，不涉及健康状态判断。
-     * 完成后自动调度下一次 5s 后的轮询。
-     * @returns {Promise<void>}
-     * @private
+     * 建立 WebSocket 连接
      */
-    async _doFullReload() {
-      if (this.apiStatus === 'dead') {
-        this._scheduleNextReload()
+    _connectWebSocket() {
+      if (this._wsClient?.connected) return
+
+      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
+      const wsPort = parseInt(location.port) + 1
+      const wsUrl = `${protocol}//${location.hostname}:${wsPort}/ws`
+
+      this._wsIntentionalClose = false
+      this._dataVersion = 0
+
+      this._wsClient = new WsSyncClient({
+        url: wsUrl,
+        sessionId: getSessionId() || '',
+        onMessage: (msg) => { this._applyWsMessage(msg) },
+        onStatusChange: (status) => {
+          if (status === 'connected') {
+            this._wsConnected = true
+          } else if (status === 'disconnected') {
+            this._wsConnected = false
+          }
+        }
+      })
+      this._wsClient.connect()
+    },
+
+    /**
+     * WS 请求助手：自动注入 session_id，返回 Promise。
+     * @param {string} type 消息类型
+     * @param {object} data 消息数据（session_id 自动注入）
+     * @returns {Promise<object>}
+     */
+    _wsRequest(type, data = {}) {
+      if (!this._wsClient) {
+        return Promise.reject(new Error('WebSocket not connected'))
+      }
+      return this._wsClient.request(type, {
+        ...data,
+        session_id: getSessionId() || '',
+      })
+    },
+
+    /**
+     * 等待 WS 连接就绪（最多 timeout ms）。
+     * 如果已连接则立即返回，否则轮询等待。
+     */
+    _waitForWsReady(timeout = 5000) {
+      if (this._wsClient?.connected) return Promise.resolve()
+      return new Promise((resolve, reject) => {
+        const start = Date.now()
+        const check = () => {
+          if (this._wsClient?.connected) {
+            resolve()
+          } else if (Date.now() - start > timeout) {
+            reject(new Error('WS connection timeout'))
+          } else {
+            setTimeout(check, 100)
+          }
+        }
+        setTimeout(check, 50)
+      })
+    },
+
+    /**
+     * 核心：WebSocket 广播消息分发
+     * 版本号去重 + 按类型局部 patch / 全量替换
+     */
+    _applyWsMessage(msg) {
+      const stopTimer = WsFrontendDiag.timeStart('apply_msg')
+
+      // 版本号去重
+      if (msg.data_version && msg.data_version <= this._dataVersion) {
+        WsFrontendDiag.count('msg_dropped')
+        stopTimer()
         return
       }
-      try {
-        // 超时保护：防止后端关闭时 fetch() 挂死
-        await Promise.race([
-          this.loadMessages(),
-          new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('Reload timeout')), 10000)
-          ),
-        ])
-        await this._syncBackendStatus()  // 检测 save_error，确保空闲用户也能收到通知
-      } catch (e) {
-        console.warn('[STORE] _doFullReload failed:', e.message)
-      } finally {
-        this._scheduleNextReload()
+      if (msg.data_version) {
+        this._dataVersion = msg.data_version
       }
-    },
+      WsFrontendDiag.count('msg_received')
 
-    /**
-     * 调度下一次全量轮询（5s 后）。
-     * 每次调用先清除已有定时器，确保只有最后一个生效（自复位）。
-     * CRUD 操作后调用此方法重置倒计时，全量重载仅在定时器超时时触发。
-     * @private
-     */
-    _scheduleNextReload() {
-      if (this._fullReloadTimer) clearTimeout(this._fullReloadTimer)
-      this._fullReloadTimer = setTimeout(() => this._doFullReload(), 5000)
-    },
+      switch (msg.type) {
 
-    /**
-     * 启动独立健康检查定时器
-     * 每 2s 调用一次 _checkHealth()，1 次失败标记 offline，连续 2 次失败标记 dead。
-     * @private
-     */
-    _startHealthCheck() {
-      if (this._healthTimer) clearInterval(this._healthTimer)
-      this._healthTimer = setInterval(() => this._checkHealth(), 2000)
-    },
+        // ── 全量快照 ──
+        case 'full_sync': {
+          WsFrontendDiag.count('full_sync')
+          const d = msg.data
 
-    /**
-     * 执行一次轻量健康检查
-     * 仅调用 /api/status 判断后端是否存活，不涉及数据加载。
-     * @private
-     */
-    async _checkHealth() {
-      try {
-        await Promise.race([
-          api('GET', '/api/status'),
-          new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('Health check timeout')), 1500)
-          ),
-        ])
-        this._healthFailCount = 0
-        this.apiStatus = 'connected'
-        this._hasBeenConnected = true
-      } catch (_) {
-        this._healthFailCount++
-        if (this._healthFailCount >= 2) {
-          this.apiStatus = 'dead'
-        } else {
-          this.apiStatus = 'offline'
+          // WS 断线期间锁可能被抢
+          if (d.lock_status === 'lost') {
+            this._applyWsMessage({
+              type: 'lock_stolen',
+              data: { victim_session_id: getSessionId() }
+            })
+            break
+          }
+
+          this.messages = d.messages || []
+          if (d.status) {
+            this.backendDirty = d.status.modified || false
+            this.undoCount = d.status.undo_count || 0
+            this.redoCount = d.status.redo_count || 0
+          }
+          // 检查 selectedMsgId 是否仍存在于新数据中
+          if (this.selectedMsgId != null &&
+              !this.messages.some(m => m.id === this.selectedMsgId)) {
+            this.selectedMsgId = null
+            this.messageCache = {}
+            this.signalErrors = []
+          }
+          break
         }
+
+        // ── 信号更新：按 uuid 原地替换 ──
+        case 'signal_updated': {
+          WsFrontendDiag.count('signal_updated')
+          const { msg_id, signal } = msg.data
+          const cache = this.messageCache[msg_id]
+          if (cache) {
+            const idx = cache.signals.findIndex(s => s.uuid === signal.uuid)
+            if (idx >= 0) {
+              cache.signals[idx] = signal
+            }
+          }
+          break
+        }
+
+        // ── 信号添加 ──
+        case 'signal_added': {
+          const { msg_id, signal } = msg.data
+          const cache = this.messageCache[msg_id]
+          if (cache) {
+            cache.signals = [...cache.signals, signal]
+          }
+          const msgIdx = this.messages.findIndex(m => m.id === msg_id)
+          if (msgIdx >= 0) {
+            this.messages[msgIdx] = {
+              ...this.messages[msgIdx],
+              signal_count: cache ? cache.signals.length
+                : this.messages[msgIdx].signal_count + 1
+            }
+          }
+          break
+        }
+
+        // ── 信号删除 ──
+        case 'signal_deleted': {
+          const { msg_id, signal_uuid } = msg.data
+          const cache = this.messageCache[msg_id]
+          if (cache) {
+            cache.signals = cache.signals.filter(s => s.uuid !== signal_uuid)
+          }
+          const msgIdx = this.messages.findIndex(m => m.id === msg_id)
+          if (msgIdx >= 0) {
+            this.messages[msgIdx] = {
+              ...this.messages[msgIdx],
+              signal_count: cache ? cache.signals.length
+                : Math.max(0, this.messages[msgIdx].signal_count - 1)
+            }
+          }
+          break
+        }
+
+        // ── 报文增/改/删 ──
+        case 'message_added': {
+          this.messages = [...this.messages, msg.data.message]
+          break
+        }
+        case 'message_updated': {
+          const m = msg.data.message
+          const idx = this.messages.findIndex(x => x.id === m.id)
+          if (idx >= 0) {
+            this.messages[idx] = { ...this.messages[idx], ...m }
+          }
+          break
+        }
+        case 'message_deleted': {
+          const deletedId = msg.data.msg_id
+          this.messages = this.messages.filter(m => m.id !== deletedId)
+          if (this.selectedMsgId === deletedId) {
+            this.selectedMsgId = null
+            this.signalErrors = []
+          }
+          delete this.messageCache[deletedId]
+          break
+        }
+
+        // ── 撤销/重做：广播自带完整数据 ──
+        case 'undo_applied':
+        case 'redo_applied': {
+          if (msg.data.status) {
+            this.backendDirty = msg.data.status.modified
+            this.undoCount = msg.data.status.undo_count
+            this.redoCount = msg.data.status.redo_count
+          }
+          if (msg.data.messages) {
+            this.messages = msg.data.messages
+          }
+          if (msg.data.message_details) {
+            for (const [mid, detail] of Object.entries(msg.data.message_details)) {
+              this.messageCache[parseInt(mid)] = detail
+            }
+          }
+          break
+        }
+
+        // ── 状态变更 ──
+        case 'status_changed': {
+          const s = msg.data
+          if ('modified' in s) this.backendDirty = s.modified
+          if ('undo_count' in s) this.undoCount = s.undo_count
+          if ('redo_count' in s) this.redoCount = s.redo_count
+          if (s.save_error) {
+            useUiStore().showToast(t('toast.autoSaveFailed', { error: s.save_error }), true)
+          }
+          break
+        }
+
+        case 'signal_errors_changed': {
+          this.signalErrors = msg.data.errors || []
+          break
+        }
+
+        // ── 锁被抢占 ──
+        case 'lock_stolen': {
+          WsFrontendDiag.count('lock_stolen')
+          console.warn('[WS] lock stolen, victim:', msg.data?.victim_session_id,
+                       msg.data?.stealer_session_id ? ', by: ' + msg.data.stealer_session_id : '')
+          this._wsIntentionalClose = true
+          // 先清理 pending 请求，再断开连接
+          this._wsClient?._cleanupPendingRequests()
+          this._wsClient?.disconnect()
+          this._wsClient = null
+          this._wsConnected = false
+          // 清理编辑状态并导航回文件浏览器
+          this.messages = []
+          this.messageCache = {}
+          this.selectedMsgId = null
+          this.signalErrors = []
+          this.clearUndoStack()
+          window.dispatchEvent(new CustomEvent('navigate-browser'))
+          useUiStore().showToast(t('toast.noEditPermission'), true)
+          break
+        }
+
+        case 'pong':
+          break
       }
+
+      stopTimer()
     },
 
     // ═══════════════════════════════════════════
@@ -416,22 +481,14 @@ export const useEditorStore = defineStore('editor', {
      */
     async undo() {
       try {
-        const result = await api('POST', '/api/undo')
-        // api() 已在内部校验 success，返回值即为操作结果数据
-        // 刷新数据
-        await this.loadMessages()
-        if (this.selectedMsgId != null) {
-          await this.loadSelectedMessage()
-        }
-        // 同步 backendDirty + undo/redo 计数（undo/redo 会改变后端 modified 状态）
-        await this._syncBackendStatus()
+        await this._wsRequest('undo')
+        // undo_applied 广播已更新 messages + status
         useUiStore().showToast('撤销成功', false)
         this.addLogEntry('undo', '撤销操作')
       } catch (e) {
         console.error('[STORE] undo() failed:', e)
         useUiStore().showToast(e.message || '撤销失败', true)
       }
-      this._scheduleNextReload()
     },
 
     /**
@@ -441,108 +498,28 @@ export const useEditorStore = defineStore('editor', {
      */
     async redo() {
       try {
-        const result = await api('POST', '/api/redo')
-        // api() 已在内部校验 success，返回值即为操作结果数据
-        // 刷新数据
-        await this.loadMessages()
-        if (this.selectedMsgId != null) {
-          await this.loadSelectedMessage()
-        }
-        // 同步 backendDirty + undo/redo 计数（undo/redo 会改变后端 modified 状态）
-        await this._syncBackendStatus()
+        await this._wsRequest('redo')
+        // redo_applied 广播已更新 messages + status
         useUiStore().showToast('重做成功', false)
         this.addLogEntry('redo', '重做操作')
       } catch (e) {
         console.error('[STORE] redo() failed:', e)
         useUiStore().showToast(e.message || '重做失败', true)
       }
-      this._scheduleNextReload()
     },
 
     /**
      * 清空撤销/重做栈（切换会话时调用）
-     * 同时清理 API 队列
      */
     clearUndoStack() {
-      this._syncBackendStatus()
-      // 清理 API 队列（防止内存泄漏）
-      if (apiQueue) {
-        apiQueue.cleanup()
-      }
+      // WS 模式下撤销栈由后端管理，前端仅重置计数器
+      this.undoCount = 0
+      this.redoCount = 0
     },
 
     // ═══════════════════════════════════════════
     // 区域 B：会话管理（Session Management）
     // ═══════════════════════════════════════════
-
-    /**
-     * 初始化会话（从 sessionStorage 恢复）
-     * 如果 session 有效，则加载报文数据
-     * @returns {Promise<void>}
-     */
-    async initSession() {
-      const sid = sessionStorage.getItem('canmatrix_session_id')
-      if (sid) {
-        try {
-          const data = await api('GET', `/api/session/${sid}`)
-          if (data && data.session_id) {
-            this.currentFileName = data.file_name || ''
-            this._localDirty = false
-            this._defaultSignalLength = 8
-            this.clearUndoStack() // 切换会话时清空撤销栈
-            await this.loadMessages()
-            this.apiStatus = 'connected'
-            this._healthFailCount = 0
-            useUiStore().showToast(t('toast.restored', { name: data.file_name }))
-            return
-          }
-        } catch (_) {
-          clearSession()
-        }
-      }
-      await this.createDemoSession()
-    },
-
-    /**
-     * 创建 Demo 会话（无需后端）
-     * 用于离线演示和测试
-     * @returns {Promise<void>}
-     */
-    async createDemoSession() {
-      try {
-        const session = await api('POST', '/api/session', { name: 'DemoCAN' })
-        setSessionId(session.session_id)
-        this.currentFileName = session.file_name || ''
-        this._defaultSignalLength = 8
-        this.clearUndoStack() // 新会话初始化时清空撤销栈
-
-        await api('POST', '/api/messages', {
-          id: 256, name: 'EngineStatus', dlc: 8, cycle_time: 10, sender: 'ECU1',
-          signals: [
-            { name: 'RPM', start_bit: 0, length: 16, factor: 0.25, unit: 'rpm', min_val: 0, max_val: 16000 },
-            { name: 'Speed', start_bit: 16, length: 16, factor: 0.1, unit: 'km/h', min_val: 0, max_val: 300 },
-            { name: 'Temp', start_bit: 32, length: 8, factor: 1.0, offset: -40, unit: '°C', min_val: -40, max_val: 215 },
-          ],
-        })
-
-        await api('POST', '/api/messages', {
-          id: 512, name: 'BatteryInfo', dlc: 6, cycle_time: 100, sender: 'BMS',
-          signals: [
-            { name: 'Voltage', start_bit: 0, length: 12, factor: 0.01, unit: 'V', min_val: 0, max_val: 500 },
-            { name: 'Current', start_bit: 12, length: 12, factor: -0.1, offset: 204.7, unit: 'A', min_val: -200, max_val: 200 },
-            { name: 'SoC', start_bit: 24, length: 8, factor: 0.5, unit: '%', min_val: 0, max_val: 100 },
-          ],
-        })
-
-        this.selectedMsgId = 0x100
-        await this.loadMessages()
-        this.apiStatus = 'connected'
-        this._healthFailCount = 0
-      } catch (e) {
-        this.apiStatus = 'offline'
-        useUiStore().showToast(t('toast.serverOffline'), true)
-      }
-    },
 
     // ═══════════════════════════════════════════
     // 区域 A：数据操作（Data Operations）
@@ -557,9 +534,8 @@ export const useEditorStore = defineStore('editor', {
      */
     async saveSession() {
       try {
-        await api('POST', '/api/save')
+        await this._wsRequest('save')
         this._localDirty = false
-        await this._syncBackendStatus()
         return true
       } catch (e) {
         console.error('Failed to save session:', e)
@@ -573,36 +549,13 @@ export const useEditorStore = defineStore('editor', {
      * @returns {Promise<void>}
      */
     async loadMessages() {
-      const t0 = performance.now()
       try {
-        this.messages = await api('GET', '/api/messages')
+        this.messages = await this._wsRequest('get_messages')
         if (this.selectedMsgId != null) {
           await this.loadSelectedMessage()
         }
-        await this._syncBackendStatus()
       } catch (e) {
         useUiStore().showToast(e.message, true)
-      }
-    },
-
-    /**
-     * 同步后端状态
-     * 从 /api/status 拉取后端 modified、undo/redo 计数
-     * @returns {Promise<void>}
-     * @private
-     */
-    async _syncBackendStatus() {
-      try {
-        const status = await api('GET', '/api/status')
-        this.backendDirty = status.modified || false
-        this.undoCount = status.undo_count || 0
-        this.redoCount = status.redo_count || 0
-        // 检测自动保存失败
-        if (status.save_error) {
-          useUiStore().showToast(t('toast.autoSaveFailed', { error: status.save_error }), true)
-        }
-      } catch (_) {
-        /* ignore */
       }
     },
 
@@ -614,9 +567,7 @@ export const useEditorStore = defineStore('editor', {
      */
     async selectMessage(id) {
       this.selectedMsgId = id
-      // 乐观更新：立即清空旧缓存，让 UI 显示加载中
       this.messageCache[id] = null
-      // 异步加载，不阻塞 UI
       this.loadSelectedMessage()
     },
 
@@ -628,7 +579,7 @@ export const useEditorStore = defineStore('editor', {
     async loadSelectedMessage() {
       if (this.selectedMsgId == null) return
       try {
-        this.messageCache[this.selectedMsgId] = await api('GET', `/api/messages/${this.selectedMsgId}`)
+        this.messageCache[this.selectedMsgId] = await this._wsRequest('get_message', { msg_id: this.selectedMsgId })
         this.loadSignalErrors()
       } catch (e) {
         useUiStore().showToast(e.message, true)
@@ -642,7 +593,7 @@ export const useEditorStore = defineStore('editor', {
     async loadSignalErrors() {
       if (this.selectedMsgId == null) return
       try {
-        const errors = await api('GET', `/api/messages/${this.selectedMsgId}/signal-errors`)
+        const errors = await this._wsRequest('get_signal_errors', { msg_id: this.selectedMsgId })
         this.signalErrors = errors || []
       } catch (_) {
         this.signalErrors = []
@@ -692,31 +643,25 @@ export const useEditorStore = defineStore('editor', {
       const id = 0x300 + this.messages.length
       const name = `NewMessage${this.messages.length + 1}`
 
-      // 乐观更新：立即更新 UI
+      // 乐观更新
       const newMsg = {
         id, name, dlc: 8, cycle_time: 0, sender: '',
         signal_count: 0, id_hex: `0x${id.toString(16).toUpperCase()}`
       }
+      const oldMessages = [...this.messages]
       this.messages.push(newMsg)
       this.messageCache[id] = { id, name, dlc: 8, cycle_time: 0, sender: '', comment: '', signals: [] }
       this.selectedMsgId = id
       this._localDirty = true
-      this._scheduleNextReload()
 
-      // 异步发送 API 请求，不阻塞 UI
       try {
-        await api('POST', '/api/messages', {
-          id, name,
-          dlc: 8, cycle_time: 0, sender: '', signals: [],
+        await this._wsRequest('add_message', {
+          message: { id, name, dlc: 8, cycle_time: 0, sender: '', signals: [] }
         })
-
-        // 后端已自动推入撤销栈
-
         useUiStore().showToast(t('toast.messageAdded'))
-        await this._syncBackendStatus()
       } catch (e) {
         useUiStore().showToast(e.message, true)
-        await this._doFullReload()
+        this.messages = oldMessages
       }
     },
 
@@ -728,23 +673,21 @@ export const useEditorStore = defineStore('editor', {
      * @returns {Promise<void>}
      */
     async deleteMessage(id) {
-      // 后端已自动推入撤销栈
-
       // 乐观更新
+      const oldMessages = [...this.messages]
+      const oldCache = { ...this.messageCache[id] }
       this.messages = this.messages.filter(m => m.id !== id)
       delete this.messageCache[id]
       if (this.selectedMsgId === id) this.selectedMsgId = null
       this._localDirty = true
-      this._scheduleNextReload()
 
-      // 异步发送
       try {
-        await api('DELETE', `/api/messages/${id}`)
+        await this._wsRequest('delete_message', { msg_id: id })
         useUiStore().showToast(t('toast.messageDeleted'))
-        await this._syncBackendStatus()
       } catch (e) {
         useUiStore().showToast(e.message, true)
-        await this._doFullReload()
+        this.messages = oldMessages
+        this.messageCache[id] = oldCache
       }
     },
 
@@ -758,51 +701,47 @@ export const useEditorStore = defineStore('editor', {
      */
     async updateMessageField(field, value) {
       if (this.selectedMsgId == null) return
-
       const msg = this.messageCache[this.selectedMsgId]
       if (!msg) return
 
-      // 获取旧值（统一为字符串比较，避免类型差异）
       const oldValue = msg[field]
-      const oldValueStr = oldValue != null ? String(oldValue) : ''
-      const newValueStr = value != null ? String(value) : ''
-
-      // 后端已自动推入撤销栈
 
       // 乐观更新
       const oldMessages = [...this.messages]
-      const oldCache = this.messageCache[this.selectedMsgId]
+      const oldCache = { ...this.messageCache[this.selectedMsgId] }
       const idx = this.messages.findIndex(m => m.id === this.selectedMsgId)
       if (idx >= 0) {
         this.messages[idx] = { ...this.messages[idx], [field]: value }
       }
-      if (oldCache) {
-        this.messageCache[this.selectedMsgId] = { ...oldCache, [field]: value }
-      }
+      this.messageCache[this.selectedMsgId] = { ...this.messageCache[this.selectedMsgId], [field]: value }
       this._localDirty = true
-      this._scheduleNextReload()
 
-      // 使用 API 队列（防抖 + 队列 + 超时）
       const queueKey = `message_${this.selectedMsgId}_${field}`
-      try {
-        const queued = await apiQueue.enqueue(
-          queueKey,
-          () => api('PUT', `/api/messages/${this.selectedMsgId}`, { [field]: value }),
-          { oldMessages, oldCache },  // fallbackValue
-          (fallback) => {  // onRollback
-            this.messages = fallback.oldMessages
-            this.messageCache[this.selectedMsgId] = fallback.oldCache
+      // 防抖：取消旧定时器
+      const existing = PENDING_EDITS.get(queueKey)
+      if (existing) clearTimeout(existing.timer)
+
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(async () => {
+          PENDING_EDITS.delete(queueKey)
+          try {
+            await this._wsRequest('edit_message', {
+              msg_id: this.selectedMsgId,
+              fields: { [field]: value }
+            })
+            resolve()
+          } catch (e) {
+            if (!e.message?.includes?.('Connection lost')) {
+              useUiStore().showToast(_translateError(e), true)
+            }
+            // 回滚
+            this.messages = oldMessages
+            this.messageCache[this.selectedMsgId] = oldCache
+            reject(e)
           }
-        )
-        // 防抖跳过的中间值不触发状态同步
-        if (queued?.skipped) return
-        await this._syncBackendStatus()
-      } catch (e) {
-        if (!e.message.includes('Queue cleaned up')) {
-          useUiStore().showToast(_translateError(e), true)
-          await this._doFullReload()
-        }
-      }
+        }, 300)
+        PENDING_EDITS.set(queueKey, { timer, reject })
+      })
     },
 
     /**
@@ -814,12 +753,10 @@ export const useEditorStore = defineStore('editor', {
      */
     async addSignal(signalData) {
       if (this.selectedMsgId == null) return
-
-      // 补充完整默认值，确保 UI 上所有字段都有值
       const msg = this.messageCache[this.selectedMsgId]
       if (!msg) return
 
-      // 自动顺延：如果未指定 start_bit，计算下一个空闲位置
+      // 自动顺延
       let defaultStartBit = 0
       if (signalData?.start_bit == null) {
         const newLength = signalData?.length ?? this._defaultSignalLength
@@ -829,17 +766,9 @@ export const useEditorStore = defineStore('editor', {
       }
 
       const fullData = {
-        name: 'NewSignal',
-        start_bit: defaultStartBit,
-        length: this._defaultSignalLength,
-        byte_order: 'motorola',
-        factor: 1.0,
-        offset: 0.0,
-        min_val: 0.0,
-        max_val: 0.0,
-        unit: '',
-        comment: '',
-        ...signalData,
+        name: 'NewSignal', start_bit: defaultStartBit, length: this._defaultSignalLength,
+        byte_order: 'motorola', factor: 1.0, offset: 0.0, min_val: 0.0, max_val: 0.0,
+        unit: '', comment: '', ...signalData,
       }
       const clientUuid = crypto.randomUUID ? crypto.randomUUID().slice(0, 8) : Math.random().toString(16).slice(2, 10)
       const newSig = { uuid: clientUuid, ...fullData }
@@ -851,25 +780,23 @@ export const useEditorStore = defineStore('editor', {
         this.messages[idx] = { ...this.messages[idx], signal_count: msg.signals.length }
       }
       this._localDirty = true
-      this._scheduleNextReload()
 
-      // 异步发送
       try {
-        const result = await api('POST', `/api/messages/${this.selectedMsgId}/signals`, fullData)
-        // 用后端返回的完整数据（含正确 uuid）替换乐观更新的信号
+        const result = await this._wsRequest('add_signal', { msg_id: this.selectedMsgId, signal: fullData })
+        // 用后端返回的真实 UUID 替换临时 UUID
         const sigIdx = msg.signals.findIndex(s => s.uuid === clientUuid)
         if (sigIdx >= 0 && result) {
           msg.signals[sigIdx] = result
         }
-
-        // 后端已自动推入撤销栈
         useUiStore().showToast(t('toast.signalAdded'))
-        this.addLogEntry('signal_add', `添加信号: name=${fullData.name}, start_bit=${fullData.start_bit}, length=${fullData.length}, byte_order=${fullData.byte_order}`)
-        await this._syncBackendStatus()
-        this.loadSignalErrors()
+        this.addLogEntry('signal_add', `添加信号: name=${fullData.name}, start_bit=${fullData.start_bit}, length=${fullData.length}`)
       } catch (e) {
         useUiStore().showToast(_translateError(e), true)
-        await this._doFullReload()
+        // 回滚：移除乐观添加的信号
+        msg.signals = msg.signals.filter(s => s.uuid !== clientUuid)
+        if (idx >= 0) {
+          this.messages[idx] = { ...this.messages[idx], signal_count: msg.signals.length }
+        }
       }
     },
 
@@ -884,48 +811,47 @@ export const useEditorStore = defineStore('editor', {
      */
     async updateSignal(sigUuid, field, value) {
       if (this.selectedMsgId == null) return
-
-      // 乐观更新
       const msg = this.messageCache[this.selectedMsgId]
       if (!msg) return
       const sig = msg.signals.find(s => s.uuid === sigUuid)
       if (!sig) return
       const oldVal = sig[field]
 
-      // 统一为字符串比较，避免类型差异（如输入框返回字符串 "16"，旧值是数字 16）
-      const oldValStr = oldVal != null ? String(oldVal) : ''
-      const newValStr = value != null ? String(value) : ''
-
-      // 后端已自动推入撤销栈
-
-      // 记忆用户修改的 length，作为后续新信号的默认值
+      // 记忆用户修改的 length
       if (field === 'length') {
         this._defaultSignalLength = value
       }
 
+      // 乐观更新
       sig[field] = value
       this._localDirty = true
-      this._scheduleNextReload()
 
-      // 使用 API 队列（防抖 + 队列 + 超时）
+      // 防抖
       const queueKey = `signal_${sigUuid}_${field}`
-      try {
-        const queued = await apiQueue.enqueue(
-          queueKey,
-          () => api('PUT', `/api/messages/${this.selectedMsgId}/signals/${sigUuid}`, { [field]: value }),
-          oldVal,  // fallbackValue
-          (fallbackVal) => { sig[field] = fallbackVal }  // onRollback
-        )
-        // 防抖跳过的中间值不触发状态同步
-        if (queued?.skipped) return
-        await this._syncBackendStatus()
-        this.loadSignalErrors()
-      } catch (e) {
-        if (!e.message.includes('Queue cleaned up')) {
-          useUiStore().showToast(_translateError(e), true)
-          await this._doFullReload()
-        }
-      }
+      const existing = PENDING_EDITS.get(queueKey)
+      if (existing) clearTimeout(existing.timer)
+
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(async () => {
+          PENDING_EDITS.delete(queueKey)
+          try {
+            await this._wsRequest('edit_signal', {
+              msg_id: this.selectedMsgId,
+              sig_uuid: sigUuid,
+              field: field,
+              value: value
+            })
+            resolve()
+          } catch (e) {
+            if (!e.message?.includes?.('Connection lost')) {
+              useUiStore().showToast(_translateError(e), true)
+            }
+            sig[field] = oldVal  // 回滚
+            reject(e)
+          }
+        }, 300)
+        PENDING_EDITS.set(queueKey, { timer, reject })
+      })
     },
 
     /**
@@ -937,12 +863,10 @@ export const useEditorStore = defineStore('editor', {
      */
     async deleteSignal(sigUuid) {
       if (this.selectedMsgId == null) return
-
-      // 后端已自动推入撤销栈
-
       const msg = this.selectedMessage
 
       // 乐观更新
+      const oldSignals = msg ? [...msg.signals] : []
       if (msg) {
         msg.signals = msg.signals.filter(s => s.uuid !== sigUuid)
       }
@@ -951,17 +875,17 @@ export const useEditorStore = defineStore('editor', {
         this.messages[idx] = { ...this.messages[idx], signal_count: msg.signals.length }
       }
       this._localDirty = true
-      this._scheduleNextReload()
 
-      // 异步发送
       try {
-        await api('DELETE', `/api/messages/${this.selectedMsgId}/signals/${sigUuid}`)
+        await this._wsRequest('delete_signal', { msg_id: this.selectedMsgId, sig_uuid: sigUuid })
         useUiStore().showToast(t('toast.signalDeleted'))
-        await this._syncBackendStatus()
-        this.loadSignalErrors()
       } catch (e) {
         useUiStore().showToast(e.message, true)
-        await this._doFullReload()
+        // 回滚
+        if (msg) msg.signals = oldSignals
+        if (idx >= 0 && msg) {
+          this.messages[idx] = { ...this.messages[idx], signal_count: msg.signals.length }
+        }
       }
     },
 
@@ -1021,13 +945,13 @@ export const useEditorStore = defineStore('editor', {
         this.messages[idx] = { ...this.messages[idx], signal_count: msg.signals.length }
       }
       this._localDirty = true
-      this._scheduleNextReload()
       this.isLoading = true
 
-      // 异步批量发送（调用批量端点，原子撤销）
+      // 异步批量发送
       let created = 0
       try {
-        const result = await api('POST', `/api/messages/${this.selectedMsgId}/signals/batch`, {
+        const result = await this._wsRequest('batch_add_signals', {
+          msg_id: this.selectedMsgId,
           signals: newSigs.map(sig => ({
             name: sig.name, start_bit: sig.start_bit, length: sig.length,
             byte_order: sig.byte_order, factor: sig.factor, offset: sig.offset,
@@ -1037,7 +961,6 @@ export const useEditorStore = defineStore('editor', {
 
         if (result && result.created) {
           created = result.created.length
-          // 替换乐观更新中的 clientUuid 为真实 UUID
           for (const serverSig of result.created) {
             const clientSig = newSigs.find(s => s.name === serverSig.name)
             if (clientSig) {
@@ -1054,24 +977,38 @@ export const useEditorStore = defineStore('editor', {
         }
 
         useUiStore().showToast(t('toast.batchCreated', { count: created }))
-        await this._syncBackendStatus()
       } catch (e) {
         useUiStore().showToast(t('toast.batchFailed', { idx: 1, msg: e.message }), true)
-        await this._doFullReload()
+        // 回滚：移除乐观添加的信号
+        const newNames = newSigs.map(s => s.name)
+        msg.signals = msg.signals.filter(s => !newNames.includes(s.name))
+        const msgIdx = this.messages.findIndex(m => m.id === this.selectedMsgId)
+        if (msgIdx >= 0) {
+          this.messages[msgIdx] = { ...this.messages[msgIdx], signal_count: msg.signals.length }
+        }
       } finally {
         this.isLoading = false
-        this.loadSignalErrors()
       }
     },
 
     /**
-     * 检查 API 健康状态
-     * 由 App.vue 定时调用（每 15 秒）
-     * 同时通过 _syncBackendStatus 更新 backendDirty、undo/redo 计数
-     * @returns {Promise<void>}
+     * 检查 WS 连接健康状态
+     * 由 App.vue 定时调用
+     * @returns {void}
      */
-    async checkApiHealth() {
-      await this._doFullReload()
+    checkApiHealth() {
+      if (this._wsClient?.connected) {
+        this._healthFailCount = 0
+        this.apiStatus = 'connected'
+        this._hasBeenConnected = true
+      } else {
+        this._healthFailCount++
+        if (this._healthFailCount >= 2) {
+          this.apiStatus = 'dead'
+        } else {
+          this.apiStatus = 'offline'
+        }
+      }
     },
 
     // ── 操作日志 ──
@@ -1094,7 +1031,6 @@ export const useEditorStore = defineStore('editor', {
      * @returns {Promise<void>}
      */
     async loadHistorySession(sessionId) {
-      // 乐观更新：立即清空状态，显示加载中
       this.selectedMsgId = null
       this.messageCache = {}
       this.messages = []
@@ -1107,22 +1043,28 @@ export const useEditorStore = defineStore('editor', {
 
       try {
         const currentSid = getSessionId()
-        const data = await api('POST', `/api/session/${sessionId}/load`, null, { 'X-Session-Id': currentSid })
+
+        // 先停止旧 WS 连接，再启动新连接
+        this.stopEditorSync()
+        this.startEditorSync()
+        await this._waitForWsReady()
+
+        // WS 已连接，发送 load_session 请求（服务端 restore + session 切换 + full_sync）
+        const data = await this._wsRequest('load_session', {
+          session_id: sessionId,
+          current_session_id: currentSid
+        })
         const sid = data.session_id
         setSessionId(sid)
         this.currentFileName = data.file_name || ''
-
-        // 异步加载消息列表，不阻塞 UI
-        this.loadMessages()
         useUiStore().showToast(t('toast.sessionLoaded'))
       } catch (e) {
-        // 409 表示文件被锁定，转换为友好的错误信息
-        if (e.status === 409) {
+        if (e.code === 'FILE_LOCKED') {
           e.message = t('toast.noEditPermission')
         } else {
           useUiStore().showToast(e.message, true)
         }
-        throw e  // 重新抛出，让调用方处理
+        throw e
       } finally {
         this.isLoading = false
       }
@@ -1130,10 +1072,9 @@ export const useEditorStore = defineStore('editor', {
 
     async renameSession(name) {
       try {
-        const data = await api('PUT', '/api/session', { name })
+        const data = await this._wsRequest('rename_session', { name })
         this.currentFileName = data.file_name || ''
         this._localDirty = true
-        await this._syncBackendStatus()
         useUiStore().showToast(t('toast.renamed'))
       } catch (e) {
         useUiStore().showToast(e.message, true)
@@ -1142,7 +1083,12 @@ export const useEditorStore = defineStore('editor', {
 
     async createNewSession(name = 'Untitled') {
       try {
-        const data = await api('POST', '/api/new', { name })
+        // 先停止旧 WS 连接，再启动新连接
+        this.stopEditorSync()
+        this.startEditorSync()
+        await this._waitForWsReady()
+
+        const data = await this._wsRequest('new_file', { name })
         const sid = data.session_id
         setSessionId(sid)
         this.currentFileName = data.name + '.toml'
@@ -1164,7 +1110,12 @@ export const useEditorStore = defineStore('editor', {
      * 与 createNewSession 类似，但不显示 Toast（由 FileBrowser 处理）
      */
     async newFile(name = 'Untitled') {
-      const data = await api('POST', '/api/new', { name })
+      // 先停止旧 WS 连接，再启动新连接
+      this.stopEditorSync()
+      this.startEditorSync()
+      await this._waitForWsReady()
+
+      const data = await this._wsRequest('new_file', { name })
       const sid = data.session_id
       setSessionId(sid)
       this.currentFileName = data.name + '.toml'
@@ -1183,10 +1134,10 @@ export const useEditorStore = defineStore('editor', {
      * 传递 abort=true 同时销毁 session，丢弃未保存的变更。
      */
     async releaseSession() {
-      const sid = sessionStorage.getItem('canmatrix_session_id')
+      const sid = getSessionId()
       if (sid) {
         try {
-          await api('POST', '/api/release', { abort: true }, { 'X-Session-Id': sid })
+          await this._wsRequest('release_lock', { abort: true })
         } catch (_) {
           // 忽略释放失败
         }
@@ -1249,9 +1200,8 @@ export const useEditorStore = defineStore('editor', {
       msg.id = maxId
       msg.name = (msg.name || 'PastedMsg') + '_copy'
       try {
-        await api('POST', '/api/messages', msg)
+        await this._wsRequest('add_message', { message: msg })
         this.selectedMsgId = maxId
-        await this.loadMessages()
         useUiStore().showToast(t('toast.messagePasted'))
       } catch (e) {
         useUiStore().showToast(e.message, true)
@@ -1265,17 +1215,8 @@ export const useEditorStore = defineStore('editor', {
         ? Math.max(...this.messages.map(m => m.id)) + 0x10
         : orig.id + 0x10
       try {
-        await api('POST', '/api/messages', {
-          id: maxId,
-          name: orig.name + '_copy',
-          dlc: orig.dlc,
-          cycle_time: orig.cycle_time,
-          sender: orig.sender,
-          comment: orig.comment,
-          signals: orig.signals.map(s => ({ ...s })),
-        })
+        await this._wsRequest('duplicate_message', { msg_id: orig.id, new_id: maxId })
         this.selectedMsgId = maxId
-        await this.loadMessages()
         useUiStore().showToast(t('toast.messageDuplicated'))
       } catch (e) {
         useUiStore().showToast(e.message, true)

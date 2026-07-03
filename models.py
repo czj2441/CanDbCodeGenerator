@@ -149,10 +149,23 @@ class CanDatabase:
         self.messages: dict[int, Message] = {}
         self.modified: bool = False
         self.__lock = threading.RLock()
+        self.data_version: int = 0  # WS 版本号，每次变更 +1
 
     def with_lock(self):
         """返回锁上下文管理器，供外部需要原子操作时使用。"""
         return self.__lock
+
+    def _bump_version(self) -> int:
+        """原子递增版本号。必须在 __lock 持有下调用。
+        返回新版本号，调用方应使用返回值而非再次读取 data_version。"""
+        self.data_version += 1
+        return self.data_version
+
+    def _bump_version_safe(self) -> int:
+        """带锁的安全版本，供锁外调用方使用。"""
+        with self.__lock:
+            self.data_version += 1
+            return self.data_version
 
     # ── 报文操作 ─────────────────────────────────────────────────────────
 
