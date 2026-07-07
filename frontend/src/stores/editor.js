@@ -16,14 +16,6 @@ function _translateError(e) {
   return translated !== i18nKey ? translated : e.message
 }
 
-// ── WS 防抖 Map（信号编辑 300ms 合并）──
-const PENDING_EDITS = new Map()  // key → { timer, reject }
-
-// 暴露到全局便于调试
-if (typeof window !== 'undefined') {
-  window.__pendingEdits__ = PENDING_EDITS
-}
-
 // ── 信号位布局计算（与后端 models.py 保持一致） ──
 
 /**
@@ -392,6 +384,11 @@ export const useEditorStore = defineStore('editor', {
           if (idx >= 0) {
             this.messages[idx] = { ...this.messages[idx], ...m }
           }
+          // 同时更新 messageCache，确保编辑面板显示最新值
+          const cache = this.messageCache[m.id]
+          if (cache) {
+            Object.assign(cache, m)
+          }
           break
         }
         case 'message_deleted': {
@@ -560,7 +557,7 @@ export const useEditorStore = defineStore('editor', {
     },
 
     /**
-     * 选中报文（乐观更新模式）
+     * 选中报文
      * 立即清空旧缓存让 UI 显示加载中，异步加载报文详情
      * @param {number} id - 报文 ID
      * @returns {Promise<void>}
@@ -634,67 +631,50 @@ export const useEditorStore = defineStore('editor', {
     },
 
     /**
-     * 添加报文（乐观更新模式）
-     * 先更新本地状态再发送 API，失败时回滚。
-     * 成功后重置 5s 轮询定时器，全量重载由定时器超时触发。
+     * 添加报文（等待服务器模式）
+     * 发送 WS 请求，等待 message_added 广播自动追加到 messages 数组。
      * @returns {Promise<void>}
      */
     async addMessage() {
       const id = 0x300 + this.messages.length
       const name = `NewMessage${this.messages.length + 1}`
-
-      // 乐观更新
-      const newMsg = {
-        id, name, dlc: 8, cycle_time: 0, sender: '',
-        signal_count: 0, id_hex: `0x${id.toString(16).toUpperCase()}`
-      }
-      const oldMessages = [...this.messages]
-      this.messages.push(newMsg)
-      this.messageCache[id] = { id, name, dlc: 8, cycle_time: 0, sender: '', comment: '', signals: [] }
-      this.selectedMsgId = id
       this._localDirty = true
 
       try {
-        await this._wsRequest('add_message', {
+        const result = await this._wsRequest('add_message', {
           message: { id, name, dlc: 8, cycle_time: 0, sender: '', signals: [] }
         })
+        // message_added 广播会自动追加到 messages 数组
+        if (result?.id != null) {
+          this.messageCache[result.id] = result  // 填充 messageCache，供编辑面板显示
+          this.selectedMsgId = result.id
+        }
         useUiStore().showToast(t('toast.messageAdded'))
       } catch (e) {
-        useUiStore().showToast(e.message, true)
-        this.messages = oldMessages
+        useUiStore().showToast(_translateError(e), true)
       }
     },
 
     /**
-     * 删除报文（乐观更新模式）
-     * 先更新本地状态再发送 API，失败时回滚。
-     * 成功后重置 5s 轮询定时器，全量重载由定时器超时触发。
+     * 删除报文（等待服务器模式）
+     * 发送 WS 请求，等待 message_deleted 广播自动清理。
      * @param {number} id - 报文 ID
      * @returns {Promise<void>}
      */
     async deleteMessage(id) {
-      // 乐观更新
-      const oldMessages = [...this.messages]
-      const oldCache = { ...this.messageCache[id] }
-      this.messages = this.messages.filter(m => m.id !== id)
-      delete this.messageCache[id]
-      if (this.selectedMsgId === id) this.selectedMsgId = null
       this._localDirty = true
-
       try {
         await this._wsRequest('delete_message', { msg_id: id })
+        // message_deleted 广播会自动过滤 messages + 清理 messageCache
         useUiStore().showToast(t('toast.messageDeleted'))
       } catch (e) {
-        useUiStore().showToast(e.message, true)
-        this.messages = oldMessages
-        this.messageCache[id] = oldCache
+        useUiStore().showToast(_translateError(e), true)
       }
     },
 
     /**
-     * 更新报文属性（乐观更新模式）
-     * 值变化时先入撤销栈，再更新本地状态，异步发送 API。
-     * 成功后重置 5s 轮询定时器，全量重载由定时器超时触发。
+     * 更新报文属性（等待服务器模式）
+     * 发送 WS 请求，等待 message_updated 广播自动更新 UI。
      * @param {string} field - 字段名
      * @param {any} value - 新值
      * @returns {Promise<void>}
@@ -704,50 +684,33 @@ export const useEditorStore = defineStore('editor', {
       const msg = this.messageCache[this.selectedMsgId]
       if (!msg) return
 
-      const oldValue = msg[field]
-
-      // 乐观更新
-      const oldMessages = [...this.messages]
-      const oldCache = { ...this.messageCache[this.selectedMsgId] }
-      const idx = this.messages.findIndex(m => m.id === this.selectedMsgId)
-      if (idx >= 0) {
-        this.messages[idx] = { ...this.messages[idx], [field]: value }
-      }
-      this.messageCache[this.selectedMsgId] = { ...this.messageCache[this.selectedMsgId], [field]: value }
       this._localDirty = true
 
-      const queueKey = `message_${this.selectedMsgId}_${field}`
-      // 防抖：取消旧定时器
-      const existing = PENDING_EDITS.get(queueKey)
-      if (existing) clearTimeout(existing.timer)
-
-      return new Promise((resolve, reject) => {
-        const timer = setTimeout(async () => {
-          PENDING_EDITS.delete(queueKey)
-          try {
-            await this._wsRequest('edit_message', {
-              msg_id: this.selectedMsgId,
-              fields: { [field]: value }
-            })
-            resolve()
-          } catch (e) {
-            if (!e.message?.includes?.('Connection lost')) {
-              useUiStore().showToast(_translateError(e), true)
-            }
-            // 回滚
-            this.messages = oldMessages
-            this.messageCache[this.selectedMsgId] = oldCache
-            reject(e)
-          }
-        }, 300)
-        PENDING_EDITS.set(queueKey, { timer, reject })
-      })
+      try {
+        const result = await this._wsRequest('edit_message', {
+          msg_id: this.selectedMsgId,
+          fields: { [field]: value }
+        })
+        // 若 ID 发生变化，同步 selectedMsgId 和 messageCache 键
+        if (result?.id != null && result.id !== this.selectedMsgId) {
+          delete this.messageCache[this.selectedMsgId]
+          this.selectedMsgId = result.id
+        }
+        // 直接利用响应数据更新 messageCache，无需额外 round-trip
+        if (result) {
+          this.messageCache[this.selectedMsgId] = result
+        }
+        this.loadSignalErrors()
+      } catch (e) {
+        if (!e.message?.includes?.('Connection lost')) {
+          useUiStore().showToast(_translateError(e), true)
+        }
+      }
     },
 
     /**
-     * 添加信号（乐观更新 + client UUID 替换）
-     * 使用前端生成的临时 UUID 乐观更新 UI，API 成功后替换为后端真实 UUID。
-     * 成功后重置 5s 轮询定时器，全量重载由定时器超时触发。
+     * 添加信号（等待服务器模式）
+     * 发送 WS 请求，等待 signal_added 广播自动添加信号到 messageCache。
      * @param {Object} signalData - 信号初始数据
      * @returns {Promise<void>}
      */
@@ -770,40 +733,22 @@ export const useEditorStore = defineStore('editor', {
         byte_order: 'motorola', factor: 1.0, offset: 0.0, min_val: 0.0, max_val: 0.0,
         unit: '', comment: '', ...signalData,
       }
-      const clientUuid = crypto.randomUUID ? crypto.randomUUID().slice(0, 8) : Math.random().toString(16).slice(2, 10)
-      const newSig = { uuid: clientUuid, ...fullData }
 
-      // 乐观更新
-      msg.signals = [...msg.signals, newSig]
-      const idx = this.messages.findIndex(m => m.id === this.selectedMsgId)
-      if (idx >= 0) {
-        this.messages[idx] = { ...this.messages[idx], signal_count: msg.signals.length }
-      }
       this._localDirty = true
 
       try {
-        const result = await this._wsRequest('add_signal', { msg_id: this.selectedMsgId, signal: fullData })
-        // 用后端返回的真实 UUID 替换临时 UUID
-        const sigIdx = msg.signals.findIndex(s => s.uuid === clientUuid)
-        if (sigIdx >= 0 && result) {
-          msg.signals[sigIdx] = result
-        }
+        await this._wsRequest('add_signal', { msg_id: this.selectedMsgId, signal: fullData })
+        // signal_added 广播会自动将信号追加到 messageCache[msg_id].signals
         useUiStore().showToast(t('toast.signalAdded'))
         this.addLogEntry('signal_add', `添加信号: name=${fullData.name}, start_bit=${fullData.start_bit}, length=${fullData.length}`)
       } catch (e) {
         useUiStore().showToast(_translateError(e), true)
-        // 回滚：移除乐观添加的信号
-        msg.signals = msg.signals.filter(s => s.uuid !== clientUuid)
-        if (idx >= 0) {
-          this.messages[idx] = { ...this.messages[idx], signal_count: msg.signals.length }
-        }
       }
     },
 
     /**
-     * 更新信号属性（乐观更新模式）
-     * 值变化时先入撤销栈，再更新本地状态，异步发送 API。
-     * 成功后重置 5s 轮询定时器，全量重载由定时器超时触发。
+     * 更新信号属性（等待服务器模式）
+     * 发送 WS 请求，等待 signal_updated 广播自动更新 UI。
      * @param {string} sigUuid - 信号 UUID
      * @param {string} field - 字段名
      * @param {any} value - 新值
@@ -815,85 +760,51 @@ export const useEditorStore = defineStore('editor', {
       if (!msg) return
       const sig = msg.signals.find(s => s.uuid === sigUuid)
       if (!sig) return
-      const oldVal = sig[field]
 
       // 记忆用户修改的 length
       if (field === 'length') {
         this._defaultSignalLength = value
       }
 
-      // 乐观更新
-      sig[field] = value
-      this._localDirty = true
-
-      // 防抖
-      const queueKey = `signal_${sigUuid}_${field}`
-      const existing = PENDING_EDITS.get(queueKey)
-      if (existing) clearTimeout(existing.timer)
-
-      return new Promise((resolve, reject) => {
-        const timer = setTimeout(async () => {
-          PENDING_EDITS.delete(queueKey)
-          try {
-            await this._wsRequest('edit_signal', {
-              msg_id: this.selectedMsgId,
-              sig_uuid: sigUuid,
-              field: field,
-              value: value
-            })
-            resolve()
-          } catch (e) {
-            if (!e.message?.includes?.('Connection lost')) {
-              useUiStore().showToast(_translateError(e), true)
-            }
-            sig[field] = oldVal  // 回滚
-            reject(e)
-          }
-        }, 300)
-        PENDING_EDITS.set(queueKey, { timer, reject })
-      })
-    },
-
-    /**
-     * 删除信号（乐观更新模式）
-     * 先更新本地状态再发送 API，失败时回滚。
-     * 成功后重置 5s 轮询定时器，全量重载由定时器超时触发。
-     * @param {string} sigUuid - 信号 UUID
-     * @returns {Promise<void>}
-     */
-    async deleteSignal(sigUuid) {
-      if (this.selectedMsgId == null) return
-      const msg = this.selectedMessage
-
-      // 乐观更新
-      const oldSignals = msg ? [...msg.signals] : []
-      if (msg) {
-        msg.signals = msg.signals.filter(s => s.uuid !== sigUuid)
-      }
-      const idx = this.messages.findIndex(m => m.id === this.selectedMsgId)
-      if (idx >= 0 && msg) {
-        this.messages[idx] = { ...this.messages[idx], signal_count: msg.signals.length }
-      }
       this._localDirty = true
 
       try {
-        await this._wsRequest('delete_signal', { msg_id: this.selectedMsgId, sig_uuid: sigUuid })
-        useUiStore().showToast(t('toast.signalDeleted'))
+        await this._wsRequest('edit_signal', {
+          msg_id: this.selectedMsgId,
+          sig_uuid: sigUuid,
+          field: field,
+          value: value
+        })
+        // signal_updated 广播会自动更新信号数据
       } catch (e) {
-        useUiStore().showToast(e.message, true)
-        // 回滚
-        if (msg) msg.signals = oldSignals
-        if (idx >= 0 && msg) {
-          this.messages[idx] = { ...this.messages[idx], signal_count: msg.signals.length }
+        if (!e.message?.includes?.('Connection lost')) {
+          useUiStore().showToast(_translateError(e), true)
         }
       }
     },
 
     /**
-     * 批量添加信号（乐观更新 + 并发 API）
-     * 所有信号先本地乐观更新，然后并发发送 API 请求
-     * API 成功后替换 clientUuid 为真实 UUID，并入撤销栈
-     * 成功后重置 5s 轮询定时器，全量重载由定时器超时触发。
+     * 删除信号（等待服务器模式）
+     * 发送 WS 请求，等待 signal_deleted 广播自动清理。
+     * @param {string} sigUuid - 信号 UUID
+     * @returns {Promise<void>}
+     */
+    async deleteSignal(sigUuid) {
+      if (this.selectedMsgId == null) return
+      this._localDirty = true
+
+      try {
+        await this._wsRequest('delete_signal', { msg_id: this.selectedMsgId, sig_uuid: sigUuid })
+        // signal_deleted 广播会自动从 messageCache 中过滤
+        useUiStore().showToast(t('toast.signalDeleted'))
+      } catch (e) {
+        useUiStore().showToast(_translateError(e), true)
+      }
+    },
+
+    /**
+     * 批量添加信号（等待服务器模式）
+     * 发送 WS 请求，等待 signal_added 广播自动添加信号。
      * @param {Object} params - 批量参数
      * @param {string} params.nameTemplate - 名称模板（如 "Signal_{n}"）
      * @param {number} params.count - 信号数量
@@ -923,69 +834,34 @@ export const useEditorStore = defineStore('editor', {
         return
       }
 
-      // 乐观更新：先构建所有新信号
-      const newSigs = []
+      // 构建信号数据（不含 client UUID）
+      const signals = []
       for (let i = 0; i < count; i++) {
         const n = startNum + i
         const name = expandTemplate(nameTemplate, n)
         const comment = commentTemplate ? expandTemplate(commentTemplate, n) : ''
         const sb = startBit + i * bitStep
-        const sig = {
-          uuid: crypto.randomUUID ? crypto.randomUUID().slice(0, 8) : Math.random().toString(16).slice(2, 10),
+        signals.push({
           name, start_bit: sb, length, byte_order: byteOrder,
           factor, offset, min_val: minVal, max_val: maxVal, unit, comment,
-        }
-        newSigs.push(sig)
+        })
       }
 
-      // 立即更新 UI
-      msg.signals = [...msg.signals, ...newSigs]
-      const idx = this.messages.findIndex(m => m.id === this.selectedMsgId)
-      if (idx >= 0) {
-        this.messages[idx] = { ...this.messages[idx], signal_count: msg.signals.length }
-      }
       this._localDirty = true
       this.isLoading = true
-
-      // 异步批量发送
-      let created = 0
       try {
         const result = await this._wsRequest('batch_add_signals', {
           msg_id: this.selectedMsgId,
-          signals: newSigs.map(sig => ({
-            name: sig.name, start_bit: sig.start_bit, length: sig.length,
-            byte_order: sig.byte_order, factor: sig.factor, offset: sig.offset,
-            min_val: sig.min_val, max_val: sig.max_val, unit: sig.unit, comment: sig.comment,
-          }))
+          signals,
         })
-
-        if (result && result.created) {
-          created = result.created.length
-          for (const serverSig of result.created) {
-            const clientSig = newSigs.find(s => s.name === serverSig.name)
-            if (clientSig) {
-              const idxInMsg = msg.signals.findIndex(s => s.uuid === clientSig.uuid)
-              if (idxInMsg >= 0) {
-                msg.signals[idxInMsg] = serverSig
-              }
-            }
-          }
-        }
-
-        if (result && result.errors && result.errors.length > 0) {
+        // signal_added 广播会逐个追加信号到 messageCache
+        const created = result?.count || 0
+        if (result?.errors?.length > 0) {
           console.warn('[STORE] batchAddSignals() 部分信号创建失败:', result.errors)
         }
-
         useUiStore().showToast(t('toast.batchCreated', { count: created }))
       } catch (e) {
         useUiStore().showToast(t('toast.batchFailed', { idx: 1, msg: e.message }), true)
-        // 回滚：移除乐观添加的信号
-        const newNames = newSigs.map(s => s.name)
-        msg.signals = msg.signals.filter(s => !newNames.includes(s.name))
-        const msgIdx = this.messages.findIndex(m => m.id === this.selectedMsgId)
-        if (msgIdx >= 0) {
-          this.messages[msgIdx] = { ...this.messages[msgIdx], signal_count: msg.signals.length }
-        }
       } finally {
         this.isLoading = false
       }

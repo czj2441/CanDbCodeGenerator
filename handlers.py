@@ -314,6 +314,7 @@ class EditMessageHandler:
                 {"type": "message_updated", "data": {"message": {
                     "id": msg_id, "id_hex": f"0x{msg_id:X}", "name": updated_msg.name,
                     "dlc": updated_msg.dlc, "cycle_time": updated_msg.cycle_time,
+                    "sender": updated_msg.sender, "comment": updated_msg.comment,
                     "signal_count": len(updated_msg.signals)}},
                  "data_version": new_version},
                 {"type": "status_changed", "data": {"modified": True,
@@ -370,7 +371,9 @@ class AddMessageHandler:
             self._sm.push_undo(sid, {"type": "message_add", "msgId": msg_id, "data": msg.to_dict()})
             new_version = db._bump_version()
             summary = {"id": msg_id, "id_hex": f"0x{msg_id:X}", "name": msg.name,
-                       "dlc": msg.dlc, "cycle_time": msg.cycle_time, "signal_count": len(msg.signals)}
+                       "dlc": msg.dlc, "cycle_time": msg.cycle_time,
+                       "sender": msg.sender, "comment": msg.comment,
+                       "signal_count": len(msg.signals)}
             events = [
                 {"type": "message_added", "data": {"message": summary}, "data_version": new_version},
                 {"type": "status_changed", "data": {"modified": True,
@@ -1021,7 +1024,9 @@ class DuplicateMessageHandler:
             self._sm.push_undo(sid, {"type": "message_add", "msgId": new_id, "data": msg.to_dict()})
             new_version = db._bump_version()
             summary = {"id": new_id, "id_hex": f"0x{new_id:X}", "name": msg.name,
-                       "dlc": msg.dlc, "cycle_time": msg.cycle_time, "signal_count": len(msg.signals)}
+                       "dlc": msg.dlc, "cycle_time": msg.cycle_time,
+                       "sender": msg.sender, "comment": msg.comment,
+                       "signal_count": len(msg.signals)}
             events = [
                 {"type": "message_added", "data": {"message": summary}, "data_version": new_version},
                 {"type": "status_changed", "data": {"modified": True,
