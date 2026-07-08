@@ -418,6 +418,7 @@ class CanDatabase:
             )
             return False, f"Signal out of bounds (DLC={msg.dlc}, max bit={max_bits - 1})", {
                 "type": "out_of_bounds",
+                "error_code": "signal_out_of_bounds",
                 "signal_name": sig.name,
                 "start_bit": sig.start_bit,
                 "length": sig.length,
@@ -441,6 +442,9 @@ class CanDatabase:
                 )
                 return False, f"Signal overlaps with '{existing.name}'", {
                     "type": "overlap",
+                    "error_code": "signal_overlap",
+                    "name": sig.name,
+                    "other": existing.name,
                     "signal_name": sig.name,
                     "conflicts_with": existing.name,
                     "conflicts_uuid": existing.uuid,
