@@ -14,9 +14,8 @@ export const useUiStore = defineStore('ui', {
     // 视图状态
     layoutViewMode: false,
     selectedSignalUuid: null,
-    // 主题与语言
+    // 主题
     theme: localStorage.getItem('canmatrix_theme') || 'dark',
-    locale: localStorage.getItem('canmatrix_locale') || 'zh',
     // 日志面板
     showLogPanel: false,
   }),
@@ -67,17 +66,6 @@ export const useUiStore = defineStore('ui', {
 
     selectLayoutSignal(uuid) {
       this.selectedSignalUuid = this.selectedSignalUuid === uuid ? null : uuid
-    },
-
-    setLocale(locale) {
-      this.locale = locale
-      localStorage.setItem('canmatrix_locale', locale)
-      location.reload()
-    },
-
-    toggleLocale() {
-      const next = this.locale === 'zh' ? 'en' : 'zh'
-      this.setLocale(next)
     },
 
     setLoading(val) {
