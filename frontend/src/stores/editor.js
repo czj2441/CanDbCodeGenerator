@@ -264,6 +264,13 @@ export const useEditorStore = defineStore('editor', {
             this._wsConnected = true
           } else if (status === 'disconnected') {
             this._wsConnected = false
+          } else if (status === 'permanent_failure') {
+            // 4003 session_not_found 等永久性错误：清除 stale sessionId，通知用户
+            this._wsConnected = false
+            setSessionId('')
+            useUiStore().showToast(t('toast.sessionLost') || 'Session lost, please return to file list', true)
+            // 自动返回文件浏览器（与 lock_stolen 行为一致）
+            window.dispatchEvent(new CustomEvent('navigate-browser'))
           }
         }
       })

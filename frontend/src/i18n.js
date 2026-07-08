@@ -47,6 +47,7 @@ const dict = {
     'toast.stealSuccess': '已抢占文件编辑权',
     'toast.stealFailed': '抢占失败',
     'toast.sessionStolen': '该文件已被其他标签页抢占，已自动返回文件列表',
+    'toast.sessionLost': '会话已失效，请返回文件列表重新打开',
     'toast.noEditPermission': '无编辑权限，已在其它标签页打开此文件',
     'toast.filesDeleted': '已删除 {count} 个文件',
     'toast.deleteFailed': '删除失败',

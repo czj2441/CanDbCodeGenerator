@@ -45,7 +45,7 @@ import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useEditorStore } from './stores/editor.js'
 import { useUiStore } from './stores/uiStore.js'
 import { t } from './i18n.js'
-import { getSessionId } from './api/client.js'
+import { getSessionId, setSessionId } from './api/client.js'
 import FileBrowser from './components/FileBrowser.vue'
 import TopBar from './components/TopBar.vue'
 import MessageList from './components/MessageList.vue'
@@ -150,6 +150,7 @@ async function goBack() {
   }
   // 停止 WS 连接
   store.stopEditorSync()
+  setSessionId('')   // 清除已销毁的 session ID，防止幻影恢复
   // 清理编辑器状态
   store.clearUndoStack()
   store.selectedMsgId = null

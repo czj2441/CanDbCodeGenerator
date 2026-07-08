@@ -10,7 +10,6 @@ import threading
 
 import websockets
 
-from models import CanDatabase
 from session_manager import get_session_manager
 from ws_transport import WsTransport, WsDiagnostics
 from ws_router import MessageRouter
@@ -53,30 +52,20 @@ class WsServer:
 
             sm = get_session_manager()
 
-            # ── 首次连接（无 session_id）→ 创建新 session ──
-            if not session_id:
-                session_id = sm.create(file_name="", db=CanDatabase())
-                await ws.send(json.dumps({
-                    "type": "session_created",
-                    "data": {"session_id": session_id}
-                }, ensure_ascii=False))
-                # 继续注册 + full_sync（不 return）
-
             # ── 验证 session ──
-            session = sm.get(session_id)
-            if not session:
-                # 旧 session 已丢失（后端重启/超时清理），创建恢复 session
-                session_id = sm.create(file_name="", db=CanDatabase())
-                await ws.send(json.dumps({
-                    "type": "session_recovered",
-                    "data": {"session_id": session_id, "reason": "session_not_found"}
-                }, ensure_ascii=False))
+            if session_id:
+                session = sm.get(session_id)
+                if not session:
+                    # 旧 session 已丢失（后端重启/超时清理）
+                    # 关闭连接让前端清理状态后重连，不自动创建幻影会话
+                    await ws.close(4003, "session_not_found")
+                    return
 
-            # ── 注册 + full_sync ──
-            self._transport.register(session_id, ws)
-            sm.update_heartbeat(session_id)
-
-            await self._send_full_sync(ws, session_id)
+            # ── 注册 + full_sync（仅有有效 session 时） ──
+            if session_id:
+                self._transport.register(session_id, ws)
+                sm.update_heartbeat(session_id)
+                await self._send_full_sync(ws, session_id)
 
             # ── 消息循环 ──
             async for raw in ws:
