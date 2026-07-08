@@ -8,7 +8,13 @@
     <button class="btn" @click="store.redo()" :disabled="!store.canRedo" title="重做 (Ctrl+Y)">{{ t('topbar.redo') || '重做' }}</button>
     <button class="btn" @click="onNew">{{ t('topbar.new') }}</button>
     <button class="btn" @click="importFile">{{ t('topbar.import') }}</button>
-    <button class="btn btn-accent" @click="exportFile('dbc')">{{ t('topbar.export') }}</button>
+    <div class="export-wrapper" ref="exportWrapper">
+      <button class="btn btn-accent" @click="exportDropdownOpen = !exportDropdownOpen">{{ t('topbar.export') }} ▾</button>
+      <div v-if="exportDropdownOpen" class="export-menu">
+        <button @click="exportFile('dbc'); exportDropdownOpen = false">DBC</button>
+        <button @click="exportFile('properties'); exportDropdownOpen = false">Properties</button>
+      </div>
+    </div>
     <button class="btn" @click="save" :disabled="!store.backendDirty" title="保存 (Ctrl+S)">{{ t('topbar.save') }}</button>
     <span class="topbar-spacer"></span>
     <button class="btn btn-icon" @click="ui.toggleTheme" title="切换主题">{{ ui.theme === 'dark' ? '☀' : '☾' }}</button>
@@ -67,6 +73,23 @@
     </Transition>
   </Teleport>
 
+  <!-- Import Unsaved Changes Dialog -->
+  <Teleport to="body">
+    <Transition name="fade">
+      <div v-if="importDirtyOpen" class="confirm-overlay" @click="importDirtyOpen = false">
+        <div class="confirm-box" @click.stop>
+          <h4>{{ t('topbar.importUnsavedTitle') }}</h4>
+          <p>{{ t('topbar.importUnsavedDesc') }}</p>
+          <div class="confirm-actions">
+            <button class="btn" @click="importDirtyOpen = false">{{ t('topbar.importUnsavedCancel') || '取消' }}</button>
+            <button class="btn" @click="importAfterDiscard">{{ t('topbar.importUnsavedDiscard') || '放弃更改并导入' }}</button>
+            <button class="btn btn-accent" @click="importAfterSave">{{ t('topbar.importUnsavedSave') || '保存后导入' }}</button>
+          </div>
+        </div>
+      </div>
+    </Transition>
+  </Teleport>
+
   <!-- Hidden file input -->
   <input
     ref="fileInput"
@@ -92,6 +115,9 @@ const newSessionName = ref('')
 const fileInput = ref(null)
 const importConfirmOpen = ref(false)
 const pendingFile = ref(null)
+const importDirtyOpen = ref(false)
+const exportDropdownOpen = ref(false)
+const exportWrapper = ref(null)
 
 // 直接使用 store.currentFileName，避免本地 ref 与 store 状态不一致
 function handleKeydown(event) {
@@ -115,12 +141,20 @@ function handleKeydown(event) {
   }
 }
 
+function handleExportClickOutside(e) {
+  if (exportWrapper.value && !exportWrapper.value.contains(e.target)) {
+    exportDropdownOpen.value = false
+  }
+}
+
 onMounted(() => {
   window.addEventListener('keydown', handleKeydown)
+  document.addEventListener('click', handleExportClickOutside)
 })
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown)
+  document.removeEventListener('click', handleExportClickOutside)
 })
 
 watch(() => ui.newConfirmOpen, (open) => { if (open) newSessionName.value = '' })
@@ -149,7 +183,12 @@ function rename(event) {
 }
 
 async function importFile() {
-  // 触发文件选择对话框
+  // 检查是否有未保存的更改
+  if (store.backendDirty) {
+    importDirtyOpen.value = true
+    return
+  }
+  // 无未保存更改 → 直接打开文件选择
   if (fileInput.value) {
     fileInput.value.click()
   }
@@ -190,14 +229,12 @@ async function confirmImport() {
     // 读取文件内容
     const content = await file.text()
     
-    // 通过 WS 导入文件
-    const data = await store._wsRequest('import_file', {
+    // 通过 store action 导入文件（内部处理 session 切换）
+    const data = await store.importFile({
       format: format,
       content: content,
       filename: file.name
     })
-    
-    // full_sync 广播将自动更新所有数据
     
     ui.showToast(`成功导入 ${file.name}（${data.message_count || 0} 个报文）`, false)
   } catch (e) {
@@ -208,9 +245,28 @@ async function confirmImport() {
   }
 }
 
+// “保存后导入”按钮
+async function importAfterSave() {
+  importDirtyOpen.value = false
+  const success = await store.saveSession()
+  if (!success) {
+    ui.showToast('保存失败，导入已取消', true)
+    return
+  }
+  // 保存成功 → 打开文件选择
+  if (fileInput.value) fileInput.value.click()
+}
+
+// “放弃更改并导入”按钮
+function importAfterDiscard() {
+  importDirtyOpen.value = false
+  if (fileInput.value) fileInput.value.click()
+}
+
 async function exportFile(fmt) {
   const ui = useUiStore()
   try {
+    ui.setLoading(true)
     // 先保存当前会话确保数据最新
     await store.saveSession()
     const sid = getSessionId() || ''
@@ -228,10 +284,22 @@ async function exportFile(fmt) {
       return
     }
 
-    // pywebview API 不可用
-    ui.showToast('导出功能仅在桌面版中可用', true)
+    // ── 浏览器模式：WS 获取内容 + Blob 下载 ──
+    const data = await store._wsRequest('download_file', { format: fmt }, 60000)
+    const mimeMap = { dbc: 'application/octet-stream', properties: 'text/plain' }
+    const blob = new Blob([data.content], { type: `${mimeMap[fmt] || 'text/plain'};charset=utf-8` })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = data.filename || `export.${fmt}`
+    document.body.appendChild(a)
+    a.click()
+    setTimeout(() => { URL.revokeObjectURL(url); a.remove() }, 100)
+    ui.showToast(`已导出: ${data.filename}`, false)
   } catch (e) {
     ui.showToast(`导出失败: ${e.message}`, true)
+  } finally {
+    ui.setLoading(false)
   }
 }
 
@@ -386,4 +454,39 @@ async function save() {
 
 .fade-enter-active, .fade-leave-active { transition: opacity 150ms; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
+
+.export-wrapper {
+  position: relative;
+}
+
+.export-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  z-index: 100;
+  min-width: 120px;
+  overflow: hidden;
+}
+
+.export-menu button {
+  display: block;
+  width: 100%;
+  padding: 6px 14px;
+  background: none;
+  border: none;
+  color: var(--text);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.export-menu button:hover {
+  background: var(--bg-hover);
+}
 </style>

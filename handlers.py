@@ -581,61 +581,9 @@ class ImportFileHandler:
                 parsed = json.loads(content)
                 new_db = CanDatabase.from_dict(parsed)
             elif fmt == "dbc":
-                import cantools.database, tempfile
-                with tempfile.NamedTemporaryFile(mode='w', suffix='.dbc', delete=False, encoding='utf-8') as tmp:
-                    tmp.write(content)
-                    tmp_path = tmp.name
-                try:
-                    can_db = cantools.database.load_file(tmp_path)
-                    new_db = CanDatabase(name=filename.replace('.dbc', '') if filename else 'imported_dbc')
-                    for can_msg in can_db.messages:
-                        cycle_time = 0
-                        try:
-                            if can_msg.cycle_time is not None:
-                                cycle_time = int(can_msg.cycle_time)
-                        except Exception:
-                            pass
-                        sender = ""
-                        try:
-                            senders = getattr(can_msg, "senders", None)
-                            if senders and isinstance(senders, list) and len(senders) > 0:
-                                sender = str(senders[0])
-                        except Exception:
-                            pass
-                        msg = Message.from_dict({
-                            "id": can_msg.frame_id, "name": can_msg.name, "dlc": can_msg.length,
-                            "cycle_time": cycle_time, "comment": can_msg.comment or "", "sender": sender,
-                        })
-                        for can_sig in can_msg.signals:
-                            bo = can_sig.byte_order
-                            order_str = bo.name.lower() if hasattr(bo, "name") else str(bo).lower()
-                            if order_str in ("little", "little_endian", "intel"):
-                                order_str = "intel"
-                            elif order_str in ("big", "big_endian", "motorola"):
-                                order_str = "motorola"
-                            mux_mode = "none"
-                            mux_value = 0
-                            if can_sig.is_multiplexer:
-                                mux_mode = "multiplexer"
-                            elif can_sig.multiplexer_ids:
-                                mux_mode = "multiplexed"
-                                mux_value = can_sig.multiplexer_ids[0]
-                            sig = Signal.from_dict({
-                                "name": can_sig.name, "start_bit": can_sig.start, "length": can_sig.length,
-                                "byte_order": order_str, "is_signed": can_sig.is_signed,
-                                "factor": can_sig.scale or 1.0, "offset": can_sig.offset or 0.0,
-                                "min_val": can_sig.minimum or 0.0, "max_val": can_sig.maximum or 0.0,
-                                "unit": can_sig.unit or "", "comment": can_sig.comment or "",
-                                "receivers": can_sig.receivers[:] if can_sig.receivers else [],
-                                "multiplexer_mode": mux_mode, "multiplexer_value": mux_value,
-                            })
-                            msg.signals.append(sig)
-                        new_db.add_message(msg)
-                finally:
-                    try:
-                        os.unlink(tmp_path)
-                    except Exception:
-                        pass
+                new_db = CanDatabase.from_dbc_str(content)
+                if filename:
+                    new_db.name = filename.rsplit('.', 1)[0]
             else:
                 raise HandlerError("VALUE_INVALID", f"Unsupported format: {fmt}")
         except HandlerError:
@@ -643,55 +591,20 @@ class ImportFileHandler:
         except Exception as e:
             raise HandlerError("IMPORT_FAILED", f"Import failed: {e}")
 
-        # 替换当前会话 DB
-        new_sid = sid
-        if sid:
-            s = self._sm.get(sid)
-            if s:
-                s.db = new_db
-                self._sm.save(sid)
-            else:
-                new_sid = self._sm.create(f"{new_db.name}.properties", new_db)
-        else:
-            new_sid = self._sm.create(f"{new_db.name}.properties", new_db)
+        # 始终创建新会话，不替换当前会话的 db，不执行任何保存
+        file_name = f"{new_db.name}.properties"
+        new_sid = self._sm.create(file_name, new_db)
 
         return HandlerResult(
-            data={"message_count": len(new_db.messages), "session_id": new_sid},
+            data={"message_count": len(new_db.messages),
+                  "session_id": new_sid,
+                  "file_name": file_name},
             new_version=0, session_id=sid,
-            new_session_id=new_sid if new_sid != sid else None)
+            new_session_id=new_sid)  # 始终设置，触发 ws_server session 切换
 
 
 # ═══════════════════════════════════════════
-# 13. ExportFileHandler
-# ═══════════════════════════════════════════
-
-class ExportFileHandler:
-    def __init__(self, session_mgr):
-        self._sm = session_mgr
-
-    def __call__(self, data: dict) -> HandlerResult:
-        sid = data.get("session_id", "")
-        session = self._sm.get(sid) if sid else None
-        db = session.db if session else None
-        if not db:
-            raise HandlerError("SESSION_NOT_FOUND", "会话不存在")
-        fmt = data.get("format", "json")
-        try:
-            if fmt == "json":
-                content = json.dumps(db.to_dict(), ensure_ascii=False, indent=2)
-            elif fmt == "properties":
-                content = db.to_properties_str()
-            elif fmt == "dbc":
-                content = db.to_dbc_str()
-            else:
-                raise HandlerError("VALUE_INVALID", f"Unsupported format: {fmt}")
-        except Exception as e:
-            raise HandlerError("EXPORT_FAILED", f"Export failed: {e}")
-        return HandlerResult(data={"content": content, "format": fmt}, session_id=sid)
-
-
-# ═══════════════════════════════════════════
-# 14. DownloadFileHandler
+# 13. DownloadFileHandler
 # ═══════════════════════════════════════════
 
 class DownloadFileHandler:
@@ -713,9 +626,6 @@ class DownloadFileHandler:
             elif fmt == "properties":
                 content = db.to_properties_str()
                 ext = ".properties"
-            elif fmt == "json":
-                content = json.dumps(db.to_dict(), ensure_ascii=False, indent=2)
-                ext = ".json"
             else:
                 raise HandlerError("VALUE_INVALID", f"Unsupported format: {fmt}")
         except Exception as e:

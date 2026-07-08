@@ -17,9 +17,14 @@ const dict = {
     'topbar.newNamePlaceholder': '输入会话名称...',
     'topbar.back': '返回文件列表',
     'topbar.importConfirmTitle': '确认导入',
-    'topbar.importConfirmDesc': '导入将替换当前会话的所有数据，是否继续？',
+    'topbar.importConfirmDesc': '导入将创建新会话，当前会话将保留在历史记录中。',
     'topbar.importConfirmCancel': '取消',
     'topbar.importConfirmImport': '导入',
+    'topbar.importUnsavedTitle': '当前会话有未保存的更改',
+    'topbar.importUnsavedDesc': '导入新文件前，是否先保存当前会话的更改？',
+    'topbar.importUnsavedSave': '保存后导入',
+    'topbar.importUnsavedDiscard': '放弃更改并导入',
+    'topbar.importUnsavedCancel': '取消',
 
     // FileBrowser
     'browser.title': '选择文件',

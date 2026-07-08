@@ -572,7 +572,7 @@ def main() -> None:
         EditSignalHandler, AddSignalHandler, DeleteSignalHandler, BatchAddSignalsHandler,
         EditMessageHandler, AddMessageHandler, DeleteMessageHandler, DuplicateMessageHandler,
         UndoHandler, RedoHandler, SaveHandler, NewFileHandler, ImportFileHandler,
-        ExportFileHandler, DownloadFileHandler, CreateSessionHandler, LoadSessionHandler,
+        DownloadFileHandler, CreateSessionHandler, LoadSessionHandler,
         RenameSessionHandler, DeleteSessionHandler, GetSessionsHandler, ReleaseLockHandler,
         StealLockHandler, GetSummaryHandler, GetSessionInfoHandler, GetMessageHandler,
         GetSignalErrorsHandler, GetStatusHandler, GetMessagesHandler,
@@ -596,7 +596,6 @@ def main() -> None:
     ws_router.register("save", SaveHandler(SESSION_MGR))
     ws_router.register("new_file", NewFileHandler(SESSION_MGR))
     ws_router.register("import_file", ImportFileHandler(SESSION_MGR))
-    ws_router.register("export_file", ExportFileHandler(SESSION_MGR))
     ws_router.register("download_file", DownloadFileHandler(SESSION_MGR))
     ws_router.register("create_session", CreateSessionHandler(SESSION_MGR))
     ws_router.register("load_session", LoadSessionHandler(SESSION_MGR))
@@ -741,7 +740,7 @@ def start_server_background(port: int = 8080) -> "BackgroundServer":
         EditSignalHandler, AddSignalHandler, DeleteSignalHandler, BatchAddSignalsHandler,
         EditMessageHandler, AddMessageHandler, DeleteMessageHandler, DuplicateMessageHandler,
         UndoHandler, RedoHandler, SaveHandler, NewFileHandler, ImportFileHandler,
-        ExportFileHandler, DownloadFileHandler, CreateSessionHandler, LoadSessionHandler,
+        DownloadFileHandler, CreateSessionHandler, LoadSessionHandler,
         RenameSessionHandler, DeleteSessionHandler, GetSessionsHandler, ReleaseLockHandler,
         StealLockHandler, GetSummaryHandler, GetSessionInfoHandler, GetMessageHandler,
         GetSignalErrorsHandler, GetStatusHandler, GetMessagesHandler,
@@ -762,7 +761,6 @@ def start_server_background(port: int = 8080) -> "BackgroundServer":
     ws_router.register("save", SaveHandler(SESSION_MGR))
     ws_router.register("new_file", NewFileHandler(SESSION_MGR))
     ws_router.register("import_file", ImportFileHandler(SESSION_MGR))
-    ws_router.register("export_file", ExportFileHandler(SESSION_MGR))
     ws_router.register("download_file", DownloadFileHandler(SESSION_MGR))
     ws_router.register("create_session", CreateSessionHandler(SESSION_MGR))
     ws_router.register("load_session", LoadSessionHandler(SESSION_MGR))

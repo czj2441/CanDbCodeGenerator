@@ -1028,6 +1028,49 @@ export const useEditorStore = defineStore('editor', {
     },
 
     /**
+     * 导入文件到新会话
+     * 复用 createNewSession 的 WS 切换模式
+     */
+    async importFile({ format, content, filename }) {
+      // 重置编辑状态
+      this.selectedMsgId = null
+      this.messageCache = {}
+      this.messages = []
+      _lastGeneratedMsgId = null
+      this.signalErrors = []
+      this._localDirty = false
+      this._defaultSignalLength = 8
+      this._dataVersion = 0
+      this.clearUndoStack()
+      this.isLoading = true
+
+      try {
+        // 停止旧 WS，启动新 WS
+        this.stopEditorSync()
+        this.startEditorSync()
+        await this._waitForWsReady()
+
+        // 发送 import_file 请求
+        const data = await this._wsRequest('import_file', {
+          format, content, filename
+        }, 60000)
+
+        // 切换到新 session
+        const sid = data.session_id
+        setSessionId(sid)
+        this.currentFileName = data.file_name || filename
+        this._dataVersion = 0
+
+        return data
+      } catch (e) {
+        useUiStore().showToast(e.message, true)
+        throw e
+      } finally {
+        this.isLoading = false
+      }
+    },
+
+    /**
      * 新建文件（从 FileBrowser 调用）
      * 与 createNewSession 类似，但不显示 Toast（由 FileBrowser 处理）
      */

@@ -770,29 +770,57 @@ class CanDatabase:
         db = cls(name="Imported from DBC")
         
         for can_msg in can_db.messages:
+            cycle_time = 0
+            try:
+                if can_msg.cycle_time is not None:
+                    cycle_time = int(can_msg.cycle_time)
+            except Exception:
+                pass
+            sender = ""
+            try:
+                senders = getattr(can_msg, "senders", None)
+                if senders and isinstance(senders, list) and len(senders) > 0:
+                    sender = str(senders[0])
+            except Exception:
+                pass
             msg = Message.from_dict({
                 "id": can_msg.frame_id,
                 "name": can_msg.name,
                 "dlc": can_msg.length,
-                "cycle_time": can_msg.cycle_time if can_msg.cycle_time else 0,
+                "cycle_time": cycle_time,
                 "comment": str(can_msg.comment) if can_msg.comment else "",
-                "sender": can_msg.senders[0] if can_msg.senders else "",
+                "sender": sender,
             })
             
             for can_sig in can_msg.signals:
+                bo = can_sig.byte_order
+                order_str = bo.name.lower() if hasattr(bo, "name") else str(bo).lower()
+                if order_str in ("little", "little_endian", "intel"):
+                    order_str = "intel"
+                elif order_str in ("big", "big_endian", "motorola"):
+                    order_str = "motorola"
+                mux_mode = "none"
+                mux_value = 0
+                if can_sig.is_multiplexer:
+                    mux_mode = "multiplexer"
+                elif can_sig.multiplexer_ids:
+                    mux_mode = "multiplexed"
+                    mux_value = can_sig.multiplexer_ids[0]
                 sig = Signal.from_dict({
                     "name": can_sig.name,
                     "start_bit": can_sig.start,
                     "length": can_sig.length,
-                    "byte_order": "motorola" if can_sig.byte_order == "big_endian" else "intel",
+                    "byte_order": order_str,
                     "is_signed": can_sig.is_signed,
                     "factor": float(can_sig.scale) if hasattr(can_sig, 'scale') else 1.0,
                     "offset": float(can_sig.offset) if hasattr(can_sig, 'offset') else 0.0,
+                    "min_val": can_sig.minimum or 0.0,
+                    "max_val": can_sig.maximum or 0.0,
                     "unit": str(can_sig.unit) if can_sig.unit else "",
                     "comment": str(can_sig.comment) if can_sig.comment else "",
                     "receivers": list(can_sig.receivers) if can_sig.receivers else [],
-                    "multiplexer_mode": "multiplexer" if can_sig.is_multiplexer else "none",
-                    "multiplexer_value": can_sig.multiplexer_ids[0] if can_sig.multiplexer_ids else 0,
+                    "multiplexer_mode": mux_mode,
+                    "multiplexer_value": mux_value,
                 })
                 msg.signals.append(sig)
             
