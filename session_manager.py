@@ -240,12 +240,17 @@ class SessionManager:
                     os.remove(new_path)
                 except OSError:
                     pass
+            rename_ok = False
             if os.path.isfile(old_path):
                 try:
                     os.rename(old_path, new_path)
+                    rename_ok = True
                 except OSError:
-                    # 移动失败，仍然尝试在新路径写入
-                    pass
+                    # 移动失败，回滚到旧路径
+                    session.file_path = old_path
+                    self._register_active(session_id, old_path)
+                    return False
+            # rename 成功，更新路径和活跃文件追踪
             session.file_path = new_path
             self._register_active(session_id, new_path)
 
