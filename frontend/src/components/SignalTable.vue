@@ -157,7 +157,7 @@ onMounted(() => window.addEventListener('keydown', onKeyDown))
 onUnmounted(() => window.removeEventListener('keydown', onKeyDown))
 
 function addSignal() {
-  store.addSignal({ name: 'NewSignal' })
+  store.addSignal({})
 }
 
 function update(idx, field, value) {

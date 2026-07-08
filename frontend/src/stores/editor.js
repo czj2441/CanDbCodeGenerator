@@ -146,6 +146,23 @@ function _generateMessageId(messages) {
   return _lastGeneratedMsgId
 }
 
+/**
+ * 生成唯一信号名：扫描已有信号名，提取同名前缀的最大数字后缀并 +1。
+ * 例：已有 NewSignal, NewSignal2 → 返回 NewSignal3
+ */
+function _generateSignalName(signals, baseName = 'NewSignal') {
+  const existingNames = new Set(signals.map(s => s.name))
+  if (!existingNames.has(baseName)) return baseName
+  let maxSuffix = 1
+  const escaped = baseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const pattern = new RegExp(`^${escaped}(\\d+)$`)
+  for (const name of existingNames) {
+    const m = name.match(pattern)
+    if (m) maxSuffix = Math.max(maxSuffix, parseInt(m[1], 10))
+  }
+  return `${baseName}${maxSuffix + 1}`
+}
+
 export const useEditorStore = defineStore('editor', {
   state: () => ({
     // ── 核心数据 ──
@@ -746,10 +763,15 @@ export const useEditorStore = defineStore('editor', {
         if (available != null) defaultStartBit = available
       }
 
+      // 从 signalData 中提取 name（如有），以 baseName 做去重递增
+      const { name: reqName, ...restSignalData } = signalData || {}
+      const baseName = reqName || 'NewSignal'
+      const uniqueName = _generateSignalName(msg.signals, baseName)
+
       const fullData = {
-        name: 'NewSignal', start_bit: defaultStartBit, length: this._defaultSignalLength,
+        name: uniqueName, start_bit: defaultStartBit, length: this._defaultSignalLength,
         byte_order: 'motorola', factor: 1.0, offset: 0.0, min_val: 0.0, max_val: 0.0,
-        unit: '', comment: '', ...signalData,
+        unit: '', comment: '', ...restSignalData,
       }
 
       this._localDirty = true
