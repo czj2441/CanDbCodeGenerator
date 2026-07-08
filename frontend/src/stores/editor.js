@@ -243,6 +243,14 @@ export const useEditorStore = defineStore('editor', {
     },
 
     /**
+     * 会话创建/加载失败时清理资源，防止 WS 连接和定时器泄漏。
+     */
+    _resetOnSessionFailure() {
+      this.stopEditorSync()
+      setSessionId('')
+    },
+
+    /**
      * 建立 WebSocket 连接
      */
     _connectWebSocket() {
@@ -986,6 +994,7 @@ export const useEditorStore = defineStore('editor', {
         this.currentFileName = data.file_name || ''
         useUiStore().showToast(t('toast.sessionLoaded'))
       } catch (e) {
+        this._resetOnSessionFailure()
         if (e.code === 'FILE_LOCKED') {
           e.message = t('toast.noEditPermission')
         } else {
@@ -1030,6 +1039,7 @@ export const useEditorStore = defineStore('editor', {
         this.clearUndoStack()
         useUiStore().showToast(t('toast.newSessionCreated'))
       } catch (e) {
+        this._resetOnSessionFailure()
         useUiStore().showToast(e.message, true)
       }
     },
@@ -1070,6 +1080,7 @@ export const useEditorStore = defineStore('editor', {
 
         return data
       } catch (e) {
+        this._resetOnSessionFailure()
         useUiStore().showToast(e.message, true)
         throw e
       } finally {
@@ -1085,22 +1096,27 @@ export const useEditorStore = defineStore('editor', {
       // 先停止旧 WS 连接，再启动新连接
       this.stopEditorSync()
       this.startEditorSync()
-      await this._waitForWsReady()
+      try {
+        await this._waitForWsReady()
 
-      const data = await this._wsRequest('new_file', { name })
-      const sid = data.session_id
-      setSessionId(sid)
-      this.currentFileName = data.file_name
-      this.selectedMsgId = null
-      this.messageCache = {}
-      this.messages = []
-      _lastGeneratedMsgId = null  // 会话切换后重置 ID 生成器基线
-      this.signalErrors = []
-      this._localDirty = false
-      this._defaultSignalLength = 8
-      this._dataVersion = 0
-      this.clearUndoStack()
-      return sid
+        const data = await this._wsRequest('new_file', { name })
+        const sid = data.session_id
+        setSessionId(sid)
+        this.currentFileName = data.file_name
+        this.selectedMsgId = null
+        this.messageCache = {}
+        this.messages = []
+        _lastGeneratedMsgId = null  // 会话切换后重置 ID 生成器基线
+        this.signalErrors = []
+        this._localDirty = false
+        this._defaultSignalLength = 8
+        this._dataVersion = 0
+        this.clearUndoStack()
+        return sid
+      } catch (e) {
+        this._resetOnSessionFailure()
+        throw e
+      }
     },
 
     /**
