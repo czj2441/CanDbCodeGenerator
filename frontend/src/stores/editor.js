@@ -129,6 +129,23 @@ function findNextAvailableStartBit(signals, dlc, length, byteOrder) {
   return null
 }
 
+// ── 报文 ID 生成器（模块级，同步递增避免异步竞争） ──
+// 优先基于最后一次新增的报文 ID 递增；默认起始值 0x300
+let _lastGeneratedMsgId = null
+
+function _generateMessageId(messages) {
+  if (_lastGeneratedMsgId != null) {
+    // 有历史记录：基于最后一次新增的 ID +1
+    _lastGeneratedMsgId += 1
+  } else {
+    // 首次生成：取已有报文最大 ID +1，或默认 0x300
+    _lastGeneratedMsgId = messages.length > 0
+      ? Math.max(...messages.map(m => m.id)) + 1
+      : 0x300
+  }
+  return _lastGeneratedMsgId
+}
+
 export const useEditorStore = defineStore('editor', {
   state: () => ({
     // ── 核心数据 ──
@@ -309,6 +326,7 @@ export const useEditorStore = defineStore('editor', {
           }
 
           this.messages = d.messages || []
+          _lastGeneratedMsgId = null  // 会话切换后重置 ID 生成器基线
           if (d.status) {
             this.backendDirty = d.status.modified || false
             this.undoCount = d.status.undo_count || 0
@@ -637,8 +655,8 @@ export const useEditorStore = defineStore('editor', {
      * @returns {Promise<void>}
      */
     async addMessage() {
-      const id = 0x300 + this.messages.length
-      const name = `NewMessage${this.messages.length + 1}`
+      const id = _generateMessageId(this.messages)
+      const name = `NewMessage${id - 0x300 + 1}`
       this._localDirty = true
 
       try {
@@ -701,7 +719,6 @@ export const useEditorStore = defineStore('editor', {
         if (result) {
           this.messageCache[this.selectedMsgId] = result
         }
-        this.loadSignalErrors()
       } catch (e) {
         if (!e.message?.includes?.('Connection lost')) {
           useUiStore().showToast(_translateError(e), true)
@@ -911,6 +928,7 @@ export const useEditorStore = defineStore('editor', {
       this.selectedMsgId = null
       this.messageCache = {}
       this.messages = []
+      _lastGeneratedMsgId = null  // 会话切换后重置 ID 生成器基线
       this.signalErrors = []
       this._localDirty = false
       this._defaultSignalLength = 8
@@ -975,6 +993,7 @@ export const useEditorStore = defineStore('editor', {
         this.selectedMsgId = null
         this.messageCache = {}
         this.messages = []
+        _lastGeneratedMsgId = null  // 会话切换后重置 ID 生成器基线
         this.signalErrors = []
         this._localDirty = false
         this._defaultSignalLength = 8
@@ -1003,6 +1022,7 @@ export const useEditorStore = defineStore('editor', {
       this.selectedMsgId = null
       this.messageCache = {}
       this.messages = []
+      _lastGeneratedMsgId = null  // 会话切换后重置 ID 生成器基线
       this.signalErrors = []
       this._localDirty = false
       this._defaultSignalLength = 8
@@ -1076,14 +1096,11 @@ export const useEditorStore = defineStore('editor', {
     async pasteMessage() {
       if (!this.clipboard || this.clipboard.type !== 'message') return
       const msg = JSON.parse(JSON.stringify(this.clipboard.data))
-      const maxId = this.messages.length > 0
-        ? Math.max(...this.messages.map(m => m.id)) + 0x10
-        : msg.id + 0x10
-      msg.id = maxId
+      msg.id = _generateMessageId(this.messages)
       msg.name = (msg.name || 'PastedMsg') + '_copy'
       try {
         await this._wsRequest('add_message', { message: msg })
-        this.selectedMsgId = maxId
+        this.selectedMsgId = msg.id
         useUiStore().showToast(t('toast.messagePasted'))
       } catch (e) {
         useUiStore().showToast(e.message, true)
@@ -1093,9 +1110,7 @@ export const useEditorStore = defineStore('editor', {
     async duplicateMessage() {
       const orig = this.selectedMessage
       if (!orig) return
-      const maxId = this.messages.length > 0
-        ? Math.max(...this.messages.map(m => m.id)) + 0x10
-        : orig.id + 0x10
+      const maxId = _generateMessageId(this.messages)
       try {
         await this._wsRequest('duplicate_message', { msg_id: orig.id, new_id: maxId })
         this.selectedMsgId = maxId

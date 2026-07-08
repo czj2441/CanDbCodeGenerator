@@ -321,10 +321,12 @@ class EditMessageHandler:
                  "undo_count": len(session.undo_stack), "redo_count": len(session.redo_stack)},
                  "data_version": new_version},
             ]
-            # 信号错误可能因 DLC 变化而改变
-            errs = db.validate_all_signals(msg_id)
-            events.append({"type": "signal_errors_changed", "data": {"msg_id": msg_id, "errors": errs},
-                           "data_version": new_version})
+            # 仅 DLC 变更会影响信号位布局（越界/重叠），其他字段(name/sender/comment/cycle_time)无影响
+            if 'dlc' in fields:
+                errs = db.validate_all_signals(msg_id)
+                events.append({"type": "signal_errors_changed",
+                               "data": {"msg_id": msg_id, "errors": errs},
+                               "data_version": new_version})
             return HandlerResult(data=updated_msg.to_dict(), events=events,
                                  new_version=new_version, session_id=sid)
 
