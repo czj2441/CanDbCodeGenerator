@@ -37,6 +37,7 @@ else:
     DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 HEARTBEAT_TIMEOUT = 30       # 30 秒无心跳则视为离线，自动释放文件锁
 HEARTBEAT_CHECK_INTERVAL = 30  # 每 30 秒检查一次心跳超时
+MAX_ORPHAN_STACKS = 20         # 孤儿撤销栈最大保留数量（LRU 淘汰）
 
 
 class Session:
@@ -695,6 +696,10 @@ class SessionManager:
         self._unregister_active(session_id)
         self._heartbeats.pop(session_id, None)
         # 不删除磁盘文件（用户数据保留），仅清理内存
+        # LRU 淘汰：保留最近的 MAX_ORPHAN_STACKS 个孤儿栈
+        while len(self._orphan_stacks) > MAX_ORPHAN_STACKS:
+            oldest_key = next(iter(self._orphan_stacks))
+            self._orphan_stacks.pop(oldest_key)
         return True
 
     # ── 活跃文件锁管理 ──
