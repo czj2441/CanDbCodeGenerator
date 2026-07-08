@@ -313,7 +313,7 @@ html, body {
 
 <div class="topbar">
   <div class="topbar-logo">Can<span>Matrix</span></div>
-  <input class="topbar-filename" value="untitled.canmatrix" spellcheck="false" id="filename">
+  <input class="topbar-filename" value="untitled.properties" spellcheck="false" id="filename">
   <span class="topbar-spacer"></span>
   <button class="btn" onclick="doNew()" title="新建">New</button>
   <button class="btn" onclick="doImport()" title="导入">Import</button>
@@ -888,7 +888,7 @@ async function doNew() {
 async function doImport() {
   const input = document.createElement('input');
   input.type = 'file';
-  input.accept = '.canmatrix,.toml,.json';
+  input.accept = '.properties,.json';
   input.onchange = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -897,7 +897,7 @@ async function doImport() {
       const content = await file.text();
       const dbName = file.name.replace(/\.[^.]+$/, '');
       let format = 'json';
-      if (file.name.endsWith('.toml')) format = 'toml';
+      if (file.name.endsWith('.properties')) format = 'properties';
 
       // Create session first, then import content into it
       const sessionData = await api('POST', '/api/session', { name: dbName });
@@ -924,11 +924,11 @@ async function doExport(format) {
   try {
     const data = await api('POST', '/api/export', { format });
     const mime = format === 'dbc' ? 'text/plain'
-      : format === 'toml' ? 'text/plain'
+      : format === 'properties' ? 'text/plain'
       : 'application/json';
     const ext = format === 'dbc' ? '.dbc'
-      : format === 'toml' ? '.toml'
-      : '.canmatrix';
+      : format === 'properties' ? '.properties'
+      : '.properties';
     const blob = new Blob([data.content], { type: mime });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');

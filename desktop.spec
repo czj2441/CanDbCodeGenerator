@@ -23,7 +23,7 @@ a = Analysis(
     hiddenimports=[
         'cantools',
         'cantools.database',
-        'toml',
+        'javaproperties',
         'webview',
         'websockets',
         'models',
@@ -37,7 +37,7 @@ a = Analysis(
         'core.can_database',
         'core.dbc_io',
         'core.json_io',
-        'core.toml_io',
+        'core.properties_io',
         'core.xml_io',
     ],
     hookspath=[],

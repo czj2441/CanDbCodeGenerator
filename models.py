@@ -7,7 +7,7 @@
   - 使用 dataclass 简化数据对象定义
   - CanDatabase 包含完整的 CRUD、序列化、验证逻辑
   - 线程安全（使用 RLock 保护所有修改操作）
-  - 支持 DBC/TOML/JSON/XML 多种格式
+  - 支持 DBC/Properties/JSON/XML 多种格式
 """
 
 from __future__ import annotations
@@ -525,8 +525,8 @@ class CanDatabase:
         """JSON 反序列化。"""
         return cls.from_dict(data)
 
-    def to_toml_dict(self) -> dict[str, Any]:
-        """TOML 友好的字典结构。"""
+    def to_flat_dict(self) -> dict[str, Any]:
+        """扁平字典结构（供 XML 等格式复用）。"""
         with self.__lock:
             return {
                 "database": {"name": self.name},
@@ -537,8 +537,8 @@ class CanDatabase:
             }
 
     @classmethod
-    def from_toml_dict(cls, data: dict[str, Any]) -> CanDatabase:
-        """从 TOML 字典创建。"""
+    def from_flat_dict(cls, data: dict[str, Any]) -> CanDatabase:
+        """从扁平字典创建。"""
         db_info = data.get("database", {})
         db = cls(name=str(db_info.get("name", "Untitled")))
         for msg_data in data.get("messages", []):
@@ -546,113 +546,163 @@ class CanDatabase:
             db.messages[msg.id] = msg
         return db
 
-    def to_toml_str(self) -> str:
-        """序列化为 TOML 字符串（纯 dotted keys 格式，零 table/section）。"""
-        import tomlkit
+    def to_properties_str(self) -> str:
+        """序列化为 Java Properties 字符串（O(n) 线性性能）。"""
+        import json as _json
+        import javaproperties
 
         with self.__lock:
-            doc = tomlkit.document()
-            doc.add(tomlkit.comment("CanMatrix Editor - CAN Database Definition"))
-            doc.add(tomlkit.nl())
-
-            # database.name = "..."
-            doc.add(tomlkit.key(["database", "name"]), self.name)
-            doc.add(tomlkit.nl())
+            props: dict[str, str] = {}
+            props["database.name"] = self.name
 
             for mid in sorted(self.messages):
                 msg = self.messages[mid]
                 mid_key = f"0x{mid:X}"
-                mp = ["messages", mid_key]  # message prefix
+                mp = f"messages.{mid_key}"
 
-                doc.add(tomlkit.key(mp + ["name"]), msg.name)
-                doc.add(tomlkit.key(mp + ["dlc"]), msg.dlc)
-                doc.add(tomlkit.key(mp + ["cycle_time"]), msg.cycle_time)
+                props[f"{mp}.name"] = msg.name
+                props[f"{mp}.dlc"] = str(msg.dlc)
+                props[f"{mp}.cycle_time"] = str(msg.cycle_time)
                 if msg.sender:
-                    doc.add(tomlkit.key(mp + ["sender"]), msg.sender)
+                    props[f"{mp}.sender"] = msg.sender
                 if msg.comment:
-                    doc.add(tomlkit.key(mp + ["comment"]), msg.comment)
+                    props[f"{mp}.comment"] = msg.comment
 
                 if msg.signals:
-                    doc.add(tomlkit.nl())
                     seen: set[str] = set()
                     for sig in msg.signals:
                         sig_key = _make_signal_key(sig, seen)
-                        sp = mp + ["signals", sig_key]  # signal prefix
+                        sp = f"{mp}.signals.{sig_key}"
 
-                        doc.add(tomlkit.key(sp + ["uuid"]), sig.uuid)
-                        doc.add(tomlkit.key(sp + ["name"]), sig.name)
-                        doc.add(tomlkit.key(sp + ["start_bit"]), sig.start_bit)
-                        doc.add(tomlkit.key(sp + ["length"]), sig.length)
-                        doc.add(tomlkit.key(sp + ["byte_order"]), sig.byte_order)
+                        props[f"{sp}.uuid"] = sig.uuid
+                        props[f"{sp}.name"] = sig.name
+                        props[f"{sp}.start_bit"] = str(sig.start_bit)
+                        props[f"{sp}.length"] = str(sig.length)
+                        props[f"{sp}.byte_order"] = sig.byte_order
 
                         if sig.is_signed != _SIGNAL_DEFAULTS["is_signed"]:
-                            doc.add(tomlkit.key(sp + ["is_signed"]), sig.is_signed)
+                            props[f"{sp}.is_signed"] = str(sig.is_signed).lower()
                         if sig.factor != _SIGNAL_DEFAULTS["factor"]:
-                            doc.add(tomlkit.key(sp + ["factor"]), sig.factor)
+                            props[f"{sp}.factor"] = repr(sig.factor)
                         if sig.offset != _SIGNAL_DEFAULTS["offset"]:
-                            doc.add(tomlkit.key(sp + ["offset"]), sig.offset)
+                            props[f"{sp}.offset"] = repr(sig.offset)
                         if sig.min_val != _SIGNAL_DEFAULTS["min_val"]:
-                            doc.add(tomlkit.key(sp + ["min_val"]), sig.min_val)
+                            props[f"{sp}.min_val"] = repr(sig.min_val)
                         if sig.max_val != _SIGNAL_DEFAULTS["max_val"]:
-                            doc.add(tomlkit.key(sp + ["max_val"]), sig.max_val)
+                            props[f"{sp}.max_val"] = repr(sig.max_val)
                         if sig.unit:
-                            doc.add(tomlkit.key(sp + ["unit"]), sig.unit)
+                            props[f"{sp}.unit"] = sig.unit
                         if sig.comment:
-                            doc.add(tomlkit.key(sp + ["comment"]), sig.comment)
+                            props[f"{sp}.comment"] = sig.comment
                         if sig.receivers:
-                            doc.add(tomlkit.key(sp + ["receivers"]), sig.receivers[:])
+                            props[f"{sp}.receivers"] = _json.dumps(sig.receivers)
                         if sig.multiplexer_mode != _SIGNAL_DEFAULTS["multiplexer_mode"]:
-                            doc.add(tomlkit.key(sp + ["multiplexer_mode"]), sig.multiplexer_mode)
+                            props[f"{sp}.multiplexer_mode"] = sig.multiplexer_mode
                             if sig.multiplexer_mode == "multiplexed":
-                                doc.add(tomlkit.key(sp + ["multiplexer_value"]), sig.multiplexer_value)
+                                props[f"{sp}.multiplexer_value"] = str(sig.multiplexer_value)
 
-                doc.add(tomlkit.nl())
-
-            return doc.as_string()
+            return javaproperties.dumps(
+                props,
+                comments="CanMatrix Editor - CAN Database Definition",
+                timestamp=False,
+                ensure_ascii=False,
+            )
 
     @classmethod
-    def from_toml_str(cls, content: str) -> CanDatabase:
-        """从 TOML 字符串创建（纯 dotted keys 格式）。"""
-        import tomlkit
+    def from_properties_str(cls, content: str) -> CanDatabase:
+        """从 Java Properties 字符串创建（O(n) 性能）。"""
+        import json as _json
+        import javaproperties
 
-        data = tomlkit.parse(content)
-        db_section = data.get("database", {})
-        db_name = str(db_section.get("name", "Untitled")) if isinstance(db_section, dict) else "Untitled"
+        props = javaproperties.loads(content)
+        db_name = props.get("database.name", "Untitled")
         db = cls(name=db_name)
-        messages = data.get("messages", {})
-        if not isinstance(messages, dict):
-            return db
-        for mid_key, msg_data in messages.items():
-            if not isinstance(msg_data, dict):
+
+        # 按 dotted key 重建层次结构
+        # messages.{mid_key}.{field} 和 messages.{mid_key}.signals.{sig_key}.{field}
+        messages_data: dict[str, dict] = {}  # mid_key -> {field: value, "signals": {sig_key: {field: value}}}
+
+        for key, value in props.items():
+            if not key.startswith("messages."):
                 continue
+            rest = key[len("messages."):]
+            parts = rest.split(".", 1)
+            if len(parts) < 2:
+                continue
+            mid_key, field_path = parts
+
+            if mid_key not in messages_data:
+                messages_data[mid_key] = {"signals": {}}
+            msg_d = messages_data[mid_key]
+
+            if not field_path.startswith("signals."):
+                # 报文级字段: messages.0x300.name
+                msg_d[field_path] = value
+            else:
+                # 信号级字段: messages.0x300.signals.Sig_1.uuid
+                sig_rest = field_path[len("signals."):]
+                sig_parts = sig_rest.split(".", 1)
+                if len(sig_parts) == 2:
+                    sig_key, sig_field = sig_parts
+                    if sig_key not in msg_d["signals"]:
+                        msg_d["signals"][sig_key] = {}
+                    msg_d["signals"][sig_key][sig_field] = value
+
+        for mid_key, msg_d in messages_data.items():
             try:
-                mid = int(mid_key, 16) if isinstance(mid_key, str) and mid_key.startswith("0x") else int(mid_key)
+                mid = int(mid_key, 16) if mid_key.startswith("0x") else int(mid_key)
             except (ValueError, TypeError):
                 continue
+
             msg = Message(
                 id=mid,
-                name=str(msg_data.get("name", "")),
-                dlc=int(msg_data.get("dlc", 8)),
-                cycle_time=int(msg_data.get("cycle_time", 0)),
-                sender=str(msg_data.get("sender", "")),
-                comment=str(msg_data.get("comment", "")),
+                name=msg_d.get("name", ""),
+                dlc=int(msg_d.get("dlc", 8)),
+                cycle_time=int(msg_d.get("cycle_time", 0)),
+                sender=msg_d.get("sender", ""),
+                comment=msg_d.get("comment", ""),
             )
-            signals_data = msg_data.get("signals", {})
-            if isinstance(signals_data, dict):
-                for _sig_key, sig_data in signals_data.items():
-                    if isinstance(sig_data, dict):
-                        msg.signals.append(Signal.from_dict(sig_data))
+
+            for _sig_key, sig_d in msg_d.get("signals", {}).items():
+                # receivers: JSON 数组字符串 → list
+                receivers_raw = sig_d.get("receivers", "")
+                if receivers_raw:
+                    try:
+                        receivers = _json.loads(receivers_raw)
+                    except (ValueError, TypeError):
+                        receivers = []
+                else:
+                    receivers = []
+
+                msg.signals.append(Signal.from_dict({
+                    "uuid": sig_d.get("uuid", ""),
+                    "name": sig_d.get("name", ""),
+                    "start_bit": int(sig_d.get("start_bit", 0)),
+                    "length": int(sig_d.get("length", 8)),
+                    "byte_order": sig_d.get("byte_order", "motorola"),
+                    "is_signed": sig_d.get("is_signed", "false").lower() == "true",
+                    "factor": float(sig_d.get("factor", 1.0)),
+                    "offset": float(sig_d.get("offset", 0.0)),
+                    "min_val": float(sig_d.get("min_val", 0.0)),
+                    "max_val": float(sig_d.get("max_val", 0.0)),
+                    "unit": sig_d.get("unit", ""),
+                    "comment": sig_d.get("comment", ""),
+                    "receivers": receivers,
+                    "multiplexer_mode": sig_d.get("multiplexer_mode", "none"),
+                    "multiplexer_value": int(sig_d.get("multiplexer_value", 0)),
+                }))
+
             db.messages[mid] = msg
         return db
 
     def to_xml_dict(self) -> dict[str, Any]:
         """XML 友好的字典结构。"""
-        return self.to_toml_dict()
+        return self.to_flat_dict()
 
     @classmethod
     def from_xml_dict(cls, data: dict[str, Any]) -> CanDatabase:
         """从 XML 字典创建。"""
-        return cls.from_toml_dict(data)
+        return cls.from_flat_dict(data)
 
     # ── DBC 序列化 ─────────────────────────────────────────────────────
 
@@ -754,7 +804,7 @@ class CanDatabase:
 
 
 # ---------------------------------------------------------------------------
-# 信号默认值表（用于 TOML 序列化时省略默认值）
+# 信号默认值表（用于 Properties 序列化时省略默认值）
 # ---------------------------------------------------------------------------
 
 _SIGNAL_DEFAULTS = {
@@ -777,11 +827,11 @@ _SIGNAL_DEFAULTS = {
 
 
 # ---------------------------------------------------------------------------
-# TOML dotted keys 辅助函数
+# Properties dotted keys 辅助函数
 # ---------------------------------------------------------------------------
 
 def _make_signal_key(sig: Signal, seen: set[str]) -> str:
-    """为信号生成唯一 TOML key。优先用 name，空名/重名时回退到 uuid。"""
+    """为信号生成唯一 Properties key。优先用 name，空名/重名时回退到 uuid。"""
     name = sig.name.strip() if sig.name else ""
     if name and name not in seen:
         seen.add(name)

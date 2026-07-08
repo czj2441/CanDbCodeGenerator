@@ -553,10 +553,10 @@ class NewFileHandler:
             except Exception:
                 pass
         new_db = CanDatabase(name)
-        file_name = f"{name}.toml"
+        file_name = f"{name}.properties"
         new_sid = self._sm.create(file_name, new_db)
         return HandlerResult(
-            data={"name": new_db.name, "session_id": new_sid},
+            data={"name": new_db.name, "file_name": file_name, "session_id": new_sid},
             new_version=0, session_id=sid, new_session_id=new_sid)
 
 
@@ -575,8 +575,8 @@ class ImportFileHandler:
         filename = data.get("filename", "")
 
         try:
-            if fmt == "toml":
-                new_db = CanDatabase.from_toml_str(content)
+            if fmt == "properties":
+                new_db = CanDatabase.from_properties_str(content)
             elif fmt == "json":
                 parsed = json.loads(content)
                 new_db = CanDatabase.from_dict(parsed)
@@ -651,9 +651,9 @@ class ImportFileHandler:
                 s.db = new_db
                 self._sm.save(sid)
             else:
-                new_sid = self._sm.create(f"{new_db.name}.toml", new_db)
+                new_sid = self._sm.create(f"{new_db.name}.properties", new_db)
         else:
-            new_sid = self._sm.create(f"{new_db.name}.toml", new_db)
+            new_sid = self._sm.create(f"{new_db.name}.properties", new_db)
 
         return HandlerResult(
             data={"message_count": len(new_db.messages), "session_id": new_sid},
@@ -679,8 +679,8 @@ class ExportFileHandler:
         try:
             if fmt == "json":
                 content = json.dumps(db.to_dict(), ensure_ascii=False, indent=2)
-            elif fmt == "toml":
-                content = db.to_toml_str()
+            elif fmt == "properties":
+                content = db.to_properties_str()
             elif fmt == "dbc":
                 content = db.to_dbc_str()
             else:
@@ -710,9 +710,9 @@ class DownloadFileHandler:
             if fmt == "dbc":
                 content = db.to_dbc_str()
                 ext = ".dbc"
-            elif fmt == "toml":
-                content = db.to_toml_str()
-                ext = ".toml"
+            elif fmt == "properties":
+                content = db.to_properties_str()
+                ext = ".properties"
             elif fmt == "json":
                 content = json.dumps(db.to_dict(), ensure_ascii=False, indent=2)
                 ext = ".json"
@@ -745,7 +745,7 @@ class CreateSessionHandler:
             db.name = db_name
         else:
             db = CanDatabase(db_name)
-        file_name = f"{db_name}.toml"
+        file_name = f"{db_name}.properties"
         sid = self._sm.create(file_name, db)
         return HandlerResult(data={
             "session_id": sid, "file_name": file_name,
@@ -790,10 +790,10 @@ class RenameSessionHandler:
         new_name = data.get("name", "")
         if not new_name:
             raise HandlerError("VALUE_INVALID", "Name is required")
-        # 去前缀 + .toml 后校验：防止空名称文件被创建
+        # 去前缀 + .properties 后校验：防止空名称文件被创建
         check = new_name.strip()
-        if check.endswith(".toml"):
-            check = check[:-5]
+        if check.endswith(".properties"):
+            check = check[:-11]
         if check.startswith(sid + "_"):
             check = check[len(sid) + 1:]
         check = check.strip()

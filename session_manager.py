@@ -16,7 +16,6 @@ import json
 import os
 import threading
 import time
-import tomlkit
 import uuid
 from typing import Optional
 
@@ -87,7 +86,7 @@ class SessionManager:
         mgr.set_model_factory(CanDatabase)       # 注入数据模型
 
         # 创建会话
-        sid = mgr.create("project.canmatrix", db_instance)
+        sid = mgr.create("project.properties", db_instance)
 
         # 获取会话
         session = mgr.get(sid)
@@ -128,17 +127,17 @@ class SessionManager:
         创建新会话。
 
         Args:
-            file_name: 文件名（不含路径），如 "project.toml"
+            file_name: 文件名（不含路径），如 "project.properties"
             db: CanDatabase 实例
 
         Returns:
             session_id
         """
         session_id = uuid.uuid4().hex[:12]
-        # 校验文件名：去掉 .toml 后不能为空（含纯下划线）
-        base_name = file_name[:-5].strip() if file_name.endswith('.toml') else file_name.strip()
+        # 校验文件名：去掉 .properties 后不能为空（含纯下划线）
+        base_name = file_name[:-11].strip() if file_name.endswith('.properties') else file_name.strip()
         if not base_name or not base_name.strip("_"):
-            file_name = "Untitled.toml"
+            file_name = "Untitled.properties"
         file_path = os.path.join(self._data_dir, file_name)
 
         with self._lock:
@@ -214,20 +213,20 @@ class SessionManager:
         if not session:
             return False
 
-        # 防御性提取纯名称（去掉可能的 session_id 前缀和 .toml 后缀）
+        # 防御性提取纯名称（去掉可能的 session_id 前缀和 .properties 后缀）
         pure_name = new_name
         if pure_name.startswith(session_id + "_"):
             pure_name = pure_name[len(session_id) + 1:]
-        if pure_name.endswith(".toml"):
-            pure_name = pure_name[:-5]
+        if pure_name.endswith(".properties"):
+            pure_name = pure_name[:-11]
 
         # 防御：去前缀后名称不能为空（含纯下划线）
         if not pure_name or not pure_name.strip("_"):
             pure_name = "Untitled"
 
         old_path = session.file_path
-        # 新文件名: {session_id}_{pure_name}.toml
-        new_file_name = f"{session_id}_{pure_name}.toml"
+        # 新文件名: {session_id}_{pure_name}.properties
+        new_file_name = f"{session_id}_{pure_name}.properties"
         new_path = os.path.join(self._data_dir, new_file_name)
 
         # 如果新旧路径不同，移动文件
@@ -315,10 +314,10 @@ class SessionManager:
             active_sessions = {s.id: s for s in self._sessions.values()}
         
         for fname in sorted(os.listdir(self._data_dir), key=lambda n: os.path.getmtime(os.path.join(self._data_dir, n)), reverse=True):
-            if not fname.endswith(".toml"):
+            if not fname.endswith(".properties"):
                 continue
-            # 文件名格式: {session_id}_{name}.toml
-            parts = fname[:-5].split("_", 1)  # 去掉 .toml
+            # 文件名格式: {session_id}_{name}.properties
+            parts = fname[:-11].split("_", 1)  # 去掉 .properties
             if len(parts) < 2:
                 continue
             sid, name = parts[0], parts[1]
@@ -336,15 +335,18 @@ class SessionManager:
                 msg_count = 0
                 sig_count = 0
                 try:
+                    import javaproperties
                     with open(fpath, "r", encoding="utf-8") as f:
-                        data = tomlkit.parse(f.read())
-                    messages = data.get("messages", {})
-                    if isinstance(messages, dict):
-                        msg_count = len(messages)
-                        sig_count = sum(len(m.get("signals", {})) for m in messages.values() if isinstance(m, dict))
-                    else:
-                        msg_count = 0
-                        sig_count = 0
+                        data = javaproperties.loads(f.read())
+                    msg_ids = set()
+                    for k in data:
+                        if k.startswith("messages."):
+                            rest = k[len("messages."):]
+                            mid_key = rest.split(".", 1)[0]
+                            msg_ids.add(mid_key)
+                            if ".signals." in rest and ".uuid" in rest:
+                                sig_count += 1
+                    msg_count = len(msg_ids)
                 except Exception:
                     pass
             
@@ -378,10 +380,10 @@ class SessionManager:
             name_part = base
         new_file_name = f"{new_sid}_{name_part}"
         new_file_path = os.path.join(self._data_dir, new_file_name)
-        # 先写入新文件（统一使用 TOML 格式）
+        # 先写入新文件（统一使用 Properties 格式）
         tmp_path = new_file_path + ".tmp"
         with open(tmp_path, "w", encoding="utf-8") as f:
-            f.write(db.to_toml_str())
+            f.write(db.to_properties_str())
         os.replace(tmp_path, new_file_path)
 
         session = Session(new_sid, new_file_path, db)
@@ -807,67 +809,61 @@ class SessionManager:
             self._heartbeat_timer = None
 
     def _find_session_file(self, session_id: str) -> Optional[str]:
-        """在 data 目录中查找属于该 session 的文件（优先 .toml，兼容 .canmatrix）。"""
+        """在 data 目录中查找属于该 session 的 .properties 文件。"""
         if not os.path.isdir(self._data_dir):
             return None
         for fname in os.listdir(self._data_dir):
-            if fname.startswith(session_id + "_") and fname.endswith(".toml"):
-                return os.path.join(self._data_dir, fname)
-        # 兼容旧格式
-        for fname in os.listdir(self._data_dir):
-            if fname.startswith(session_id + "_") and fname.endswith(".canmatrix"):
+            if fname.startswith(session_id + "_") and fname.endswith(".properties"):
                 return os.path.join(self._data_dir, fname)
         return None
 
     def _write_file(self, session: Session):
-        """将会话数据以 TOML 格式写入磁盘。
-
+        """将会话数据以 Properties 格式写入磁盘。
+    
         调用方必须已持有 session.db 的锁（通过 with_lock()），
-        因为 to_toml_str() 内部也会获取同一把 RLock，外部持锁可避免
-        三重嵌套并保证写操作原子性。
+        因为 to_properties_str() 内部会获取同一把 RLock，外部持锁可避免
+        嵌套并保证写操作原子性。
         """
-        content = session.db.to_toml_str()
+        content = session.db.to_properties_str()
         # 文件名包含 session_id 前缀，便于恢复时查找
         base = os.path.basename(session.file_path)
         if not base.startswith(session.id):
             base = f"{session.id}_{base}"
-        # 统一使用 .toml 后缀
-        if base.endswith(".canmatrix"):
-            base = base[:-10] + ".toml"
-        elif not base.endswith(".toml"):
-            base += ".toml"
-        # 兜底：确保去掉 session_id 前缀和 .toml 后缀后不为空
+        # 统一使用 .properties 后缀
+        if not base.endswith(".properties"):
+            base += ".properties"
+        # 兜底：确保去掉 session_id 前缀和 .properties 后缀后不为空
         check = base[len(session.id) + 1:] if base.startswith(session.id + "_") else base
-        check = check[:-5].strip() if check.endswith('.toml') else check.strip()
+        check = check[:-11].strip() if check.endswith('.properties') else check.strip()
         if not check or not check.strip("_"):
-            base = f"{session.id}_Untitled.toml"
+            base = f"{session.id}_Untitled.properties"
         file_path = os.path.join(self._data_dir, base)
         session.file_path = file_path
-
+    
         tmp_path = file_path + ".tmp"
         with open(tmp_path, "w", encoding="utf-8") as f:
             f.write(content)
         os.replace(tmp_path, file_path)  # 原子写入
 
     def _load_file(self, file_path: str):
-        """从磁盘加载 TOML 数据文件，返回 CanDatabase 实例。"""
+        """从磁盘加载 Properties 数据文件，返回 CanDatabase 实例。"""
         if not os.path.isfile(file_path):
             return None
         try:
             with open(file_path, "r", encoding="utf-8") as f:
                 content = f.read()
             if self._model_factory:
-                return self._model_factory.from_toml_str(content)
+                return self._model_factory.from_properties_str(content)
             return None
         except Exception:
             return None
 
 
 def _pure_file_name_from_path(file_path: str) -> str:
-    """从完整文件路径中提取纯名称（去掉 session_id 前缀和 .toml 后缀）。"""
+    """从完整文件路径中提取纯名称（去掉 session_id 前缀和 .properties 后缀）。"""
     fname = os.path.basename(file_path)
-    if fname.endswith('.toml'):
-        fname = fname[:-5]
+    if fname.endswith('.properties'):
+        fname = fname[:-11]
     parts = fname.split('_', 1)
     return parts[1] if len(parts) > 1 else fname
 

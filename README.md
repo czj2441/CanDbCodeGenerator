@@ -1,10 +1,10 @@
 # CanMatrix Editor
 
-交互式 CAN 报文/信号编辑工具，以 **TOML** 为主存储格式，解决 DBC 文件在 Git 版本管理中合并冲突严重、diff 不可读的痛点。
+交互式 CAN 报文/信号编辑工具，以 **Properties** 为主存储格式，解决 DBC 文件在 Git 版本管理中合并冲突严重、diff 不可读的痛点。
 
 ## 核心功能
 
-- **TOML 主存储**：信号以独立块形式存储，增删只影响该块，Git diff 精准到字段级别
+- **Properties 主存储**：信号以 dotted keys 形式存储，增删只影响该块，Git diff 精准到字段级别
 - **DBC 导入/导出**：通过 `cantools` 与 Vector CANdb++、CANoe 等工具无缝协作
 - **Web 可视化编辑**：信号表格 + 布局可视化，支持拖拽调整位置
 - **信号验证**：实时检测位域越界和重叠，自动推荐修复位置
@@ -105,21 +105,21 @@ pyinstaller desktop.spec --noconfirm
 python api_server.py
 
 # 2. 浏览器访问 http://localhost:8080/
-#    导入 DBC → 编辑 → 导出 TOML
+#    导入 DBC → 编辑 → 导出 Properties
 
 # 3. 纳入 Git 管理
-git add can_matrix.toml
+git add can_matrix.properties
 git commit -m "初始化 CAN 矩阵"
 
 # 4. 日常编辑（Web 编辑器自动保存）
-git diff can_matrix.toml   # 精准到信号级别的变更
+git diff can_matrix.properties   # 精准到信号级别的变更
 git commit -m "修改 EngineSpeed 因子"
 
 # 5. 需要交付 DBC 时
 # Web 编辑器 → 导出 → DBC
 ```
 
-### TOML vs DBC diff 对比
+### Properties vs DBC diff 对比
 
 **DBC（差）：**
 ```
@@ -129,19 +129,17 @@ git commit -m "修改 EngineSpeed 因子"
 ```
 二进制格式行，难以阅读，相邻信号修改会导致整行冲突。
 
-**TOML（优）：**
+**Properties（优）：**
 ```diff
- [[messages.signals]]
- name = "EngineSpeed"
- start_bit = 0
- length = 16
- byte_order = "little_endian"
- is_signed = false
--factor = 1
-+factor = 0.5
- max_val = 65535
- unit = "rpm"
- comment = "Speed in RPM"
+ messages.0x123.signals.EngineSpeed.name=EngineSpeed
+ messages.0x123.signals.EngineSpeed.start_bit=0
+ messages.0x123.signals.EngineSpeed.length=16
+ messages.0x123.signals.EngineSpeed.byte_order=little_endian
+ messages.0x123.signals.EngineSpeed.is_signed=false
+-messages.0x123.signals.EngineSpeed.factor=1
++messages.0x123.signals.EngineSpeed.factor=0.5
+ messages.0x123.signals.EngineSpeed.max_val=65535
+ messages.0x123.signals.EngineSpeed.unit=rpm
 ```
 独立的信号块，只显示实际变更的字段，人类和 Git 都能精准理解。
 
@@ -159,7 +157,7 @@ canmatrix_editor/
 ├── .gitignore                     版本控制忽略规则
 ├── core/                          数据模型与 IO
 │   ├── can_database.py            CanDatabase / Message / Signal 数据模型
-│   ├── toml_io.py                 TOML 读写（主存储格式）
+│   ├── properties_io.py           Properties 读写（主存储格式）
 │   ├── json_io.py                 JSON 读写（辅助格式）
 │   ├── xml_io.py                  XML 读写（辅助格式）
 │   └── dbc_io.py                  DBC 导入导出（cantools）
@@ -188,7 +186,7 @@ canmatrix_editor/
 |---|---|---|
 | Python | 3.9+ | 运行环境 |
 | cantools | 39.0.0 | DBC 文件解析与生成 |
-| toml | 0.10.2 | TOML 格式读写 |
+| javaproperties | 0.8.0 | Properties 格式读写 |
 | Node.js | 18+ | 前端构建（仅开发/部署时） |
 | pywebview | 5.0+ | 桌面窗口（仅打包时需要） |
 | pyinstaller | 6.0+ | 打包为 exe（仅打包时需要） |

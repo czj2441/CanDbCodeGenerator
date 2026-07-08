@@ -1,10 +1,7 @@
-"""纯 IO 序列化工具模块。
+"""IO 序列化工具模块。
 
-本模块不再定义数据类，仅提供 from_toml_str、from_json_str、from_xml_str 等
+提供 from_properties_str、from_json_str、from_xml_str 等
 反序列化辅助函数。所有数据类（Signal、Message、CanDatabase）统一从 models.py 导入。
-
-向后兼容：保留原有的 from_toml_dict、from_json_dict 等方法签名，
-但内部委托给 models.CanDatabase 实现。
 """
 
 from __future__ import annotations
@@ -13,27 +10,27 @@ from models import CanDatabase, Message, Signal
 
 
 # ---------------------------------------------------------------------------
-# TOML IO
+# Properties IO
 # ---------------------------------------------------------------------------
 
-def from_toml_str(content: str) -> CanDatabase:
-    """从 TOML 字符串加载 CanDatabase。"""
-    return CanDatabase.from_toml_str(content)
+def from_properties_str(content: str) -> CanDatabase:
+    """从 Properties 字符串加载 CanDatabase。"""
+    return CanDatabase.from_properties_str(content)
 
 
-def from_toml_dict(data: dict) -> CanDatabase:
-    """从 TOML 字典加载 CanDatabase。"""
-    return CanDatabase.from_toml_dict(data)
+def from_flat_dict(data: dict) -> CanDatabase:
+    """从扁平字典加载 CanDatabase。"""
+    return CanDatabase.from_flat_dict(data)
 
 
-def to_toml_str(db: CanDatabase) -> str:
-    """将 CanDatabase 序列化为 TOML 字符串。"""
-    return db.to_toml_str()
+def to_properties_str(db: CanDatabase) -> str:
+    """将 CanDatabase 序列化为 Properties 字符串。"""
+    return db.to_properties_str()
 
 
-def to_toml_dict(db: CanDatabase) -> dict:
-    """将 CanDatabase 序列化为 TOML 字典。"""
-    return db.to_toml_dict()
+def to_flat_dict(db: CanDatabase) -> dict:
+    """将 CanDatabase 序列化为扁平字典。"""
+    return db.to_flat_dict()
 
 
 # ---------------------------------------------------------------------------

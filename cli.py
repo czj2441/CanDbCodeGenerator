@@ -12,7 +12,7 @@ import os
 from models import CanDatabase, Message, Signal
 from core.dbc_io import import_dbc, export_dbc
 from core.json_io import load_json, save_json
-from core.toml_io import load_toml, save_toml
+from core.properties_io import load_properties, save_properties
 from core.xml_io import load_xml, save_xml
 
 
@@ -69,8 +69,8 @@ class CanMatrixSession:
 
         ext = os.path.splitext(filepath)[1].lower()
         try:
-            if ext == ".toml":
-                self.database = load_toml(filepath)
+            if ext == ".properties":
+                self.database = load_properties(filepath)
             elif ext == ".json":
                 self.database = load_json(filepath)
             elif ext == ".xml":
@@ -94,23 +94,23 @@ class CanMatrixSession:
     def save(self, filepath: str | None = None) -> OpResult:
         target = filepath or self.current_filepath
         if target is None:
-            target = "untitled.toml"
+            target = "untitled.properties"
         try:
-            save_toml(self.database, target)
+            save_properties(self.database, target)
         except Exception as exc:
             return OpResult.fail(f"Save failed: {exc}")
         self.current_filepath = target
         self._modified = False
         return OpResult.ok(f"Saved to {os.path.basename(target)}.")
 
-    def save_as(self, filepath: str, fmt: str = "toml") -> OpResult:
+    def save_as(self, filepath: str, fmt: str = "properties") -> OpResult:
         try:
             if fmt == "json":
                 save_json(self.database, filepath)
             elif fmt == "xml":
                 save_xml(self.database, filepath)
             else:
-                save_toml(self.database, filepath)
+                save_properties(self.database, filepath)
         except Exception as exc:
             return OpResult.fail(f"Save as {fmt} failed: {exc}")
         return OpResult.ok(f"Saved as {os.path.basename(filepath)}.")

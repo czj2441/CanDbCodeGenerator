@@ -989,7 +989,7 @@ export const useEditorStore = defineStore('editor', {
         const data = await this._wsRequest('new_file', { name })
         const sid = data.session_id
         setSessionId(sid)
-        this.currentFileName = data.name + '.toml'
+        this.currentFileName = data.file_name
         this.selectedMsgId = null
         this.messageCache = {}
         this.messages = []
@@ -1018,7 +1018,7 @@ export const useEditorStore = defineStore('editor', {
       const data = await this._wsRequest('new_file', { name })
       const sid = data.session_id
       setSessionId(sid)
-      this.currentFileName = data.name + '.toml'
+      this.currentFileName = data.file_name
       this.selectedMsgId = null
       this.messageCache = {}
       this.messages = []

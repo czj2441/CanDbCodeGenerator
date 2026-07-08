@@ -72,7 +72,7 @@
   <input
     ref="fileInput"
     type="file"
-    accept=".dbc,.toml,.json"
+    accept=".dbc,.properties,.json"
     style="display: none"
     @change="handleFileSelect"
   />
@@ -137,7 +137,7 @@ function confirmNew() {
 }
 
 function rename(event) {
-  let name = event.target.value.replace(/\.toml$/i, '').trim()
+  let name = event.target.value.replace(/\.properties$/i, '').trim()
   name = name.replace(/^[a-f0-9]{12}_/i, '').trim()
   // 去除可能残留的前导下划线
   name = name.replace(/^_+/, '').trim()
@@ -165,10 +165,10 @@ async function handleFileSelect(event) {
 
   // 检测文件格式
   const ext = file.name.split('.').pop().toLowerCase()
-  const supportedFormats = ['dbc', 'toml', 'json']
+  const supportedFormats = ['dbc', 'properties', 'json']
   
   if (!supportedFormats.includes(ext)) {
-    ui.showToast(`不支持的文件格式: .${ext}，支持 .dbc, .toml, .json`, true)
+    ui.showToast(`不支持的文件格式: .${ext}，支持 .dbc, .properties, .json`, true)
     return
   }
 
