@@ -146,8 +146,9 @@ class SessionManager:
             self._sessions[session_id] = session
             self._register_active(session_id, file_path)
 
-        # 立即落盘
-        self._write_file(session)
+        # 立即落盘（持有 db 锁确保序列化原子性）
+        with db.with_lock():
+            self._write_file(session)
         return session_id
 
     def get(self, session_id: str) -> Optional[Session]:
@@ -255,8 +256,9 @@ class SessionManager:
             self._register_active(session_id, new_path)
 
         session.db.name = pure_name
-        self._write_file(session)
-        session.db.modified = False
+        with session.db.with_lock():
+            self._write_file(session)
+            session.db.modified = False
         return True
 
     def save(self, session_id: str) -> bool:
