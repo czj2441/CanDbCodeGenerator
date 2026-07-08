@@ -779,8 +779,9 @@ class StealLockHandler:
         target_session = self._sm.get(target_sid)
         if not target_session:
             raise HandlerError("SESSION_NOT_FOUND", "Target session not found")
-        # 释放目标 session 的文件锁（触发 lock_stolen 广播）
+        # 释放目标 session 的文件锁并触发 lock_stolen 广播
         self._sm.release_session(target_sid)
+        self._sm.fire_lock_released(target_sid)
         return HandlerResult(data={"released_session": target_sid},
                              session_id=data.get("current_session_id", ""))
 

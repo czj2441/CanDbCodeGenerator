@@ -614,9 +614,9 @@ def main() -> None:
     ws_server = WsServer(ws_transport, ws_router)
     ws_thread = ws_server.start_in_thread()
     
-    # ── 注册锁释放回调（WS 广播 lock_stolen） ──
+    # ── 注册锁释放回调（WS 广播 lock_stolen 到所有客户端） ──
     SESSION_MGR.set_lock_released_callback(
-        lambda sid: ws_transport.broadcast(sid, {
+        lambda sid: ws_transport.broadcast_all({
             "type": "lock_stolen",
             "data": {"victim_session_id": sid}
         })
@@ -779,7 +779,7 @@ def start_server_background(port: int = 8080) -> "BackgroundServer":
     ws_server.start_in_thread()
     
     SESSION_MGR.set_lock_released_callback(
-        lambda sid: ws_transport.broadcast(sid, {
+        lambda sid: ws_transport.broadcast_all({
             "type": "lock_stolen",
             "data": {"victim_session_id": sid}
         })

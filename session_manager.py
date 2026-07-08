@@ -765,6 +765,14 @@ class SessionManager:
         """注册锁释放回调。WS 架构下用于广播 lock_stolen 事件。"""
         self._lock_released_callback = cb
 
+    def fire_lock_released(self, session_id: str):
+        """显式触发锁释放回调（供 StealLockHandler 等主动释放锁的场景调用）。"""
+        if self._lock_released_callback:
+            try:
+                self._lock_released_callback(session_id)
+            except Exception as e:
+                print(f"[SessionManager] lock_released_callback error: {e}")
+
     def has_lock(self, session_id: str) -> bool:
         """检查指定 session 是否仍持有文件锁。"""
         with self._lock:
