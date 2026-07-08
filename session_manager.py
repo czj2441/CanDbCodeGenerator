@@ -390,6 +390,8 @@ class SessionManager:
         session = Session(new_sid, new_file_path, db)
         with self._lock:
             self._sessions[new_sid] = session
+            self._register_active(new_sid, new_file_path)
+        self._heartbeats[new_sid] = time.time()
         return session
 
     def delete_history(self, session_id: str) -> bool:
