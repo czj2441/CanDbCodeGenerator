@@ -185,15 +185,16 @@ export class WsSyncClient {
    * 请求-响应模式：发送请求并返回 Promise。
    * @param {string} type 消息类型
    * @param {object} data 消息数据
+   * @param {number} [timeout] 可选，覆盖默认超时（ms）
    * @returns {Promise<object>} 响应数据
    */
-  request(type, data) {
+  request(type, data, timeout) {
     return new Promise((resolve, reject) => {
       const requestId = `r${++this._requestCounter}_${Date.now()}`
       const timer = setTimeout(() => {
         this._pendingRequests.delete(requestId)
         reject(new Error(`Request ${type} timed out`))
-      }, this._requestTimeout)
+      }, timeout || this._requestTimeout)
 
       this._pendingRequests.set(requestId, { resolve, reject, timer })
       this.send({ type, requestId, data })

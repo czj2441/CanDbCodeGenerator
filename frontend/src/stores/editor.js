@@ -242,14 +242,14 @@ export const useEditorStore = defineStore('editor', {
      * @param {object} data 消息数据（session_id 自动注入）
      * @returns {Promise<object>}
      */
-    _wsRequest(type, data = {}) {
+    _wsRequest(type, data = {}, timeout) {
       if (!this._wsClient) {
         return Promise.reject(new Error('WebSocket not connected'))
       }
       return this._wsClient.request(type, {
         ...data,
         session_id: getSessionId() || '',
-      })
+      }, timeout)
     },
 
     /**
@@ -281,7 +281,7 @@ export const useEditorStore = defineStore('editor', {
       const stopTimer = WsFrontendDiag.timeStart('apply_msg')
 
       // 版本号去重
-      if (msg.data_version && msg.data_version <= this._dataVersion) {
+      if (msg.data_version && msg.data_version < this._dataVersion) {
         WsFrontendDiag.count('msg_dropped')
         stopTimer()
         return
@@ -296,6 +296,7 @@ export const useEditorStore = defineStore('editor', {
         // ── 全量快照 ──
         case 'full_sync': {
           WsFrontendDiag.count('full_sync')
+          this._dataVersion = msg.data_version ?? 0
           const d = msg.data
 
           // WS 断线期间锁可能被抢
@@ -531,7 +532,7 @@ export const useEditorStore = defineStore('editor', {
      */
     async saveSession() {
       try {
-        await this._wsRequest('save')
+        await this._wsRequest('save', {}, 120000)
         this._localDirty = false
         return true
       } catch (e) {
@@ -934,6 +935,7 @@ export const useEditorStore = defineStore('editor', {
         })
         const sid = data.session_id
         setSessionId(sid)
+        this._dataVersion = 0
         this.currentFileName = data.file_name || ''
         useUiStore().showToast(t('toast.sessionLoaded'))
       } catch (e) {
@@ -976,6 +978,7 @@ export const useEditorStore = defineStore('editor', {
         this.signalErrors = []
         this._localDirty = false
         this._defaultSignalLength = 8
+        this._dataVersion = 0
         this.clearUndoStack()
         useUiStore().showToast(t('toast.newSessionCreated'))
       } catch (e) {
@@ -1003,6 +1006,7 @@ export const useEditorStore = defineStore('editor', {
       this.signalErrors = []
       this._localDirty = false
       this._defaultSignalLength = 8
+      this._dataVersion = 0
       this.clearUndoStack()
       return sid
     },
