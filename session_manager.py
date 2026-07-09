@@ -430,12 +430,15 @@ class SessionManager:
             self._heartbeats.pop(session_id, None)
             # 删除磁盘文件
             file_path = self._find_session_file(session_id)
-            if file_path and os.path.isfile(file_path):
-                try:
-                    os.remove(file_path)
-                except OSError:
-                    return False
-                return True
+            if file_path:
+                # 清理 list_history 解析缓存（防止内存泄漏）
+                self._history_cache.pop(os.path.basename(file_path), None)
+                if os.path.isfile(file_path):
+                    try:
+                        os.remove(file_path)
+                    except OSError:
+                        return False
+                    return True
             return False
 
     # ── 撤销/重做栈管理 ──
