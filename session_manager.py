@@ -233,27 +233,25 @@ class SessionManager:
 
         # 如果新旧路径不同，移动文件
         if os.path.normpath(old_path) != os.path.normpath(new_path):
-            # 更新活跃文件追踪
-            self._unregister_active(session_id)
-            # 删除可能已存在的目标文件
-            if os.path.isfile(new_path):
-                try:
-                    os.remove(new_path)
-                except OSError:
-                    pass
-            rename_ok = False
-            if os.path.isfile(old_path):
-                try:
-                    os.rename(old_path, new_path)
-                    rename_ok = True
-                except OSError:
-                    # 移动失败，回滚到旧路径
+            # 持锁更新活跃文件追踪
+            with self._lock:
+                self._unregister_active(session_id)
+            try:
+                if os.path.isfile(old_path):
+                    # os.replace 原子替换：如果 new_path 已存在会被覆盖
+                    os.replace(old_path, new_path)
+                else:
+                    print(f"[SessionManager] rename: old file not found, will recreate: {old_path}")
+            except OSError:
+                # 移动失败，回滚到旧路径
+                with self._lock:
                     session.file_path = old_path
                     self._register_active(session_id, old_path)
-                    return False
+                return False
             # rename 成功，更新路径和活跃文件追踪
-            session.file_path = new_path
-            self._register_active(session_id, new_path)
+            with self._lock:
+                session.file_path = new_path
+                self._register_active(session_id, new_path)
 
         session.db.name = pure_name
         with session.db.with_lock():
@@ -398,20 +396,15 @@ class SessionManager:
         with self._lock:
             self._sessions[new_sid] = session
             self._register_active(new_sid, new_file_path)
-        self._heartbeats[new_sid] = time.time()
         return session
 
     def delete_history(self, session_id: str) -> bool:
         """删除历史会话（内存 + 磁盘文件）。"""
         with self._lock:
-            # 清理内存中的 session，保留撤销栈
-            session = self._sessions.pop(session_id, None)
-            if session:
-                with session._undo_lock:
-                    self._orphan_stacks[session_id] = {
-                        "undo_stack": list(session.undo_stack),
-                        "redo_stack": list(session.redo_stack),
-                    }
+            # 清理内存中的 session（文件已删，撤销栈无意义，不保留 orphan）
+            self._sessions.pop(session_id, None)
+            self._unregister_active(session_id)
+            self._heartbeats.pop(session_id, None)
             # 删除磁盘文件
             file_path = self._find_session_file(session_id)
             if file_path and os.path.isfile(file_path):
@@ -807,11 +800,7 @@ class SessionManager:
         for sid in stale_sids:
             self.release_session(sid)
             # 锁释放回调（WS 架构下广播 lock_stolen）
-            if self._lock_released_callback:
-                try:
-                    self._lock_released_callback(sid)
-                except Exception as e:
-                    print(f"[SessionManager] lock_released_callback error: {e}")
+            self.fire_lock_released(sid)
 
         # 重新调度下一次检查
         self._start_heartbeat_checker()

@@ -248,6 +248,7 @@ export const useEditorStore = defineStore('editor', {
     _resetOnSessionFailure() {
       this.stopEditorSync()
       setSessionId('')
+      this.currentFileName = ''
     },
 
     /**
@@ -491,8 +492,12 @@ export const useEditorStore = defineStore('editor', {
 
         // ── 锁被抢占 ──
         case 'lock_stolen': {
+          // 仅处理针对自己 session 的 lock_stolen 事件
+          const victimSid = msg.data?.victim_session_id
+          if (victimSid && victimSid !== getSessionId()) break
+
           WsFrontendDiag.count('lock_stolen')
-          console.warn('[WS] lock stolen, victim:', msg.data?.victim_session_id,
+          console.warn('[WS] lock stolen, victim:', victimSid,
                        msg.data?.stealer_session_id ? ', by: ' + msg.data.stealer_session_id : '')
           this._wsIntentionalClose = true
           // 先清理 pending 请求，再断开连接
@@ -996,7 +1001,7 @@ export const useEditorStore = defineStore('editor', {
       } catch (e) {
         this._resetOnSessionFailure()
         if (e.code === 'FILE_LOCKED') {
-          e.message = t('toast.noEditPermission')
+          useUiStore().showToast(t('toast.noEditPermission'), true)
         } else {
           useUiStore().showToast(e.message, true)
         }
