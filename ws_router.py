@@ -6,7 +6,7 @@ ws_router.py — 消息路由层 + Handler 基类
 
 import asyncio
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Optional
 
 
 @dataclass

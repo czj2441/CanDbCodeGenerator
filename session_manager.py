@@ -24,9 +24,6 @@ class FileLockedError(Exception):
     """文件已被其他会话占用。"""
     pass
 
-# 数据模型统一从 models.py 导入
-from models import Signal, Message, CanDatabase
-
 # 打包后数据目录放在用户 AppData，未打包时在源码目录
 import sys as _sys
 if getattr(_sys, 'frozen', False):
@@ -664,6 +661,7 @@ class SessionManager:
 
     def _restore_signal(self, session: Session, msg_id: int, sig_data: dict):
         """恢复信号。"""
+        from models import Signal
         msg = session.db.messages.get(msg_id)
         if not msg:
             raise ValueError(f"Message {msg_id} not found")

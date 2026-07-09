@@ -11,7 +11,7 @@ import threading
 import websockets
 
 from session_manager import get_session_manager
-from ws_transport import WsTransport, WsDiagnostics
+from ws_transport import WsTransport
 from ws_router import MessageRouter
 
 

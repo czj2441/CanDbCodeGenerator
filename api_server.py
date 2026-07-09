@@ -30,12 +30,12 @@ except ImportError:
     THREADING_AVAILABLE = True
 
 # ── 会话管理器 ──────────────────────────────────────────────────────────────────
-from session_manager import init_session_manager, get_session_manager, FileLockedError
+from session_manager import init_session_manager
 
 SESSION_MGR = init_session_manager()
 
 # ── 数据模型（统一从 models.py 导入）────────────────────────────────────
-from models import Signal, Message, CanDatabase
+from models import CanDatabase
 
 
 # ── 注入模型工厂 ──
