@@ -176,7 +176,6 @@ export const useEditorStore = defineStore('editor', {
     // ── 运行时状态 ──
     isLoading: false,
     apiStatus: 'connecting',
-    _localDirty: false,        // 前端本地自上次 save/load 后是否有过编辑（仅 beforeunload 使用）
     backendDirty: false,        // 后端 db.modified —— 是否还有未落盘数据（从 /api/status 同步）
     signalErrors: [],
     _healthFailCount: 0,
@@ -253,14 +252,13 @@ export const useEditorStore = defineStore('editor', {
 
     /**
      * 统一重置编辑器所有状态（goBack / lock_stolen 时调用）。
-     * 确保不遗漏 clipboard、_localDirty 等字段。
+     * 确保不遗漏 clipboard 等字段。
      */
     resetEditorState() {
       this.messages = []
       this.selectedMsgId = null
       this.messageCache = {}
       this.currentFileName = ''
-      this._localDirty = false
       this.backendDirty = false
       this.signalErrors = []
       this.clipboard = null
@@ -602,7 +600,6 @@ export const useEditorStore = defineStore('editor', {
     async saveSession() {
       try {
         await this._wsRequest('save', {}, 120000)
-        this._localDirty = false
         return true
       } catch (e) {
         console.error('Failed to save session:', e)
@@ -708,7 +705,6 @@ export const useEditorStore = defineStore('editor', {
     async addMessage() {
       const id = _generateMessageId(this.messages)
       const name = `NewMessage${id - 0x300 + 1}`
-      this._localDirty = true
 
       try {
         const result = await this._wsRequest('add_message', {
@@ -732,7 +728,6 @@ export const useEditorStore = defineStore('editor', {
      * @returns {Promise<void>}
      */
     async deleteMessage(id) {
-      this._localDirty = true
       try {
         await this._wsRequest('delete_message', { msg_id: id })
         // message_deleted 广播会自动过滤 messages + 清理 messageCache
@@ -753,8 +748,6 @@ export const useEditorStore = defineStore('editor', {
       if (this.selectedMsgId == null) return
       const msg = this.messageCache[this.selectedMsgId]
       if (!msg) return
-
-      this._localDirty = true
 
       try {
         const result = await this._wsRequest('edit_message', {
@@ -808,8 +801,6 @@ export const useEditorStore = defineStore('editor', {
         unit: '', comment: '', ...restSignalData,
       }
 
-      this._localDirty = true
-
       try {
         await this._wsRequest('add_signal', { msg_id: this.selectedMsgId, signal: fullData })
         // signal_added 广播会自动将信号追加到 messageCache[msg_id].signals
@@ -840,8 +831,6 @@ export const useEditorStore = defineStore('editor', {
         this._defaultSignalLength = value
       }
 
-      this._localDirty = true
-
       try {
         await this._wsRequest('edit_signal', {
           msg_id: this.selectedMsgId,
@@ -865,8 +854,6 @@ export const useEditorStore = defineStore('editor', {
      */
     async deleteSignal(sigUuid) {
       if (this.selectedMsgId == null) return
-      this._localDirty = true
-
       try {
         await this._wsRequest('delete_signal', { msg_id: this.selectedMsgId, sig_uuid: sigUuid })
         // signal_deleted 广播会自动从 messageCache 中过滤
@@ -921,7 +908,6 @@ export const useEditorStore = defineStore('editor', {
         })
       }
 
-      this._localDirty = true
       this.isLoading = true
       try {
         const result = await this._wsRequest('batch_add_signals', {
@@ -986,7 +972,6 @@ export const useEditorStore = defineStore('editor', {
       this.messages = []
       _lastGeneratedMsgId = null  // 会话切换后重置 ID 生成器基线
       this.signalErrors = []
-      this._localDirty = false
       this._defaultSignalLength = 8
       this._healthFailCount = 0
       this.clearUndoStack()
@@ -1029,7 +1014,6 @@ export const useEditorStore = defineStore('editor', {
       try {
         const data = await this._wsRequest('rename_session', { name })
         this.currentFileName = data.file_name || ''
-        this._localDirty = true
         useUiStore().showToast(t('toast.renamed'))
       } catch (e) {
         useUiStore().showToast(e.message, true)
@@ -1052,7 +1036,6 @@ export const useEditorStore = defineStore('editor', {
         this.messages = []
         _lastGeneratedMsgId = null  // 会话切换后重置 ID 生成器基线
         this.signalErrors = []
-        this._localDirty = false
         this._defaultSignalLength = 8
         this._dataVersion = 0
         this.clearUndoStack()
@@ -1074,7 +1057,6 @@ export const useEditorStore = defineStore('editor', {
       this.messages = []
       _lastGeneratedMsgId = null
       this.signalErrors = []
-      this._localDirty = false
       this._defaultSignalLength = 8
       this._dataVersion = 0
       this.clearUndoStack()
@@ -1127,7 +1109,6 @@ export const useEditorStore = defineStore('editor', {
         this.messages = []
         _lastGeneratedMsgId = null  // 会话切换后重置 ID 生成器基线
         this.signalErrors = []
-        this._localDirty = false
         this._defaultSignalLength = 8
         this._dataVersion = 0
         this.clearUndoStack()

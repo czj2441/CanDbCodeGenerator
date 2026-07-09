@@ -125,7 +125,7 @@ onMounted(() => {
     if (sid) {
       navigator.sendBeacon('/api/release?sid=' + encodeURIComponent(sid))
     }
-    if (sid && (store._localDirty || store.backendDirty)) {
+    if (sid && store.backendDirty) {
       e.preventDefault()
       e.returnValue = '您有未保存的更改，确定要离开吗？'
       return e.returnValue
@@ -177,7 +177,7 @@ const saveFailedOpen = ref(false)
 
 async function goBack() {
   // 有未保存更改时弹出确认对话框
-  if (store._localDirty || store.backendDirty) {
+  if (store.backendDirty) {
     backDirtyOpen.value = true
     return
   }
@@ -221,7 +221,7 @@ async function doGoBack() {
   // 停止 WS 连接
   store.stopEditorSync()
   setSessionId('')   // 清除已销毁的 session ID，防止幻影恢复
-  // 清理编辑器所有状态（包含 clipboard、_localDirty 等）
+  // 清理编辑器所有状态（包含 clipboard 等）
   store.resetEditorState()
   mode.value = 'browser'
 }
