@@ -118,9 +118,14 @@ class EditSignalHandler:
                 "prev": {field: old_val}, "next": {field: value}
             })
             new_version = db._bump_version()
-            event = {"type": "signal_updated", "data": {"msg_id": msg_id, "signal": sig.to_dict()},
-                     "data_version": new_version}
-            return HandlerResult(data=sig.to_dict(), events=[event],
+            events = [
+                {"type": "signal_updated", "data": {"msg_id": msg_id, "signal": sig.to_dict()},
+                 "data_version": new_version},
+                {"type": "status_changed", "data": {"modified": True,
+                 "undo_count": len(session.undo_stack), "redo_count": len(session.redo_stack)},
+                 "data_version": new_version},
+            ]
+            return HandlerResult(data=sig.to_dict(), events=events,
                                  new_version=new_version, session_id=sid)
 
 
