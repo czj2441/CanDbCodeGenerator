@@ -146,7 +146,7 @@ class ApiHandler(BaseHTTPRequestHandler):
         except Exception as e:
             self._send_json(500, _resp(False, error=str(e)))
 
-    # ── 路由（GET /api/status + GET /api/diag + POST /api/release + 静态文件）──
+    # ── 路由（GET /api/status + GET /api/diag + GET /api/export + POST /api/release + 静态文件）──
 
     def do_GET(self) -> None:
         t_start = time.monotonic()
@@ -157,6 +157,8 @@ class ApiHandler(BaseHTTPRequestHandler):
                 self._get_status()
             elif parts == ["api", "diag"]:
                 self._get_diag()
+            elif parts == ["api", "export"]:
+                self._get_export()
             else:
                 self._serve_static()
         except Exception as e:
@@ -233,6 +235,57 @@ class ApiHandler(BaseHTTPRequestHandler):
         if sid:
             SESSION_MGR.release_session(sid, abort=abort)
         self._send_json(200, _resp(True))
+
+    def _get_export(self) -> None:
+        """GET /api/export?sid=xxx&fmt=properties|dbc - WS 断开时的 HTTP 导出降级端点。
+
+        直接读取内存中的会话数据进行序列化，不依赖 WebSocket 连接。
+        用于保存失败后用户点击「导出备份」的场景。
+        """
+        parsed = urllib.parse.urlparse(self.path)
+        params = urllib.parse.parse_qs(parsed.query)
+        sid = params.get("sid", [""])[0]
+        fmt = params.get("fmt", ["properties"])[0]
+
+        if not sid:
+            self._send_json(400, _resp(False, error="sid is required"))
+            return
+
+        session = SESSION_MGR.get(sid)
+        if not session:
+            self._send_json(404, _resp(False, error="Session not found"))
+            return
+
+        try:
+            if fmt == "dbc":
+                content = session.db.to_dbc_str()
+                ext = ".dbc"
+                mime = "application/octet-stream"
+            elif fmt == "properties":
+                content = session.db.to_properties_str()
+                ext = ".properties"
+                mime = "text/plain"
+            else:
+                self._send_json(400, _resp(False, error=f"Unsupported format: {fmt}"))
+                return
+        except Exception as e:
+            self._send_json(500, _resp(False, error=f"Export failed: {e}"))
+            return
+
+        file_name = session.db.name or "export"
+        if not file_name.endswith(ext):
+            file_name = file_name.rsplit(".", 1)[0] + ext
+
+        payload = content.encode("utf-8")
+        self.send_response(200)
+        self._cors_headers()
+        self.send_header("Content-Type", f"{mime}; charset=utf-8")
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Content-Disposition", f'attachment; filename="{file_name}"')
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.wfile.write(payload)
+        self.wfile.flush()
 
     def _get_diag(self) -> None:
         """GET /api/diag - 诊断快照（仅 --ws-debug 模式下可用）"""

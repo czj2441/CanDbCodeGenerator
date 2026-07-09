@@ -274,14 +274,9 @@ async function exportFile(fmt) {
   const ui = useUiStore()
   try {
     ui.setLoading(true)
-    // 先保存当前会话确保数据最新
-    const saved = await store.saveSession()
-    if (!saved) {
-      ui.showToast('保存失败，将导出内存中的最新数据', true)
-    }
     const sid = getSessionId() || ''
 
-    // ── pywebview 桌面模式：调用原生保存对话框 ──
+    // ── pywebview 桌面模式：调用原生保存对话框（不受 WS 状态影响） ──
     if (window.pywebview?.api?.save_file) {
       ui.showToast('正在打开保存对话框...', false)
       const raw = await window.pywebview.api.save_file(fmt, sid)
@@ -292,6 +287,36 @@ async function exportFile(fmt) {
         ui.showToast(`导出失败: ${result.error}`, true)
       }
       return
+    }
+
+    // ── WS 断开降级：走 HTTP 导出端点 ──
+    if (!store._wsClient?.connected) {
+      const url = `/api/export?sid=${encodeURIComponent(sid)}&fmt=${encodeURIComponent(fmt)}`
+      const resp = await fetch(url)
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ error: resp.statusText }))
+        throw new Error(err.error || `HTTP ${resp.status}`)
+      }
+      const blob = await resp.blob()
+      const disposition = resp.headers.get('Content-Disposition') || ''
+      const filenameMatch = disposition.match(/filename="(.+)"/)
+      const filename = filenameMatch ? filenameMatch[1] : `export.${fmt}`
+      const blobUrl = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = blobUrl
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      setTimeout(() => { URL.revokeObjectURL(blobUrl); a.remove() }, 100)
+      ui.showToast(`已通过 HTTP 导出备份: ${filename}`, false)
+      return
+    }
+
+    // ── 正常路径（WS 在线）──
+    // 先保存当前会话确保数据最新
+    const saved = await store.saveSession()
+    if (!saved) {
+      ui.showToast('保存失败，将导出内存中的最新数据', true)
     }
 
     // ── 浏览器模式：WS 获取内容 + Blob 下载 ──
