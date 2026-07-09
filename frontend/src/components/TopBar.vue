@@ -268,7 +268,10 @@ async function exportFile(fmt) {
   try {
     ui.setLoading(true)
     // 先保存当前会话确保数据最新
-    await store.saveSession()
+    const saved = await store.saveSession()
+    if (!saved) {
+      ui.showToast('保存失败，将导出内存中的最新数据', true)
+    }
     const sid = getSessionId() || ''
 
     // ── pywebview 桌面模式：调用原生保存对话框 ──
