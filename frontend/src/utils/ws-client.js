@@ -144,6 +144,7 @@ export class WsSyncClient {
       this.connected = false
       this._stopPing()
       WsFrontendDiag.count('disconnects')
+      this._cleanupPendingRequests()
 
       if (this._intentionalClose) {
         this.onStatusChange?.('disconnected')
@@ -192,6 +193,9 @@ export class WsSyncClient {
    */
   request(type, data, timeout) {
     return new Promise((resolve, reject) => {
+      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+        return reject(new Error('Connection lost'))
+      }
       const requestId = `r${++this._requestCounter}_${Date.now()}`
       const timer = setTimeout(() => {
         this._pendingRequests.delete(requestId)
