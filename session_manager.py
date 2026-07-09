@@ -289,6 +289,9 @@ class SessionManager:
                 if self.save(sid):
                     saved += 1
                     session.save_error = None  # 成功：清除旧错误
+                else:
+                    session.save_error = "Session disappeared during save"
+                    print(f"[WARN] save_all_dirty: save returned False for {sid[:8]}")
             except Exception as e:
                 session.save_error = str(e)    # 失败：记录错误
                 print(f"[WARN] save_all_dirty: failed to save {sid[:8]}: {e}")
@@ -828,12 +831,16 @@ class SessionManager:
             # 先尝试保存未落盘数据，防止丢失
             session = self.get(sid)
             if session and session.db.modified:
+                saved = False
                 try:
-                    self.save(sid)
+                    saved = self.save(sid)
                 except Exception as e:
                     print(f"[SessionManager] stale session save failed for {sid[:8]}: {e}")
-                    # 紧急备份：save 失败时将数据写入独立备份文件
+
+                if not saved:
+                    # 紧急备份：save 失败（含返回 False 和异常）时将数据写入独立备份文件
                     try:
+                        os.makedirs(self._data_dir, exist_ok=True)
                         content = session.db.to_properties_str()
                         emergency_path = os.path.join(
                             self._data_dir, f"{sid}_EMERGENCY.properties")
