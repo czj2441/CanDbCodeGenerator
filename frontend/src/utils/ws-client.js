@@ -102,6 +102,7 @@ export class WsSyncClient {
     this._intentionalClose = false
     this._reconnectAttempt = 0
     this._pingTimer = null
+    this._reconnectTimer = null
     this.ws = null
     this.connected = false
   }
@@ -166,6 +167,7 @@ export class WsSyncClient {
   disconnect() {
     this._intentionalClose = true
     this._stopPing()
+    this._cancelReconnect()
     this._cleanupPendingRequests()
     if (this.ws) {
       this.ws.onclose = null
@@ -244,13 +246,24 @@ export class WsSyncClient {
 
   _scheduleReconnect() {
     if (this._intentionalClose) return
+    this._cancelReconnect()
     const delay = Math.min(
       this.baseDelay * Math.pow(2, this._reconnectAttempt),
       this.maxDelay
     )
     this._reconnectAttempt++
     console.log(`[WsSyncClient] Reconnecting in ${delay}ms (attempt ${this._reconnectAttempt})`)
-    setTimeout(() => this.connect(), delay)
+    this._reconnectTimer = setTimeout(() => {
+      this._reconnectTimer = null
+      this.connect()
+    }, delay)
+  }
+
+  _cancelReconnect() {
+    if (this._reconnectTimer) {
+      clearTimeout(this._reconnectTimer)
+      this._reconnectTimer = null
+    }
   }
 
   _startPing() {
