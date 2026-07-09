@@ -37,6 +37,7 @@ const dict = {
     'browser.deleteConfirmCancel': '取消',
     'browser.deleteConfirmDelete': '确认删除',
     'browser.locked': '已在其他标签页打开',
+    'browser.unsaved': '未保存',
     'browser.open': '打开',
     'browser.steal': '抢占',
     'browser.stealConfirmTitle': '抢占文件编辑权',
@@ -51,6 +52,13 @@ const dict = {
     'toast.noEditPermission': '无编辑权限，已在其它标签页打开此文件',
     'toast.filesDeleted': '已删除 {count} 个文件',
     'toast.deleteFailed': '删除失败',
+
+    // BackConfirm
+    'backConfirm.title': '未保存的更改',
+    'backConfirm.desc': '当前文件有未保存的更改，返回文件列表前请选择处理方式。',
+    'backConfirm.cancel': '取消',
+    'backConfirm.discard': '放弃更改',
+    'backConfirm.save': '保存并返回',
 
     // StatusBar
     'status.message': '报文',

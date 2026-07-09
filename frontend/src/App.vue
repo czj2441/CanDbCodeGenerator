@@ -37,6 +37,22 @@
     </div>
     <!-- Toast 在所有模式下都渲染 -->
     <Toast />
+    <!-- 返回确认对话框（未保存更改） -->
+    <Teleport to="body">
+      <Transition name="fade">
+        <div v-if="backDirtyOpen" class="confirm-overlay" @click="backDirtyOpen = false">
+          <div class="confirm-box" @click.stop>
+            <h4>{{ t('backConfirm.title') }}</h4>
+            <p>{{ t('backConfirm.desc') }}</p>
+            <div class="confirm-actions">
+              <button class="btn" @click="backDirtyOpen = false">{{ t('backConfirm.cancel') }}</button>
+              <button class="btn" @click="backAfterDiscard">{{ t('backConfirm.discard') }}</button>
+              <button class="btn btn-accent" @click="backAfterSave">{{ t('backConfirm.save') }}</button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
@@ -69,9 +85,10 @@ const mode = ref('browser')
 
 function handleSessionStolen(stolenSessionId) {
   // WS lock_stolen 事件触发时调用
+  // 锁已被抢，保存无意义，跳过脏检查直接返回
   console.warn(`[LockStolen] session ${stolenSessionId} was stolen`)
   ui.showToast(t('toast.sessionStolen'), true)
-  goBack()
+  doGoBack()
 }
 
 onMounted(() => {
@@ -82,7 +99,7 @@ onMounted(() => {
   // 监听 WS lock_stolen 导航事件
   navigateHandler = () => {
     if (mode.value === 'editor') {
-      goBack()
+      doGoBack()  // 锁已被抢/会话失效，跳过脏检查直接返回
     }
   }
   window.addEventListener('navigate-browser', navigateHandler)
@@ -140,7 +157,29 @@ async function createNewFile() {
 }
 
 // 返回文件浏览器
+const backDirtyOpen = ref(false)
+
 async function goBack() {
+  // 有未保存更改时弹出确认对话框
+  if (store._localDirty || store.backendDirty) {
+    backDirtyOpen.value = true
+    return
+  }
+  await doGoBack()
+}
+
+async function backAfterSave() {
+  backDirtyOpen.value = false
+  await store.saveSession()
+  await doGoBack()
+}
+
+function backAfterDiscard() {
+  backDirtyOpen.value = false
+  doGoBack()
+}
+
+async function doGoBack() {
   // 先释放文件锁（需要 WS 连接），再断开 WS
   await store.releaseSession()
   // sendBeacon 兆底（WS 可能已断开）
@@ -353,4 +392,66 @@ body {
   margin: 0 auto 12px;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── 确认对话框 ── */
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1600;
+}
+
+.confirm-box {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px 24px;
+  width: 360px;
+  max-width: 90vw;
+  box-shadow: var(--shadow);
+}
+
+.confirm-box h4 {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.confirm-box p {
+  margin: 0 0 18px;
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.confirm-actions .btn {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 5px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  cursor: pointer;
+  transition: var(--transition);
+}
+.confirm-actions .btn:hover { background: var(--bg-hover); }
+.confirm-actions .btn-accent {
+  background: var(--accent);
+  color: oklch(0.12 0.01 155);
+  border-color: transparent;
+  font-weight: 600;
+}
+.confirm-actions .btn-accent:hover { filter: brightness(1.1); }
+
+.fade-enter-active, .fade-leave-active { transition: opacity 150ms; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
 </style>

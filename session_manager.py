@@ -347,7 +347,9 @@ class SessionManager:
                 session = active_sessions[sid]
                 msg_count = len(session.db.messages)
                 sig_count = sum(len(m.signals) for m in session.db.messages.values())
+                is_modified = session.db.modified
             else:
+                is_modified = False
                 # 检查缓存：mtime+size 未变则复用上次解析结果
                 cached = self._history_cache.get(fname)
                 if cached and cached[0] == mtime and cached[1] == size:
@@ -385,6 +387,7 @@ class SessionManager:
                 "message_count": msg_count,
                 "signal_count": sig_count,
                 "is_locked": self.is_file_locked(os.path.normpath(fpath), exclude_session=exclude_session),
+                "is_modified": is_modified,
             })
         return history
 

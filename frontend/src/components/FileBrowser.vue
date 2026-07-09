@@ -66,6 +66,7 @@
             <td class="col-time">{{ formatTime(file.mtime) }}</td>
             <td class="col-status">
               <span v-if="file.is_locked" class="lock-badge">{{ t('browser.locked') }}</span>
+              <span v-else-if="file.is_modified" class="unsaved-badge">{{ t('browser.unsaved') }}</span>
             </td>
             <td class="col-actions" @click.stop>
               <button
@@ -516,6 +517,16 @@ onUnmounted(() => {
   margin-left: 8px;
   padding: 2px 8px;
   background: var(--warn);
+  color: #fff;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.unsaved-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  background: var(--danger);
   color: #fff;
   border-radius: var(--radius-sm);
   font-size: 11px;
