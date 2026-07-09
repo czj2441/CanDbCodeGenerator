@@ -112,6 +112,8 @@ class SessionManager:
         self._orphan_stacks: dict[str, dict] = {}
         # 锁释放回调（WS 架构下用于广播 lock_stolen）
         self._lock_released_callback: Optional[callable] = None
+        # list_history 磁盘解析缓存: fname -> (mtime, size, msg_count, sig_count)
+        self._history_cache: dict[str, tuple] = {}
         os.makedirs(self._data_dir, exist_ok=True)
         self._start_heartbeat_checker()
 
@@ -349,26 +351,33 @@ class SessionManager:
                 msg_count = len(session.db.messages)
                 sig_count = sum(len(m.signals) for m in session.db.messages.values())
             else:
-                # 从磁盘文件读取
-                msg_count = 0
-                sig_count = 0
-                try:
-                    with open(fpath, "r", encoding="utf-8") as f:
-                        data = javaproperties.loads(f.read())
-                    msg_ids = set()
-                    for k in data:
-                        if k.startswith("messages."):
-                            rest = k[len("messages."):]
-                            mid_key = rest.split(".", 1)[0]
-                            msg_ids.add(mid_key)
-                            if ".signals." in rest and ".uuid" in rest:
-                                sig_count += 1
-                    msg_count = len(msg_ids)
-                except Exception:
-                    pass
-                # 跳过空文件/损坏文件（非活跃且无数据）
-                if msg_count == 0 and sig_count == 0:
-                    continue
+                # 检查缓存：mtime+size 未变则复用上次解析结果
+                cached = self._history_cache.get(fname)
+                if cached and cached[0] == mtime and cached[1] == size:
+                    msg_count, sig_count = cached[2], cached[3]
+                else:
+                    # 从磁盘文件读取
+                    msg_count = 0
+                    sig_count = 0
+                    try:
+                        with open(fpath, "r", encoding="utf-8") as f:
+                            data = javaproperties.loads(f.read())
+                        msg_ids = set()
+                        for k in data:
+                            if k.startswith("messages."):
+                                rest = k[len("messages."):]
+                                mid_key = rest.split(".", 1)[0]
+                                msg_ids.add(mid_key)
+                                if ".signals." in rest and ".uuid" in rest:
+                                    sig_count += 1
+                        msg_count = len(msg_ids)
+                    except Exception:
+                        pass
+                    # 跳过空文件/损坏文件（非活跃且无数据）
+                    if msg_count == 0 and sig_count == 0:
+                        continue
+                    # 更新缓存
+                    self._history_cache[fname] = (mtime, size, msg_count, sig_count)
             
             history.append({
                 "session_id": sid,
