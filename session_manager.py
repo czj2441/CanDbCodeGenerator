@@ -311,6 +311,8 @@ class SessionManager:
         Args:
             exclude_session: 排除的会话 ID（当前已打开的会话不视为锁定）
         """
+        import javaproperties
+
         history = []
         if not os.path.isdir(self._data_dir):
             return history
@@ -319,7 +321,14 @@ class SessionManager:
         with self._lock:
             active_sessions = {s.id: s for s in self._sessions.values()}
         
-        for fname in sorted(os.listdir(self._data_dir), key=lambda n: os.path.getmtime(os.path.join(self._data_dir, n)), reverse=True):
+        # 安全获取 mtime 用于排序（文件可能在 listdir 后被删除）
+        def _safe_mtime(n):
+            try:
+                return os.path.getmtime(os.path.join(self._data_dir, n))
+            except OSError:
+                return 0
+
+        for fname in sorted(os.listdir(self._data_dir), key=_safe_mtime, reverse=True):
             if not fname.endswith(".properties"):
                 continue
             # 文件名格式: {session_id}_{name}.properties
@@ -328,8 +337,11 @@ class SessionManager:
                 continue
             sid, name = parts[0], parts[1]
             fpath = os.path.join(self._data_dir, fname)
-            mtime = os.path.getmtime(fpath)
-            size = os.path.getsize(fpath)
+            try:
+                mtime = os.path.getmtime(fpath)
+                size = os.path.getsize(fpath)
+            except OSError:
+                continue  # 文件已被删除，跳过
             
             # 优先从内存中的活跃 session 获取数据
             if sid in active_sessions:
@@ -341,7 +353,6 @@ class SessionManager:
                 msg_count = 0
                 sig_count = 0
                 try:
-                    import javaproperties
                     with open(fpath, "r", encoding="utf-8") as f:
                         data = javaproperties.loads(f.read())
                     msg_ids = set()
@@ -355,6 +366,9 @@ class SessionManager:
                     msg_count = len(msg_ids)
                 except Exception:
                     pass
+                # 跳过空文件/损坏文件（非活跃且无数据）
+                if msg_count == 0 and sig_count == 0:
+                    continue
             
             history.append({
                 "session_id": sid,
