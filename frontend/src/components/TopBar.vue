@@ -159,9 +159,9 @@ onUnmounted(() => {
   window.removeEventListener('trigger-export', handleTriggerExport)
 })
 
-// App.vue 保存失败时通过此事件触发导出备份
+// App.vue 保存失败时通过此事件触发导出备份（跳过冗余的 saveSession）
 function handleTriggerExport() {
-  exportFile('properties')
+  exportFile('properties', { skipSave: true })
 }
 
 watch(() => ui.newConfirmOpen, (open) => { if (open) newSessionName.value = '' })
@@ -270,7 +270,7 @@ function importAfterDiscard() {
   if (fileInput.value) fileInput.value.click()
 }
 
-async function exportFile(fmt) {
+async function exportFile(fmt, options = {}) {
   const ui = useUiStore()
   try {
     ui.setLoading(true)
@@ -313,10 +313,12 @@ async function exportFile(fmt) {
     }
 
     // ── 正常路径（WS 在线）──
-    // 先保存当前会话确保数据最新
-    const saved = await store.saveSession()
-    if (!saved) {
-      ui.showToast('保存失败，将导出内存中的最新数据', true)
+    // 先保存当前会话确保数据最新（skipSave: 保存失败后导出备份时跳过冗余保存）
+    if (!options.skipSave) {
+      const saved = await store.saveSession()
+      if (!saved) {
+        ui.showToast('保存失败，将导出内存中的最新数据', true)
+      }
     }
 
     // ── 浏览器模式：WS 获取内容 + Blob 下载 ──
