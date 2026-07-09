@@ -139,9 +139,7 @@ class WsServer:
             "data": {
                 "messages": messages_data,
                 "status": status,
-                "lock_status": "held" if lock_held else "lost",
-                "selected_message": None,
-                "selected_errors": None
+                "lock_status": "held" if lock_held else "lost"
             }
         }
 
