@@ -59,6 +59,10 @@ const dict = {
     'backConfirm.cancel': '取消',
     'backConfirm.discard': '放弃更改',
     'backConfirm.save': '保存并返回',
+    'backConfirm.saveFailedTitle': '保存失败',
+    'backConfirm.saveFailedDesc': '文件保存失败，数据仅存于内存中。建议立即导出备份，防止数据丢失。',
+    'backConfirm.stayEditing': '继续编辑',
+    'backConfirm.exportBackup': '导出备份',
 
     // StatusBar
     'status.message': '报文',

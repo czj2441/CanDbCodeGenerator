@@ -832,6 +832,16 @@ class SessionManager:
                     self.save(sid)
                 except Exception as e:
                     print(f"[SessionManager] stale session save failed for {sid[:8]}: {e}")
+                    # 紧急备份：save 失败时将数据写入独立备份文件
+                    try:
+                        content = session.db.to_properties_str()
+                        emergency_path = os.path.join(
+                            self._data_dir, f"{sid}_EMERGENCY.properties")
+                        with open(emergency_path, "w", encoding="utf-8") as f:
+                            f.write(content)
+                        print(f"[SessionManager] emergency backup written: {emergency_path}")
+                    except Exception as e2:
+                        print(f"[SessionManager] CRITICAL: emergency backup also failed for {sid[:8]}: {e2}")
             # 销毁 session（保留 orphan stack 以便恢复）
             with self._lock:
                 self._destroy(sid)

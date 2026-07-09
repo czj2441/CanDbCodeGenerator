@@ -53,6 +53,21 @@
         </div>
       </Transition>
     </Teleport>
+    <!-- 保存失败警告对话框 -->
+    <Teleport to="body">
+      <Transition name="fade">
+        <div v-if="saveFailedOpen" class="confirm-overlay" @click="dismissSaveFailed">
+          <div class="confirm-box" @click.stop>
+            <h4>{{ t('backConfirm.saveFailedTitle') }}</h4>
+            <p>{{ t('backConfirm.saveFailedDesc') }}</p>
+            <div class="confirm-actions">
+              <button class="btn" @click="dismissSaveFailed">{{ t('backConfirm.stayEditing') }}</button>
+              <button class="btn btn-accent" @click="exportAndStay">{{ t('backConfirm.exportBackup') }}</button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
@@ -158,6 +173,7 @@ async function createNewFile() {
 
 // 返回文件浏览器
 const backDirtyOpen = ref(false)
+const saveFailedOpen = ref(false)
 
 async function goBack() {
   // 有未保存更改时弹出确认对话框
@@ -170,8 +186,23 @@ async function goBack() {
 
 async function backAfterSave() {
   backDirtyOpen.value = false
-  await store.saveSession()
+  const ok = await store.saveSession()
+  if (!ok) {
+    saveFailedOpen.value = true
+    return
+  }
   await doGoBack()
+}
+
+function dismissSaveFailed() {
+  saveFailedOpen.value = false
+  // 留在编辑器，用户可重试保存或继续编辑
+}
+
+function exportAndStay() {
+  saveFailedOpen.value = false
+  // 复用 TopBar 已有的导出逻辑：触发 TopBar 的 saveAndExport
+  window.dispatchEvent(new CustomEvent('trigger-export'))
 }
 
 function backAfterDiscard() {

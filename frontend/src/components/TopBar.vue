@@ -150,12 +150,19 @@ function handleExportClickOutside(e) {
 onMounted(() => {
   window.addEventListener('keydown', handleKeydown)
   document.addEventListener('click', handleExportClickOutside)
+  window.addEventListener('trigger-export', handleTriggerExport)
 })
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown)
   document.removeEventListener('click', handleExportClickOutside)
+  window.removeEventListener('trigger-export', handleTriggerExport)
 })
+
+// App.vue 保存失败时通过此事件触发导出备份
+function handleTriggerExport() {
+  exportFile('properties')
+}
 
 watch(() => ui.newConfirmOpen, (open) => { if (open) newSessionName.value = '' })
 
