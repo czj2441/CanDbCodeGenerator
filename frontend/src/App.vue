@@ -151,13 +151,8 @@ async function goBack() {
   // 停止 WS 连接
   store.stopEditorSync()
   setSessionId('')   // 清除已销毁的 session ID，防止幻影恢复
-  // 清理编辑器状态
-  store.clearUndoStack()
-  store.selectedMsgId = null
-  store.messageCache = {}
-  store.messages = []
-  store.signalErrors = []
-  store.editorState = null
+  // 清理编辑器所有状态（包含 clipboard、_localDirty 等）
+  store.resetEditorState()
   mode.value = 'browser'
 }
 

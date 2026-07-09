@@ -252,6 +252,24 @@ export const useEditorStore = defineStore('editor', {
     },
 
     /**
+     * 统一重置编辑器所有状态（goBack / lock_stolen 时调用）。
+     * 确保不遗漏 clipboard、_localDirty 等字段。
+     */
+    resetEditorState() {
+      this.messages = []
+      this.selectedMsgId = null
+      this.messageCache = {}
+      this.currentFileName = ''
+      this._localDirty = false
+      this.backendDirty = false
+      this.signalErrors = []
+      this.clipboard = null
+      this.logEntries = []
+      this._dataVersion = 0
+      this.clearUndoStack()
+    },
+
+    /**
      * 建立 WebSocket 连接
      */
     _connectWebSocket() {
@@ -506,11 +524,7 @@ export const useEditorStore = defineStore('editor', {
           this._wsClient = null
           this._wsConnected = false
           // 清理编辑状态并导航回文件浏览器
-          this.messages = []
-          this.messageCache = {}
-          this.selectedMsgId = null
-          this.signalErrors = []
-          this.clearUndoStack()
+          this.resetEditorState()
           window.dispatchEvent(new CustomEvent('navigate-browser'))
           useUiStore().showToast(t('toast.noEditPermission'), true)
           break
