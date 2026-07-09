@@ -546,12 +546,7 @@ class NewFileHandler:
         name = data.get("name", "Untitled")
         if not name or not str(name).strip():
             name = "Untitled"
-        # 先保存当前会话
-        if sid:
-            try:
-                self._sm.save(sid)
-            except Exception:
-                pass
+        # 旧会话由自动保存和手动保存负责落盘，不在 handler 中隐式保存
         new_db = CanDatabase(name)
         file_name = f"{name}.properties"
         new_sid = self._sm.create(file_name, new_db)
