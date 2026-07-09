@@ -285,16 +285,31 @@ class SessionManager:
                 continue
             if not session.db.modified:
                 continue
+            saved_ok = False
             try:
-                if self.save(sid):
-                    saved += 1
-                    session.save_error = None  # 成功：清除旧错误
-                else:
+                saved_ok = self.save(sid)
+            except Exception as e:
+                session.save_error = str(e)    # 异常：记录错误
+                print(f"[WARN] save_all_dirty: failed to save {sid[:8]}: {e}")
+
+            if saved_ok:
+                saved += 1
+                session.save_error = None  # 成功：清除旧错误
+            else:
+                if not session.save_error:
                     session.save_error = "Session disappeared during save"
                     print(f"[WARN] save_all_dirty: save returned False for {sid[:8]}")
-            except Exception as e:
-                session.save_error = str(e)    # 失败：记录错误
-                print(f"[WARN] save_all_dirty: failed to save {sid[:8]}: {e}")
+                # 紧急备份：save 失败时写入独立备份文件，与心跳超时路径保护级别一致
+                try:
+                    os.makedirs(self._data_dir, exist_ok=True)
+                    content = session.db.to_properties_str()
+                    emergency_path = os.path.join(
+                        self._data_dir, f"{sid}_EMERGENCY.properties")
+                    with open(emergency_path, "w", encoding="utf-8") as f:
+                        f.write(content)
+                    print(f"[SessionManager] emergency backup written: {emergency_path}")
+                except Exception as e2:
+                    print(f"[SessionManager] CRITICAL: emergency backup also failed for {sid[:8]}: {e2}")
         return saved
 
     def destroy(self, session_id: str) -> bool:
