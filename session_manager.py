@@ -798,7 +798,16 @@ class SessionManager:
                     stale_sids.append(sid)
 
         for sid in stale_sids:
-            self.release_session(sid)
+            # 先尝试保存未落盘数据，防止丢失
+            session = self.get(sid)
+            if session and session.db.modified:
+                try:
+                    self.save(sid)
+                except Exception as e:
+                    print(f"[SessionManager] stale session save failed for {sid[:8]}: {e}")
+            # 销毁 session（保留 orphan stack 以便恢复）
+            with self._lock:
+                self._destroy(sid)
             # 锁释放回调（WS 架构下广播 lock_stolen）
             self.fire_lock_released(sid)
 
