@@ -123,6 +123,11 @@
         </div>
       </div>
     </div>
+
+    <!-- 底部版本栏 -->
+    <div class="browser-footer">
+      <span class="version-tag">{{ manualVersion }} {{ autoVersion }}</span>
+    </div>
   </div>
 </template>
 
@@ -132,6 +137,9 @@ import { getSessionId } from '../api/client.js'
 import { useUiStore } from '../stores/uiStore.js'
 import { t } from '../i18n.js'
 import { WsSyncClient } from '../utils/ws-client.js'
+
+const manualVersion = typeof __MANUAL_VERSION__ !== 'undefined' ? __MANUAL_VERSION__ : 'dev'
+const autoVersion = typeof __AUTO_VERSION__ !== 'undefined' ? __AUTO_VERSION__ : 'dev'
 
 const emit = defineEmits(['open'])
 
@@ -665,5 +673,23 @@ onUnmounted(() => {
 .btn-danger:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* 底部版本栏 */
+.browser-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 24px;
+  height: 26px;
+  background: var(--bg-panel);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.version-tag {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  opacity: 0.6;
 }
 </style>

@@ -13,6 +13,7 @@ import websockets
 from session_manager import get_session_manager
 from ws_transport import WsTransport
 from ws_router import MessageRouter
+from version import VERSION
 
 
 class WsServer:
@@ -65,6 +66,8 @@ class WsServer:
             if session_id:
                 self._transport.register(session_id, ws)
                 sm.update_heartbeat(session_id)
+                # 发送服务端版本号（前端用于校验）
+                await ws.send(json.dumps({"type": "server_version", "data": VERSION}))
                 await self._send_full_sync(ws, session_id)
 
             # ── 消息循环 ──

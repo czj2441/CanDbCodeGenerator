@@ -18,6 +18,7 @@ import threading
 import time
 import urllib.parse
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from version import VERSION
 from typing import Any
 
 try:
@@ -159,6 +160,8 @@ class ApiHandler(BaseHTTPRequestHandler):
                 self._get_diag()
             elif parts == ["api", "export"]:
                 self._get_export()
+            elif parts == ["api", "version"]:
+                self._get_version()
             else:
                 self._serve_static()
         except Exception as e:
@@ -221,6 +224,10 @@ class ApiHandler(BaseHTTPRequestHandler):
     def _get_status(self) -> None:
         """GET /api/status - 轻量健康检查（所有数据操作已迁移至 WS）。"""
         self._send_json(200, _resp(True, {"status": "ok"}))
+
+    def _get_version(self) -> None:
+        """GET /api/version - 返回应用版本号。"""
+        self._send_json(200, _resp(True, VERSION))
 
     def _post_release(self) -> None:
         """POST /api/release - 释放文件锁（navigator.sendBeacon 专用）。

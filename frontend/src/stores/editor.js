@@ -197,6 +197,10 @@ export const useEditorStore = defineStore('editor', {
     // ── 撤销/重做计数器（从后端同步） ──
     undoCount: 0,
     redoCount: 0,
+
+    // ── 版本号 ──
+    serverVersion: null,       // 后端版本信息对象
+    versionMismatch: false,    // 前后端版本不匹配标记
   }),
 
   getters: {
@@ -266,6 +270,8 @@ export const useEditorStore = defineStore('editor', {
       this.clipboard = null
       this.logEntries = []
       this._dataVersion = 0
+      this.versionMismatch = false
+      this.serverVersion = null
       this.clearUndoStack()
     },
 
@@ -530,11 +536,53 @@ export const useEditorStore = defineStore('editor', {
           break
         }
 
-        case 'pong':
+        case 'pong': {
+          // pong 携带服务端版本号，被动比较
+          if (msg.data?.auto_version) {
+            this.serverVersion = msg.data
+            const clientHash = typeof __AUTO_VERSION__ !== 'undefined'
+              ? __AUTO_VERSION__.split('_')[0] : ''
+            const serverHash = (msg.data.auto_version || '').split('_')[0]
+            this.versionMismatch = !!(clientHash && clientHash !== 'dev' && serverHash && clientHash !== serverHash)
+          }
           break
+        }
+
+        // ── 服务端版本号 ──
+        case 'server_version': {
+          this.serverVersion = msg.data
+          const clientHash = typeof __AUTO_VERSION__ !== 'undefined'
+            ? __AUTO_VERSION__.split('_')[0] : ''
+          const serverHash = (msg.data?.auto_version || '').split('_')[0]
+          this.versionMismatch = !!(clientHash && clientHash !== 'dev' && serverHash && clientHash !== serverHash)
+          break
+        }
       }
 
       stopTimer()
+    },
+
+    /**
+     * 检查前后端版本一致性（REST 调用）
+     * 非阻塞：静默获取，仅在哈希不匹配时设置标记
+     */
+    async checkVersion() {
+      try {
+        const resp = await fetch('/api/version')
+        if (!resp.ok) return
+        const data = await resp.json()
+        if (data.success) {
+          this.serverVersion = data.data
+          const clientHash = typeof __AUTO_VERSION__ !== 'undefined'
+            ? __AUTO_VERSION__.split('_')[0] : ''
+          const serverHash = (data.data.auto_version || '').split('_')[0]
+          if (clientHash && clientHash !== 'dev' && serverHash && clientHash !== serverHash) {
+            this.versionMismatch = true
+          }
+        }
+      } catch {
+        /* 静默：版本检查不应阻塞或报错 */
+      }
     },
 
     // ═══════════════════════════════════════════

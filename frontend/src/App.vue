@@ -27,6 +27,17 @@
       <LoadingOverlay />
       <ContextMenu :items="contextMenuItems" />
     </template>
+    <!-- 版本不匹配遮罩：全局阻断，z-index 高于 dead-overlay(500) -->
+    <div v-if="store.versionMismatch" class="dead-overlay" style="z-index: 501;">
+      <div class="dead-overlay-box" style="border-color: var(--info);">
+        <span class="dead-overlay-icon">🔄</span>
+        <p>{{ t('overlay.versionMismatchTitle') }}</p>
+        <p class="dead-overlay-sub">{{ t('overlay.versionMismatchSub') }}</p>
+        <button class="btn btn-accent" style="margin-top:16px" @click="reloadPage">
+          {{ t('overlay.versionReload') }}
+        </button>
+      </div>
+    </div>
     <!-- 死遮罩：全局覆盖所有模式 -->
     <div v-if="store.apiStatus === 'dead'" class="dead-overlay">
       <div class="dead-overlay-box">
@@ -96,6 +107,10 @@ const ui = useUiStore()
 let beforeUnloadHandler = null  // beforeunload 事件处理器
 let navigateHandler = null     // navigate-browser 事件处理器
 
+function reloadPage() {
+  window.location.reload()
+}
+
 // 应用模式：'browser' | 'editor'
 const mode = ref('browser')
 
@@ -133,6 +148,9 @@ onMounted(() => {
     }
   }
   window.addEventListener('beforeunload', beforeUnloadHandler)
+
+  // 初始版本检查（REST），后续通过 WS ping/pong 被动接收服务端版本
+  store.checkVersion()
 })
 
 onUnmounted(() => {
@@ -402,6 +420,24 @@ body {
   font-weight: 400 !important;
   color: var(--text-dim) !important;
 }
+.dead-overlay-box .btn {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 6px 16px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  cursor: pointer;
+  transition: var(--transition);
+}
+.dead-overlay-box .btn:hover { background: var(--bg-hover); }
+.dead-overlay-box .btn-accent {
+  background: var(--accent);
+  color: oklch(0.12 0.01 155);
+  border-color: transparent;
+  font-weight: 600;
+}
+.dead-overlay-box .btn-accent:hover { filter: brightness(1.1); }
 
 /* ── 离线编辑遮罩 ── */
 .offline-overlay {

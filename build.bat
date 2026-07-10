@@ -12,6 +12,12 @@ set "ROOT_DIR=%~dp0"
 echo [Build] Building frontend...
 echo [Build] Working directory: %ROOT_DIR%frontend
 
+REM 计算自动版本号
+python "%ROOT_DIR%compute_version.py" --write
+if errorlevel 1 (
+    echo [Warn] Version computation failed, using defaults.
+)
+
 cd /d "%ROOT_DIR%frontend"
 
 REM Install dependencies if node_modules is missing

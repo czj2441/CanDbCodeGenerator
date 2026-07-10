@@ -181,6 +181,10 @@ const dict = {
     'toast.autoSaveFailed': '自动保存失败：{error}，请手动保存（Ctrl+S）',
     'overlay.reconnectTitle': '正在重新连接...',
     'overlay.reconnectSub': '后端暂时不可用，连接恢复后可继续编辑',
+    // Version mismatch overlay
+    'overlay.versionMismatchTitle': '检测到版本不匹配',
+    'overlay.versionMismatchSub': '前后端代码版本不一致，请刷新页面加载最新版本',
+    'overlay.versionReload': '刷新页面',
     'toast.batchCreated': '已创建 {count} 个信号',
     'toast.batchFailed': '批量创建在第 #{idx} 个失败：{msg}',
     'toast.signalOutOfBounds': '信号 "{name}" 超出范围（DLC={dlc}，最大位 {max}）',
