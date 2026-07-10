@@ -710,23 +710,6 @@ def main() -> None:
     # 注册退出处理器（进程正常退出时触发）
     atexit.register(save_all_sessions)
 
-    # ── 定时自动保存（每 5 分钟） ──
-    AUTO_SAVE_INTERVAL = 300  # 5 分钟
-    
-    def _periodic_auto_saver():
-        while True:
-            time.sleep(AUTO_SAVE_INTERVAL)
-            try:
-                count = SESSION_MGR.save_all_dirty()
-                if count > 0:
-                    print(f"[AUTO-SAVE] Periodic save: {count} session(s) saved to disk")
-            except Exception as e:
-                print(f"[AUTO-SAVE] Error: {e}")
-    
-    auto_save_thread = threading.Thread(target=_periodic_auto_saver, daemon=True)
-    auto_save_thread.start()
-    print(f"[AUTO-SAVE] Periodic auto-save started (interval={AUTO_SAVE_INTERVAL}s)")
-    
     # 注册信号处理器（捕获 Ctrl+C 和 kill 信号）
     def graceful_shutdown(signum, frame):
         signal_name = "SIGINT" if signum == signal.SIGINT else "SIGTERM"
@@ -856,24 +839,9 @@ def start_server_background(port: int = 8080) -> "BackgroundServer":
     # 让 ApiHandler 能访问 ws_transport（供 _get_diag 使用）
     ApiHandler._ws_transport = ws_transport
 
-    # 防止重启时 atexit/auto_save 重复注册
+    # 防止重启时 atexit 重复注册
     if not hasattr(start_server_background, '_initialized'):
         start_server_background._initialized = True
-
-        # 定时自动保存（每 5 分钟）
-        AUTO_SAVE_INTERVAL = 300
-        def _periodic_auto_saver():
-            while True:
-                time.sleep(AUTO_SAVE_INTERVAL)
-                try:
-                    count = SESSION_MGR.save_all_dirty()
-                    if count > 0:
-                        print(f"[AUTO-SAVE] Periodic save: {count} session(s) saved")
-                except Exception as e:
-                    print(f"[AUTO-SAVE] Error: {e}")
-
-        auto_save_thread = threading.Thread(target=_periodic_auto_saver, daemon=True)
-        auto_save_thread.start()
 
         # 注册 atexit 保存
         def save_all_sessions():

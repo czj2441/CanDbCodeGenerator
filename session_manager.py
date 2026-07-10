@@ -271,7 +271,7 @@ class SessionManager:
     def save_all_dirty(self) -> int:
         """遍历所有活跃会话，保存所有已修改的。
 
-        用于定时自动保存。（线程安全，不长期持锁）
+        用于进程退出时保存（atexit）。（线程安全，不长期持锁）
 
         Returns:
             成功保存的会话数量
@@ -409,36 +409,6 @@ class SessionManager:
             })
         return history
 
-    def load_history(self, session_id: str) -> Session | None:
-        """从历史文件加载数据，创建一个新的独立会话（原 session 保留）。"""
-        file_path = self._find_session_file(session_id)
-        if not file_path:
-            return None
-        db = self._load_file(file_path)
-        if db is None:
-            return None
-        # 创建新 session（新 ID），但数据来自历史文件
-        new_sid = uuid.uuid4().hex[:12]
-        base = os.path.basename(file_path)
-        # 去掉旧 session_id 前缀
-        if "_" in base:
-            name_part = base.split("_", 1)[1]
-        else:
-            name_part = base
-        new_file_name = f"{new_sid}_{name_part}"
-        new_file_path = os.path.join(self._data_dir, new_file_name)
-        # 先写入新文件（统一使用 Properties 格式）
-        tmp_path = new_file_path + ".tmp"
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            f.write(db.to_properties_str())
-        os.replace(tmp_path, new_file_path)
-
-        session = Session(new_sid, new_file_path, db)
-        with self._lock:
-            self._sessions[new_sid] = session
-            self._register_active(new_sid, new_file_path)
-        return session
-
     def delete_history(self, session_id: str) -> bool:
         """删除历史会话（内存 + 磁盘文件）。"""
         with self._lock:
@@ -518,7 +488,7 @@ class SessionManager:
             session.redo_stack.append(snap)
             
             # 执行撤销逻辑（统一持有 db 锁，保证原子性）
-            # 不立即落盘，由定时自动保存器或手动保存处理
+            # 不立即落盘，由手动保存处理
             try:
                 with session.db.with_lock():
                     self._execute_undo(session, snap)
@@ -561,7 +531,7 @@ class SessionManager:
             session.undo_stack.append(snap)
             
             # 执行重做逻辑（统一持有 db 锁，保证原子性）
-            # 不立即落盘，由定时自动保存器或手动保存处理
+            # 不立即落盘，由手动保存处理
             try:
                 with session.db.with_lock():
                     self._execute_redo(session, snap)
@@ -843,27 +813,6 @@ class SessionManager:
                     stale_sids.append(sid)
 
         for sid in stale_sids:
-            # 先尝试保存未落盘数据，防止丢失
-            session = self.get(sid)
-            if session and session.db.modified:
-                saved = False
-                try:
-                    saved = self.save(sid)
-                except Exception as e:
-                    print(f"[SessionManager] stale session save failed for {sid[:8]}: {e}")
-
-                if not saved:
-                    # 紧急备份：save 失败（含返回 False 和异常）时将数据写入独立备份文件
-                    try:
-                        os.makedirs(self._data_dir, exist_ok=True)
-                        content = session.db.to_properties_str()
-                        emergency_path = os.path.join(
-                            self._data_dir, f"{sid}_EMERGENCY.properties")
-                        with open(emergency_path, "w", encoding="utf-8") as f:
-                            f.write(content)
-                        print(f"[SessionManager] emergency backup written: {emergency_path}")
-                    except Exception as e2:
-                        print(f"[SessionManager] CRITICAL: emergency backup also failed for {sid[:8]}: {e2}")
             # 销毁 session（保留 orphan stack 以便恢复）
             with self._lock:
                 self._destroy(sid)
