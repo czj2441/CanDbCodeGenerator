@@ -1014,11 +1014,11 @@ export const useEditorStore = defineStore('editor', {
     },
 
     /**
-     * 加载会话
-     * @param {string} sessionId - 会话 ID
+     * 加载文件
+     * @param {string} fileName - 文件名
      * @returns {Promise<void>}
      */
-    async loadHistorySession(sessionId) {
+    async loadHistoryFile(fileName) {
       this.selectedMsgId = null
       this.messageCache = {}
       this.messages = []
@@ -1037,11 +1037,9 @@ export const useEditorStore = defineStore('editor', {
         this.startEditorSync()
         await this._waitForWsReady()
 
-        // WS 已连接，发送 load_session 请求（服务端 restore + session 切换 + full_sync）
-        // 注意：不能用 _wsRequest，它会用 getSessionId() 覆盖 session_id，
-        // 而这里 session_id 必须是目标文件的 ID，不是当前会话 ID。
-        const data = await this._wsClient.request('load_session', {
-          session_id: sessionId,
+        // WS 已连接，发送 load_file 请求（服务端 restore + session 切换 + full_sync）
+        const data = await this._wsClient.request('load_file', {
+          file_name: fileName,
           current_session_id: currentSid
         })
         const sid = data.session_id

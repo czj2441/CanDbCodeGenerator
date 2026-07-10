@@ -166,11 +166,11 @@ onUnmounted(() => {
 })
 
 // 打开文件
-async function openFile(sessionId) {
+async function openFile(fileName) {
   try {
-    await store.loadHistorySession(sessionId)
+    await store.loadHistoryFile(fileName)
     mode.value = 'editor'
-    // WS 连接已在 loadHistorySession 中启动
+    // WS 连接已在 loadHistoryFile 中启动
   } catch (e) {
     console.error('Failed to open file:', e)
     if (e.code === 'FILE_LOCKED') {

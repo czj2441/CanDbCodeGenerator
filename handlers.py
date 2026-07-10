@@ -10,6 +10,7 @@ import math
 import os
 
 from models import Signal, Message, CanDatabase
+from session_manager import FileLockedError, FileNameExistsError
 from ws_router import HandlerResult, HandlerError, EDITABLE_SIGNAL_FIELDS
 
 
@@ -36,10 +37,7 @@ def _parse_id(s) -> int | None:
 
 def _pure_file_name(session) -> str:
     """从 session 中提取纯文件名。"""
-    base = os.path.basename(session.file_path)
-    if base.startswith(session.id + "_"):
-        base = base[len(session.id) + 1:]
-    return base
+    return os.path.basename(session.file_path)
 
 
 def _validate_signal_fields(body: dict, msg, sig_uuid: str = None):
@@ -554,7 +552,10 @@ class NewFileHandler:
         # 旧会话由自动保存和手动保存负责落盘，不在 handler 中隐式保存
         new_db = CanDatabase(name)
         file_name = f"{name}.properties"
-        new_sid = self._sm.create(file_name, new_db)
+        try:
+            new_sid = self._sm.create(file_name, new_db)
+        except FileNameExistsError:
+            raise HandlerError("FILE_NAME_EXISTS", f"File '{file_name}' already exists")
         return HandlerResult(
             data={"name": new_db.name, "file_name": file_name, "session_id": new_sid},
             new_version=0, session_id=sid, new_session_id=new_sid)
@@ -593,7 +594,10 @@ class ImportFileHandler:
 
         # 始终创建新会话，不替换当前会话的 db，不执行任何保存
         file_name = f"{new_db.name}.properties"
-        new_sid = self._sm.create(file_name, new_db)
+        try:
+            new_sid = self._sm.create(file_name, new_db)
+        except FileNameExistsError:
+            raise HandlerError("FILE_NAME_EXISTS", f"File '{file_name}' already exists")
 
         return HandlerResult(
             data={"message_count": len(new_db.messages),
@@ -644,10 +648,10 @@ class DownloadFileHandler:
 
 
 # ═══════════════════════════════════════════
-# 15. CreateSessionHandler
+# 15. CreateFileHandler
 # ═══════════════════════════════════════════
 
-class CreateSessionHandler:
+class CreateFileHandler:
     def __init__(self, session_mgr):
         self._sm = session_mgr
 
@@ -670,23 +674,22 @@ class CreateSessionHandler:
 
 
 # ═══════════════════════════════════════════
-# 16. LoadSessionHandler
+# 16. LoadFileHandler
 # ═══════════════════════════════════════════
 
-class LoadSessionHandler:
+class LoadFileHandler:
     def __init__(self, session_mgr):
         self._sm = session_mgr
 
     def __call__(self, data: dict) -> HandlerResult:
-        target_sid = data["session_id"]
+        file_name = data["file_name"]
         current_sid = data.get("current_session_id", "")
-        from session_manager import FileLockedError
         try:
-            s = self._sm.restore(target_sid, exclude_session=current_sid)
+            s = self._sm.restore(file_name, exclude_session=current_sid)
         except FileLockedError as e:
             raise HandlerError("FILE_LOCKED", str(e))
         if not s:
-            raise HandlerError("SESSION_NOT_FOUND", "Session not found or corrupted")
+            raise HandlerError("SESSION_NOT_FOUND", "File not found or corrupted")
         return HandlerResult(data={
             "session_id": s.id, "file_name": _pure_file_name(s),
             "message_count": len(s.db.messages), "signal_count": s.db.total_signals(),
@@ -706,16 +709,17 @@ class RenameSessionHandler:
         new_name = data.get("name", "")
         if not new_name:
             raise HandlerError("VALUE_INVALID", "Name is required")
-        # 去前缀 + .properties 后校验：防止空名称文件被创建
+        # 去 .properties 后校验
         check = new_name.strip()
         if check.endswith(".properties"):
             check = check[:-11]
-        if check.startswith(sid + "_"):
-            check = check[len(sid) + 1:]
         check = check.strip()
         if not check or not check.strip("_"):
             raise HandlerError("VALUE_INVALID", "文件名不能为空")
-        ok = self._sm.rename(sid, new_name)
+        try:
+            ok = self._sm.rename(sid, new_name)
+        except FileNameExistsError:
+            raise HandlerError("FILE_NAME_EXISTS", f"File '{new_name}' already exists")
         if not ok:
             raise HandlerError("SESSION_NOT_FOUND", "Session not found")
         s = self._sm.get(sid)
@@ -724,19 +728,19 @@ class RenameSessionHandler:
 
 
 # ═══════════════════════════════════════════
-# 18. DeleteSessionHandler
+# 18. DeleteFileHandler
 # ═══════════════════════════════════════════
 
-class DeleteSessionHandler:
+class DeleteFileHandler:
     def __init__(self, session_mgr):
         self._sm = session_mgr
 
     def __call__(self, data: dict) -> HandlerResult:
-        target_sid = data["session_id"]
-        ok = self._sm.delete_history(target_sid)
+        file_name = data["file_name"]
+        ok = self._sm.delete_history(file_name)
         if not ok:
-            raise HandlerError("SESSION_NOT_FOUND", "Session not found")
-        return HandlerResult(data={"deleted": target_sid}, session_id=data.get("current_session_id", ""))
+            raise HandlerError("SESSION_NOT_FOUND", "File not found")
+        return HandlerResult(data={"deleted": file_name}, session_id=data.get("current_session_id", ""))
 
 
 # ═══════════════════════════════════════════

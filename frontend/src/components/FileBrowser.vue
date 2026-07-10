@@ -42,18 +42,18 @@
           </tr>
           <tr
             v-for="file in files"
-            :key="file.session_id"
+            :key="file.file_name"
             class="file-row"
             :class="{ 
               'locked': file.is_locked,
-              'selected': selectedFiles.includes(file.session_id)
+              'selected': selectedFiles.includes(file.file_name)
             }"
             @click="toggleSelectFile(file)"
           >
             <td class="col-checkbox" @click.stop>
               <input 
                 type="checkbox" 
-                :checked="selectedFiles.includes(file.session_id)"
+                :checked="selectedFiles.includes(file.file_name)"
                 :disabled="file.is_locked"
                 @change="toggleSelectFile(file)"
               />
@@ -149,7 +149,7 @@ const stealModalOpen = ref(false)
 const stealingFile = ref(null)
 const deleteModalOpen = ref(false)
 const pendingDeleteFiles = ref([])
-const selectedFiles = ref([])  // 存储选中的 session_id
+const selectedFiles = ref([])  // 存储选中的 file_name
 const deleting = ref(false)
 let wsClient = null       // FileBrowser 独立 WS 连接
 let refreshTimer = null   // 周期性刷新列表
@@ -157,7 +157,7 @@ let refreshTimer = null   // 周期性刷新列表
 // 计算属性：是否全选
 const selectAll = computed(() => {
   const unlockableFiles = files.value.filter(f => !f.is_locked)
-  return unlockableFiles.length > 0 && unlockableFiles.every(f => selectedFiles.value.includes(f.session_id))
+  return unlockableFiles.length > 0 && unlockableFiles.every(f => selectedFiles.value.includes(f.file_name))
 })
 
 // 计算属性：显示在删除弹窗中的文件列表（最多显示5个）
@@ -175,7 +175,7 @@ async function loadFiles() {
       current_session_id: ''  // 文件浏览器不排除任何 session
     })
     files.value = result
-    const validIds = new Set(files.value.map(f => f.session_id))
+    const validIds = new Set(files.value.map(f => f.file_name))
     selectedFiles.value = selectedFiles.value.filter(id => validIds.has(id))
   } catch (e) {
     const ui = useUiStore()
@@ -187,9 +187,9 @@ async function loadFiles() {
 function toggleSelectFile(file) {
   if (file.is_locked) return  // 锁定的文件不能被选中
   
-  const idx = selectedFiles.value.indexOf(file.session_id)
+  const idx = selectedFiles.value.indexOf(file.file_name)
   if (idx === -1) {
-    selectedFiles.value.push(file.session_id)
+    selectedFiles.value.push(file.file_name)
   } else {
     selectedFiles.value.splice(idx, 1)
   }
@@ -204,7 +204,7 @@ function toggleSelectAll() {
     // 全选所有未锁定的文件
     selectedFiles.value = files.value
       .filter(f => !f.is_locked)
-      .map(f => f.session_id)
+      .map(f => f.file_name)
   }
 }
 
@@ -213,7 +213,7 @@ function confirmDelete() {
   if (selectedFiles.value.length === 0) return
   
   // 获取选中的文件对象
-  pendingDeleteFiles.value = files.value.filter(f => selectedFiles.value.includes(f.session_id))
+  pendingDeleteFiles.value = files.value.filter(f => selectedFiles.value.includes(f.file_name))
   deleteModalOpen.value = true
 }
 
@@ -235,8 +235,8 @@ async function executeDelete() {
   try {
     for (const file of pendingDeleteFiles.value) {
       try {
-        await wsClient.request('delete_session', {
-          session_id: file.session_id,
+        await wsClient.request('delete_file', {
+          file_name: file.file_name,
           current_session_id: getSessionId() || ''
         })
         successCount++
@@ -268,9 +268,9 @@ function open(file) {
     return
   }
   // 防止重复点击
-  if (openingSessionId.value === file.session_id) return
-  openingSessionId.value = file.session_id
-  emit('open', file.session_id)
+  if (openingSessionId.value === file.file_name) return
+  openingSessionId.value = file.file_name
+  emit('open', file.file_name)
   // 500ms 后重置
   setTimeout(() => { openingSessionId.value = null }, 500)
 }
@@ -287,7 +287,7 @@ function closeStealModal() {
 
 async function executeSteal() {
   if (!stealingFile.value) return
-  const targetSid = stealingFile.value.session_id
+  const targetSid = stealingFile.value.session_id || ''
   const targetFileName = stealingFile.value.name
   
   try {

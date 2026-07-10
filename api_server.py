@@ -640,8 +640,8 @@ def main() -> None:
         EditSignalHandler, AddSignalHandler, DeleteSignalHandler, BatchAddSignalsHandler,
         EditMessageHandler, AddMessageHandler, DeleteMessageHandler, DuplicateMessageHandler,
         UndoHandler, RedoHandler, SaveHandler, NewFileHandler, ImportFileHandler,
-        DownloadFileHandler, CreateSessionHandler, LoadSessionHandler,
-        RenameSessionHandler, DeleteSessionHandler, GetSessionsHandler, ReleaseLockHandler,
+        DownloadFileHandler, CreateFileHandler, LoadFileHandler,
+        RenameSessionHandler, DeleteFileHandler, GetSessionsHandler, ReleaseLockHandler,
         StealLockHandler, GetSummaryHandler, GetSessionInfoHandler, GetMessageHandler,
         GetSignalErrorsHandler, GetStatusHandler, GetMessagesHandler,
     )
@@ -665,10 +665,10 @@ def main() -> None:
     ws_router.register("new_file", NewFileHandler(SESSION_MGR))
     ws_router.register("import_file", ImportFileHandler(SESSION_MGR))
     ws_router.register("download_file", DownloadFileHandler(SESSION_MGR))
-    ws_router.register("create_session", CreateSessionHandler(SESSION_MGR))
-    ws_router.register("load_session", LoadSessionHandler(SESSION_MGR))
+    ws_router.register("create_file", CreateFileHandler(SESSION_MGR))
+    ws_router.register("load_file", LoadFileHandler(SESSION_MGR))
     ws_router.register("rename_session", RenameSessionHandler(SESSION_MGR))
-    ws_router.register("delete_session", DeleteSessionHandler(SESSION_MGR))
+    ws_router.register("delete_file", DeleteFileHandler(SESSION_MGR))
     ws_router.register("get_sessions", GetSessionsHandler(SESSION_MGR))
     ws_router.register("release_lock", ReleaseLockHandler(SESSION_MGR))
     ws_router.register("steal_lock", StealLockHandler(SESSION_MGR, ws_transport))
@@ -791,8 +791,8 @@ def start_server_background(port: int = 8080) -> "BackgroundServer":
         EditSignalHandler, AddSignalHandler, DeleteSignalHandler, BatchAddSignalsHandler,
         EditMessageHandler, AddMessageHandler, DeleteMessageHandler, DuplicateMessageHandler,
         UndoHandler, RedoHandler, SaveHandler, NewFileHandler, ImportFileHandler,
-        DownloadFileHandler, CreateSessionHandler, LoadSessionHandler,
-        RenameSessionHandler, DeleteSessionHandler, GetSessionsHandler, ReleaseLockHandler,
+        DownloadFileHandler, CreateFileHandler, LoadFileHandler,
+        RenameSessionHandler, DeleteFileHandler, GetSessionsHandler, ReleaseLockHandler,
         StealLockHandler, GetSummaryHandler, GetSessionInfoHandler, GetMessageHandler,
         GetSignalErrorsHandler, GetStatusHandler, GetMessagesHandler,
     )
@@ -813,10 +813,10 @@ def start_server_background(port: int = 8080) -> "BackgroundServer":
     ws_router.register("new_file", NewFileHandler(SESSION_MGR))
     ws_router.register("import_file", ImportFileHandler(SESSION_MGR))
     ws_router.register("download_file", DownloadFileHandler(SESSION_MGR))
-    ws_router.register("create_session", CreateSessionHandler(SESSION_MGR))
-    ws_router.register("load_session", LoadSessionHandler(SESSION_MGR))
+    ws_router.register("create_file", CreateFileHandler(SESSION_MGR))
+    ws_router.register("load_file", LoadFileHandler(SESSION_MGR))
     ws_router.register("rename_session", RenameSessionHandler(SESSION_MGR))
-    ws_router.register("delete_session", DeleteSessionHandler(SESSION_MGR))
+    ws_router.register("delete_file", DeleteFileHandler(SESSION_MGR))
     ws_router.register("get_sessions", GetSessionsHandler(SESSION_MGR))
     ws_router.register("release_lock", ReleaseLockHandler(SESSION_MGR))
     ws_router.register("steal_lock", StealLockHandler(SESSION_MGR, ws_transport))

@@ -24,6 +24,11 @@ class FileLockedError(Exception):
     """文件已被其他会话占用。"""
     pass
 
+
+class FileNameExistsError(Exception):
+    """文件名已存在（不允许重名）。"""
+    pass
+
 # 打包后数据目录放在用户 AppData，未打包时在源码目录
 import sys as _sys
 if getattr(_sys, 'frozen', False):
@@ -122,6 +127,65 @@ class SessionManager:
 
     # ── 会话 CRUD ──
 
+    @staticmethod
+    def _strip_legacy_prefix(fname: str) -> str:
+        """剥离旧格式 {12-hex}_{name}.properties 中的 session_id 前缀。
+
+        若匹配旧格式，返回 {name}.properties；否则原样返回。
+        """
+        import re
+        m = re.match(r'^[0-9a-f]{12}_(.+\.properties)$', fname)
+        return m.group(1) if m else fname
+
+    def _rename_legacy_file(self, old_fname: str) -> str:
+        """将旧格式文件重命名为新格式，返回新文件名。
+
+        若目标已存在则使用 _resolve_duplicate 生成不冲突的名称。
+        """
+        new_fname = self._strip_legacy_prefix(old_fname)
+        if new_fname == old_fname:
+            return old_fname  # 非旧格式，无需处理
+        old_path = os.path.join(self._data_dir, old_fname)
+        new_path = os.path.join(self._data_dir, new_fname)
+        if os.path.isfile(new_path):
+            new_fname = self._resolve_duplicate(new_fname)
+            new_path = os.path.join(self._data_dir, new_fname)
+        try:
+            os.replace(old_path, new_path)
+        except OSError:
+            return old_fname  # 重命名失败，保持旧名
+        # 迁移缓存
+        cached = self._history_cache.pop(old_fname, None)
+        if cached:
+            self._history_cache[new_fname] = cached
+        return new_fname
+
+    def _find_legacy_file(self, clean_fname: str) -> str:
+        """在 data 目录中查找匹配 clean_fname 的旧格式文件。
+
+        例如 clean_fname="Untitled.properties" 可能对应磁盘上的
+        "0fc9257db538_Untitled.properties"。
+        返回找到的旧格式文件名，未找到则返回空字符串。
+        """
+        import re
+        pattern = re.compile(r'^[0-9a-f]{12}_' + re.escape(clean_fname) + r'$')
+        if not os.path.isdir(self._data_dir):
+            return ''
+        for fname in os.listdir(self._data_dir):
+            if pattern.match(fname):
+                return fname
+        return ''
+
+    def _resolve_duplicate(self, base_name: str) -> str:
+        """重名时生成递增序号的 fallback 文件名。 Untitled.properties → Untitled_1.properties"""
+        name, ext = os.path.splitext(base_name)
+        i = 1
+        while True:
+            candidate = f"{name}_{i}{ext}"
+            if not os.path.isfile(os.path.join(self._data_dir, candidate)):
+                return candidate
+            i += 1
+
     def create(self, file_name: str, db) -> str:
         """
         创建新会话。
@@ -132,14 +196,26 @@ class SessionManager:
 
         Returns:
             session_id
+
+        Raises:
+            FileNameExistsError: 如果同名文件已存在
         """
         session_id = uuid.uuid4().hex[:12]
         # 校验文件名：去掉 .properties 后不能为空（含纯下划线）
         base_name = file_name[:-11].strip() if file_name.endswith('.properties') else file_name.strip()
         if not base_name or not base_name.strip("_"):
             file_name = "Untitled.properties"
-        file_path = os.path.join(self._data_dir, file_name)
 
+        # 重名检查（create 始终由 UI 触发，严格拒绝）
+        target_path = os.path.join(self._data_dir, file_name)
+        if os.path.isfile(target_path):
+            raise FileNameExistsError(f"File '{file_name}' already exists")
+        with self._lock:
+            for s in self._sessions.values():
+                if os.path.basename(s.file_path) == file_name:
+                    raise FileNameExistsError(f"File '{file_name}' is already open")
+
+        file_path = os.path.join(self._data_dir, file_name)
         with self._lock:
             session = Session(session_id, file_path, db)
             self._sessions[session_id] = session
@@ -158,12 +234,12 @@ class SessionManager:
                 session.touch()
             return session
 
-    def restore(self, session_id: str, exclude_session: str = ''):
+    def restore(self, file_name: str, exclude_session: str = ''):
         """
         从磁盘恢复会话。
 
         Args:
-            session_id: 要恢复的会话 ID
+            file_name: 文件名（如 "project.properties"）
             exclude_session: 排除的会话 ID（当前已打开的会话不视为锁定）
             
         Returns:
@@ -173,81 +249,95 @@ class SessionManager:
             FileLockedError: 如果文件已被其他会话占用
         """
         with self._lock:
-            # 先检查内存中是否已有
-            session = self._sessions.get(session_id)
-            if session:
-                # 检查锁：如果内存中的 session 被其他标签页占用，拒绝恢复
-                if exclude_session and session_id != exclude_session:
-                    if self.is_file_locked(session.file_path, exclude_session=exclude_session):
-                        raise FileLockedError(f"File '{_pure_file_name_from_path(session.file_path)}' is opened in another tab")
-                # 重新注册活动文件（防止服务器重启后 _active_files 丢失）
-                self._register_active(session_id, session.file_path)
-                session.touch()
-                return session
+            # 先检查内存中是否已有该文件打开
+            for session in self._sessions.values():
+                if os.path.basename(session.file_path) == file_name:
+                    # 检查锁
+                    if exclude_session and session.id != exclude_session:
+                        if self.is_file_locked(session.file_path, exclude_session=exclude_session):
+                            raise FileLockedError(f"File '{file_name}' is opened in another tab")
+                    self._register_active(session.id, session.file_path)
+                    session.touch()
+                    return session
 
-            # 尝试从磁盘加载
-            file_path = self._find_session_file(session_id)
-            if not file_path:
-                return None
+            # 从磁盘加载（精确路径）
+            file_path = os.path.join(self._data_dir, file_name)
+            if not os.path.isfile(file_path):
+                # 尝试查找旧格式文件并透明重命名
+                legacy_fname = self._find_legacy_file(file_name)
+                if legacy_fname:
+                    file_name = self._rename_legacy_file(legacy_fname)
+                    file_path = os.path.join(self._data_dir, file_name)
+                else:
+                    return None
 
             # 检查文件锁（排除当前会话自身）
             if self.is_file_locked(file_path, exclude_session=exclude_session):
-                raise FileLockedError(f"File '{_pure_file_name_from_path(file_path)}' is opened in another tab")
+                raise FileLockedError(f"File '{file_name}' is opened in another tab")
 
             db = self._load_file(file_path)
             if db is None:
                 return None
 
-            session = Session(session_id, file_path, db)
-            self._sessions[session_id] = session
-            self._register_active(session_id, file_path)
-            # 恢复之前保留的撤销栈（如果有）
-            orphan = self._orphan_stacks.pop(session_id, None)
+            # 每次打开都生成新 session_id
+            new_sid = uuid.uuid4().hex[:12]
+            session = Session(new_sid, file_path, db)
+            self._sessions[new_sid] = session
+            self._register_active(new_sid, file_path)
+            # 恢复之前保留的撤销栈（以 file_name 为键）
+            orphan = self._orphan_stacks.pop(file_name, None)
             if orphan:
                 session.undo_stack = orphan["undo_stack"]
                 session.redo_stack = orphan["redo_stack"]
             return session
 
     def rename(self, session_id: str, new_name: str) -> bool:
-        """重命名会话的数据库名称并同步更新文件名。"""
+        """重命名会话的数据库名称并同步更新文件名。
+
+        Raises:
+            FileNameExistsError: 如果新文件名已存在
+        """
         session = self.get(session_id)
         if not session:
             return False
 
-        # 防御性提取纯名称（去掉可能的 session_id 前缀和 .properties 后缀）
+        # 提取纯名称（去掉 .properties 后缀）
         pure_name = new_name
-        if pure_name.startswith(session_id + "_"):
-            pure_name = pure_name[len(session_id) + 1:]
         if pure_name.endswith(".properties"):
             pure_name = pure_name[:-11]
 
-        # 防御：去前缀后名称不能为空（含纯下划线）
+        # 名称不能为空（含纯下划线）
         if not pure_name or not pure_name.strip("_"):
             pure_name = "Untitled"
 
         old_path = session.file_path
-        # 新文件名: {session_id}_{pure_name}.properties
-        new_file_name = f"{session_id}_{pure_name}.properties"
+        # 新文件名: {pure_name}.properties（不含 ID 前缀）
+        new_file_name = f"{pure_name}.properties"
         new_path = os.path.join(self._data_dir, new_file_name)
+
+        # 重名检查（排除自身）
+        if os.path.normpath(old_path) != os.path.normpath(new_path):
+            if os.path.isfile(new_path):
+                raise FileNameExistsError(f"File '{new_file_name}' already exists")
+            with self._lock:
+                for s in self._sessions.values():
+                    if s.id != session_id and os.path.basename(s.file_path) == new_file_name:
+                        raise FileNameExistsError(f"File '{new_file_name}' is already open")
 
         # 如果新旧路径不同，移动文件
         if os.path.normpath(old_path) != os.path.normpath(new_path):
-            # 持锁更新活跃文件追踪
             with self._lock:
                 self._unregister_active(session_id)
             try:
                 if os.path.isfile(old_path):
-                    # os.replace 原子替换：如果 new_path 已存在会被覆盖
                     os.replace(old_path, new_path)
                 else:
                     print(f"[SessionManager] rename: old file not found, will recreate: {old_path}")
             except OSError:
-                # 移动失败，回滚到旧路径
                 with self._lock:
                     session.file_path = old_path
                     self._register_active(session_id, old_path)
                 return False
-            # rename 成功，更新路径和活跃文件追踪
             with self._lock:
                 session.file_path = new_path
                 self._register_active(session_id, new_path)
@@ -323,7 +413,7 @@ class SessionManager:
             return [s.to_info() for s in self._sessions.values()]
 
     def list_history(self, exclude_session: str = '') -> list[dict]:
-        """扫描 data 目录，返回所有历史会话记录（含已过期但文件仍在的）。
+        """扫描 data 目录，返回所有历史文件记录。
         
         Args:
             exclude_session: 排除的会话 ID（当前已打开的会话不视为锁定）
@@ -334,11 +424,10 @@ class SessionManager:
         if not os.path.isdir(self._data_dir):
             return history
         
-        # 构建 session_id -> Session 的映射（用于优先使用内存数据）
+        # 构建 basename -> Session 的映射（用于优先使用内存数据）
         with self._lock:
-            active_sessions = {s.id: s for s in self._sessions.values()}
+            active_by_fname = {os.path.basename(s.file_path): s for s in self._sessions.values()}
         
-        # 安全获取 mtime 用于排序（文件可能在 listdir 后被删除）
         def _safe_mtime(n):
             try:
                 return os.path.getmtime(os.path.join(self._data_dir, n))
@@ -348,32 +437,28 @@ class SessionManager:
         for fname in sorted(os.listdir(self._data_dir), key=_safe_mtime, reverse=True):
             if not fname.endswith(".properties"):
                 continue
-            # 文件名格式: {session_id}_{name}.properties
-            parts = fname[:-11].split("_", 1)  # 去掉 .properties
-            if len(parts) < 2:
-                continue
-            sid, name = parts[0], parts[1]
+            # 透明处理旧格式文件：剥离 {session_id}_ 前缀
+            display_fname = self._strip_legacy_prefix(fname)
+            name = display_fname[:-11]  # 去掉 .properties 即为纯名称
             fpath = os.path.join(self._data_dir, fname)
             try:
                 mtime = os.path.getmtime(fpath)
                 size = os.path.getsize(fpath)
             except OSError:
-                continue  # 文件已被删除，跳过
+                continue
             
             # 优先从内存中的活跃 session 获取数据
-            if sid in active_sessions:
-                session = active_sessions[sid]
+            if fname in active_by_fname:
+                session = active_by_fname[fname]
                 msg_count = len(session.db.messages)
                 sig_count = sum(len(m.signals) for m in session.db.messages.values())
                 is_modified = session.db.modified
             else:
                 is_modified = False
-                # 检查缓存：mtime+size 未变则复用上次解析结果
                 cached = self._history_cache.get(fname)
                 if cached and cached[0] == mtime and cached[1] == size:
                     msg_count, sig_count = cached[2], cached[3]
                 else:
-                    # 从磁盘文件读取
                     msg_count = 0
                     sig_count = 0
                     try:
@@ -390,44 +475,59 @@ class SessionManager:
                         msg_count = len(msg_ids)
                     except Exception:
                         pass
-                    # 跳过空文件/损坏文件（非活跃且无数据）
-                    if msg_count == 0 and sig_count == 0:
-                        continue
-                    # 更新缓存
                     self._history_cache[fname] = (mtime, size, msg_count, sig_count)
             
-            history.append({
-                "session_id": sid,
-                "file_name": fname,
+            entry = {
+                "file_name": display_fname,
                 "name": name,
+                "_disk_fname": fname,  # 实际磁盘文件名（内部使用）
                 "mtime": mtime,
                 "size": size,
                 "message_count": msg_count,
                 "signal_count": sig_count,
                 "is_locked": self.is_file_locked(os.path.normpath(fpath), exclude_session=exclude_session),
                 "is_modified": is_modified,
-            })
+            }
+            # 活跃文件提供 session_id（供 steal_lock 使用）
+            if fname in active_by_fname:
+                entry["session_id"] = active_by_fname[fname].id
+            history.append(entry)
         return history
 
-    def delete_history(self, session_id: str) -> bool:
-        """删除历史会话（内存 + 磁盘文件）。"""
+    def delete_history(self, file_name: str) -> bool:
+        """删除历史文件（内存 session + 磁盘文件）。"""
+        # 清理内存中打开此文件的 session
         with self._lock:
-            # 清理内存中的 session（文件已删，撤销栈无意义，不保留 orphan）
-            self._sessions.pop(session_id, None)
-            self._unregister_active(session_id)
-            self._heartbeats.pop(session_id, None)
+            sids_to_remove = [
+                sid for sid, s in self._sessions.items()
+                if os.path.basename(s.file_path) == file_name
+            ]
+            for sid in sids_to_remove:
+                self._sessions.pop(sid, None)
+                self._unregister_active(sid)
+                self._heartbeats.pop(sid, None)
             # 删除磁盘文件
-            file_path = self._find_session_file(session_id)
-            if file_path:
-                # 清理 list_history 解析缓存（防止内存泄漏）
-                self._history_cache.pop(os.path.basename(file_path), None)
-                if os.path.isfile(file_path):
-                    try:
-                        os.remove(file_path)
-                    except OSError:
-                        return False
-                    return True
-            return False
+            file_path = os.path.join(self._data_dir, file_name)
+            self._history_cache.pop(file_name, None)
+            self._orphan_stacks.pop(file_name, None)
+            if os.path.isfile(file_path):
+                try:
+                    os.remove(file_path)
+                except OSError:
+                    return False
+                return True
+            # 尝试查找并删除旧格式文件
+            legacy_fname = self._find_legacy_file(file_name)
+            if legacy_fname:
+                legacy_path = os.path.join(self._data_dir, legacy_fname)
+                self._history_cache.pop(legacy_fname, None)
+                self._orphan_stacks.pop(legacy_fname, None)
+                try:
+                    os.remove(legacy_path)
+                except OSError:
+                    return False
+                return True
+            return bool(sids_to_remove)
 
     # ── 撤销/重做栈管理 ──
 
@@ -705,8 +805,9 @@ class SessionManager:
         if not session:
             return False
         # 保留撤销栈，以便重新打开页面后仍可撤销
+        file_name = os.path.basename(session.file_path)
         with session._undo_lock:
-            self._orphan_stacks[session_id] = {
+            self._orphan_stacks[file_name] = {
                 "undo_stack": list(session.undo_stack),
                 "redo_stack": list(session.redo_stack),
             }
@@ -836,14 +937,6 @@ class SessionManager:
             self._heartbeat_timer.cancel()
             self._heartbeat_timer = None
 
-    def _find_session_file(self, session_id: str) -> Optional[str]:
-        """在 data 目录中查找属于该 session 的 .properties 文件。"""
-        if not os.path.isdir(self._data_dir):
-            return None
-        for fname in os.listdir(self._data_dir):
-            if fname.startswith(session_id + "_") and fname.endswith(".properties"):
-                return os.path.join(self._data_dir, fname)
-        return None
 
     def _write_file(self, session: Session):
         """将会话数据以 Properties 格式写入磁盘。
@@ -853,25 +946,23 @@ class SessionManager:
         嵌套并保证写操作原子性。
         """
         content = session.db.to_properties_str()
-        # 文件名包含 session_id 前缀，便于恢复时查找
         base = os.path.basename(session.file_path)
-        if not base.startswith(session.id):
-            base = f"{session.id}_{base}"
-        # 统一使用 .properties 后缀
         if not base.endswith(".properties"):
             base += ".properties"
-        # 兜底：确保去掉 session_id 前缀和 .properties 后缀后不为空
-        check = base[len(session.id) + 1:] if base.startswith(session.id + "_") else base
-        check = check[:-11].strip() if check.endswith('.properties') else check.strip()
+        check = base[:-11].strip() if base.endswith('.properties') else base.strip()
         if not check or not check.strip("_"):
-            base = f"{session.id}_Untitled.properties"
-        file_path = os.path.join(self._data_dir, base)
+            base = "Untitled.properties"
+        # 非 UI 上下文（atexit 保存等）：重名时自动递增 fallback
+        target = os.path.join(self._data_dir, base)
+        if os.path.isfile(target) and session.file_path != target:
+            base = self._resolve_duplicate(base)
+            target = os.path.join(self._data_dir, base)
+        file_path = target
         session.file_path = file_path
-    
         tmp_path = file_path + ".tmp"
         with open(tmp_path, "w", encoding="utf-8") as f:
             f.write(content)
-        os.replace(tmp_path, file_path)  # 原子写入
+        os.replace(tmp_path, file_path)
 
     def _load_file(self, file_path: str):
         """从磁盘加载 Properties 数据文件，返回 CanDatabase 实例。"""
@@ -886,14 +977,6 @@ class SessionManager:
         except Exception:
             return None
 
-
-def _pure_file_name_from_path(file_path: str) -> str:
-    """从完整文件路径中提取纯名称（去掉 session_id 前缀和 .properties 后缀）。"""
-    fname = os.path.basename(file_path)
-    if fname.endswith('.properties'):
-        fname = fname[:-11]
-    parts = fname.split('_', 1)
-    return parts[1] if len(parts) > 1 else fname
 
 
 # ── 全局单例（由 api_server 初始化） ──
