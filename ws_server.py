@@ -78,9 +78,9 @@ class WsServer:
                     continue
 
                 if msg.get("type") == "ping":
-                    # 心跳 + 锁续期
+                    # 心跳 + 锁续期 + 版本号推送
                     try:
-                        await ws.send(json.dumps({"type": "pong"}))
+                        await ws.send(json.dumps({"type": "pong", "data": VERSION}))
                         sm.update_heartbeat(session_id)
                     except Exception as e:
                         print(f"[WS] ping handler error: {e}")

@@ -9,6 +9,8 @@
 // 前端 WS 诊断
 // ═══════════════════════════════════════════
 
+import { checkVersionHash } from './version-check.js'
+
 export const WsFrontendDiag = {
   _enabled: false,
   _counters: {
@@ -231,6 +233,10 @@ export class WsSyncClient {
           }
         }
       } else {
+        // 版本信息拦截（所有 WS 连接共享）
+        if (msg.type === 'pong' || msg.type === 'server_version') {
+          checkVersionHash(msg.data)
+        }
         // 广播 → 走 store 处理链路
         this.onMessage?.(msg)
       }

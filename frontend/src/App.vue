@@ -28,7 +28,7 @@
       <ContextMenu :items="contextMenuItems" />
     </template>
     <!-- 版本不匹配遮罩：全局阻断，z-index 高于 dead-overlay(500) -->
-    <div v-if="store.versionMismatch" class="dead-overlay" style="z-index: 501;">
+    <div v-if="versionMismatch" class="dead-overlay" style="z-index: 501;">
       <div class="dead-overlay-box" style="border-color: var(--info);">
         <span class="dead-overlay-icon">🔄</span>
         <p>{{ t('overlay.versionMismatchTitle') }}</p>
@@ -101,6 +101,7 @@ import LoadingOverlay from './components/LoadingOverlay.vue'
 import Toast from './components/Toast.vue'
 import ContextMenu from './components/ContextMenu.vue'
 import LogPanel from './components/LogPanel.vue'
+import { versionMismatch } from './utils/version-check.js'
 
 const store = useEditorStore()
 const ui = useUiStore()

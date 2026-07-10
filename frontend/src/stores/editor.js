@@ -3,6 +3,7 @@ import { setSessionId, getSessionId } from '../api/client.js'
 import { t } from '../i18n.js'
 import { useUiStore } from './uiStore.js'
 import { WsSyncClient, ApiError as WsApiError, WsFrontendDiag } from '../utils/ws-client.js'
+import { checkVersionHash } from '../utils/version-check.js'
 
 /**
  * 将后端校验错误翻译为 i18n 文本。
@@ -197,10 +198,6 @@ export const useEditorStore = defineStore('editor', {
     // ── 撤销/重做计数器（从后端同步） ──
     undoCount: 0,
     redoCount: 0,
-
-    // ── 版本号 ──
-    serverVersion: null,       // 后端版本信息对象
-    versionMismatch: false,    // 前后端版本不匹配标记
   }),
 
   getters: {
@@ -270,8 +267,6 @@ export const useEditorStore = defineStore('editor', {
       this.clipboard = null
       this.logEntries = []
       this._dataVersion = 0
-      this.versionMismatch = false
-      this.serverVersion = null
       this.clearUndoStack()
     },
 
@@ -536,27 +531,12 @@ export const useEditorStore = defineStore('editor', {
           break
         }
 
-        case 'pong': {
-          // pong 携带服务端版本号，被动比较
-          if (msg.data?.auto_version) {
-            this.serverVersion = msg.data
-            const clientHash = typeof __AUTO_VERSION__ !== 'undefined'
-              ? __AUTO_VERSION__.split('_')[0] : ''
-            const serverHash = (msg.data.auto_version || '').split('_')[0]
-            this.versionMismatch = !!(clientHash && clientHash !== 'dev' && serverHash && clientHash !== serverHash)
-          }
+        case 'pong':
           break
-        }
 
         // ── 服务端版本号 ──
-        case 'server_version': {
-          this.serverVersion = msg.data
-          const clientHash = typeof __AUTO_VERSION__ !== 'undefined'
-            ? __AUTO_VERSION__.split('_')[0] : ''
-          const serverHash = (msg.data?.auto_version || '').split('_')[0]
-          this.versionMismatch = !!(clientHash && clientHash !== 'dev' && serverHash && clientHash !== serverHash)
+        case 'server_version':
           break
-        }
       }
 
       stopTimer()
@@ -564,7 +544,7 @@ export const useEditorStore = defineStore('editor', {
 
     /**
      * 检查前后端版本一致性（REST 调用）
-     * 非阻塞：静默获取，仅在哈希不匹配时设置标记
+     * 非阻塞：静默获取，版本比较委托给 version-check.js
      */
     async checkVersion() {
       try {
@@ -572,13 +552,7 @@ export const useEditorStore = defineStore('editor', {
         if (!resp.ok) return
         const data = await resp.json()
         if (data.success) {
-          this.serverVersion = data.data
-          const clientHash = typeof __AUTO_VERSION__ !== 'undefined'
-            ? __AUTO_VERSION__.split('_')[0] : ''
-          const serverHash = (data.data.auto_version || '').split('_')[0]
-          if (clientHash && clientHash !== 'dev' && serverHash && clientHash !== serverHash) {
-            this.versionMismatch = true
-          }
+          checkVersionHash(data.data)
         }
       } catch {
         /* 静默：版本检查不应阻塞或报错 */
@@ -989,6 +963,8 @@ export const useEditorStore = defineStore('editor', {
         this._healthFailCount = 0
         this.apiStatus = 'connected'
         this._hasBeenConnected = true
+        // 顺便通过 REST 检查版本（不依赖 WS server_version 消息）
+        this.checkVersion()
       } else {
         this._healthFailCount++
         if (this._healthFailCount >= 2) {
