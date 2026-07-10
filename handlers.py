@@ -626,6 +626,12 @@ class DownloadFileHandler:
             elif fmt == "properties":
                 content = db.to_properties_str()
                 ext = ".properties"
+            elif fmt == "c_header":
+                content = db.to_c_header_str()
+                ext = "_signals.h"
+            elif fmt == "c_source":
+                content = db.to_c_source_str()
+                ext = "_signals.c"
             else:
                 raise HandlerError("VALUE_INVALID", f"Unsupported format: {fmt}")
         except Exception as e:

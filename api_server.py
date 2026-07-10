@@ -265,6 +265,14 @@ class ApiHandler(BaseHTTPRequestHandler):
                 content = session.db.to_properties_str()
                 ext = ".properties"
                 mime = "text/plain"
+            elif fmt == "c_header":
+                content = session.db.to_c_header_str()
+                ext = "_signals.h"
+                mime = "text/plain"
+            elif fmt == "c_source":
+                content = session.db.to_c_source_str()
+                ext = "_signals.c"
+                mime = "text/plain"
             else:
                 self._send_json(400, _resp(False, error=f"Unsupported format: {fmt}"))
                 return

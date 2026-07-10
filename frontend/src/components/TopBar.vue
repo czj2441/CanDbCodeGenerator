@@ -13,6 +13,8 @@
       <div v-if="exportDropdownOpen" class="export-menu">
         <button @click="exportFile('dbc'); exportDropdownOpen = false">DBC</button>
         <button @click="exportFile('properties'); exportDropdownOpen = false">Properties</button>
+        <button @click="exportFile('c_header'); exportDropdownOpen = false">C Header (.h)</button>
+        <button @click="exportFile('c_source'); exportDropdownOpen = false">C Source (.c)</button>
       </div>
     </div>
     <button class="btn" @click="save" :disabled="!store.backendDirty" title="保存 (Ctrl+S)">{{ t('topbar.save') }}</button>
@@ -323,7 +325,7 @@ async function exportFile(fmt, options = {}) {
 
     // ── 浏览器模式：WS 获取内容 + Blob 下载 ──
     const data = await store._wsRequest('download_file', { format: fmt }, 60000)
-    const mimeMap = { dbc: 'application/octet-stream', properties: 'text/plain' }
+    const mimeMap = { dbc: 'application/octet-stream', properties: 'text/plain', c_header: 'text/plain', c_source: 'text/plain' }
     const blob = new Blob([data.content], { type: `${mimeMap[fmt] || 'text/plain'};charset=utf-8` })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')

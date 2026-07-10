@@ -138,7 +138,7 @@ if HAS_WEBBROWSER_INTEROP:
 
         def save_file(self, format_str, session_id):
             """打开原生保存对话框，返回 JSON 字符串。"""
-            ext_map = {'dbc': '.dbc', 'properties': '.properties', 'json': '.json'}
+            ext_map = {'dbc': '.dbc', 'properties': '.properties', 'json': '.json', 'c_header': '_signals.h', 'c_source': '_signals.c'}
             ext = ext_map.get(format_str, f'.{format_str}')
 
             dialog = SaveFileDialog()

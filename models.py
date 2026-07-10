@@ -761,6 +761,16 @@ class CanDatabase:
             
             return can_db.as_dbc_string()
 
+    def to_c_header_str(self) -> str:
+        """导出为 C 头文件字符串（Jinja2 模板渲染）。"""
+        from core.c_code_gen import to_c_header_str
+        return to_c_header_str(self)
+
+    def to_c_source_str(self) -> str:
+        """导出为 C 源文件字符串（Jinja2 模板渲染）。"""
+        from core.c_code_gen import to_c_source_str
+        return to_c_source_str(self)
+
     @classmethod
     def from_dbc_str(cls, content: str) -> CanDatabase:
         """从 DBC 格式解析（使用 cantools 库）。"""

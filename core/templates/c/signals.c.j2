@@ -1,0 +1,23 @@
+/**
+ * {{ db_name }} - CAN Signal Attribute Arrays
+ * Generated: {{ generated_at }}
+ */
+
+#include "{{ db_name }}_signals.h"
+
+/* ═══════════════════════════════════════════
+ * Signal Attribute Array Definitions (per-message)
+ * ═══════════════════════════════════════════ */
+
+{% for msg in messages %}
+{% if msg.signal_count > 0 %}
+/* Message: {{ msg.name }} ({{ msg.id_hex }}), DLC={{ msg.dlc }}{% if msg.cycle_time > 0 %}, Cycle={{ msg.cycle_time }}ms{% endif %} */
+const CanCom_UserDef_SignalAttr_t CanCom_UserDef_{{ msg.name_sanitized }}_Signals[{{ msg.signal_count }}] = {
+{% for sig in msg.signals %}
+    /* [{{ loop.index0 }}] {{ sig.name }}{% if sig.comment %} - {{ sig.comment }}{% endif %} */
+    { .startBit = {{ sig.start_bit }}, .byteOrder = {{ sig.byte_order_val }}, .signalLength = {{ sig.length }} },
+{% endfor %}
+};
+
+{% endif %}
+{% endfor %}

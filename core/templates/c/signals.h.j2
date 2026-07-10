@@ -1,0 +1,60 @@
+/**
+ * {{ db_name }} - CAN Signal Definitions
+ * Generated: {{ generated_at }}
+ * Messages: {{ messages|length }}, Signals: {{ signal_count }}
+ */
+
+#ifndef CANCOM_USERDEF_{{ db_name_upper }}_SIGNALS_H_
+#define CANCOM_USERDEF_{{ db_name_upper }}_SIGNALS_H_
+
+#include <stdint.h>
+
+/* ═══════════════════════════════════════════
+ * Signal Attribute Structure
+ * ═══════════════════════════════════════════ */
+
+typedef struct {
+    uint16_t startBit;       /* DBC start_bit: Motorola=MSB, Intel=LSB */
+    uint8_t  byteOrder;      /* 0=Motorola(MSB), 1=Intel(LSB) */
+    uint8_t  signalLength;   /* Signal length in bits */
+} CanCom_UserDef_SignalAttr_t;
+
+/* ═══════════════════════════════════════════
+ * Global Signal ID Enumeration
+ * ═══════════════════════════════════════════ */
+
+{% if signals %}
+typedef enum {
+{% for sig in signals %}
+    CANCOM_USERDEF_{{ sig.msg_name_upper }}_{{ sig.sig_name_upper }}_ID = {{ sig.global_index }},
+{% endfor %}
+    CANCOM_USERDEF_SIGNAL_COUNT = {{ signal_count }}
+} CanCom_UserDef_{{ db_name }}_SignalId_t;
+{% else %}
+/* No signals defined */
+#define CANCOM_USERDEF_SIGNAL_COUNT 0
+{% endif %}
+
+/* ═══════════════════════════════════════════
+ * Message-Level Macro Definitions
+ * ═══════════════════════════════════════════ */
+
+{% for msg in messages %}
+/* Message: {{ msg.name }} ({{ msg.id_hex }}) */
+#define CANCOM_USERDEF_{{ msg.name_upper }}_SIGNAL_COUNT  {{ msg.signal_count }}
+#define CANCOM_USERDEF_{{ msg.name_upper }}_ID            {{ msg.id }}
+#define CANCOM_USERDEF_{{ msg.name_upper }}_DLC           {{ msg.dlc }}
+
+{% endfor %}
+
+/* ═══════════════════════════════════════════
+ * External Signal Array Declarations (per-message)
+ * ═══════════════════════════════════════════ */
+
+{% for msg in messages %}
+{% if msg.signal_count > 0 %}
+extern const CanCom_UserDef_SignalAttr_t CanCom_UserDef_{{ msg.name_sanitized }}_Signals[{{ msg.signal_count }}];
+{% endif %}
+{% endfor %}
+
+#endif /* CANCOM_USERDEF_{{ db_name_upper }}_SIGNALS_H_ */
