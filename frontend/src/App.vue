@@ -60,6 +60,7 @@
           <div class="confirm-box" @click.stop>
             <h4>{{ t('backConfirm.saveFailedTitle') }}</h4>
             <p>{{ t('backConfirm.saveFailedDesc') }}</p>
+            <p v-if="store.lastSaveError" class="error-detail">{{ store.lastSaveError }}</p>
             <div class="confirm-actions">
               <button class="btn" @click="dismissSaveFailed">{{ t('backConfirm.stayEditing') }}</button>
               <button class="btn btn-accent" @click="exportAndStay">{{ t('backConfirm.exportBackup') }}</button>
@@ -456,6 +457,17 @@ body {
   font-size: 13px;
   color: var(--text-dim);
   line-height: 1.5;
+}
+
+.confirm-box .error-detail {
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  color: #e57373;
+  background: rgba(229, 115, 115, 0.08);
+  padding: 6px 10px;
+  border-radius: 4px;
+  margin-top: -10px;
+  word-break: break-all;
 }
 
 .confirm-actions {

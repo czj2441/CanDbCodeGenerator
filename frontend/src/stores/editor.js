@@ -177,6 +177,7 @@ export const useEditorStore = defineStore('editor', {
     isLoading: false,
     apiStatus: 'connecting',
     backendDirty: false,        // 后端 db.modified —— 是否还有未落盘数据（从 /api/status 同步）
+    lastSaveError: null,        // null=无错误, string=最近一次保存失败的错误消息
     signalErrors: [],
     _healthFailCount: 0,
     _hasBeenConnected: false,  // 是否曾成功连接过后端（防止初始加载闪遮罩）
@@ -260,6 +261,7 @@ export const useEditorStore = defineStore('editor', {
       this.messageCache = {}
       this.currentFileName = ''
       this.backendDirty = false
+      this.lastSaveError = null
       this.signalErrors = []
       this.clipboard = null
       this.logEntries = []
@@ -599,10 +601,12 @@ export const useEditorStore = defineStore('editor', {
      */
     async saveSession() {
       try {
+        this.lastSaveError = null
         await this._wsRequest('save', {}, 120000)
         return true
       } catch (e) {
         console.error('Failed to save session:', e)
+        this.lastSaveError = e.message || String(e)
         return false
       }
     },

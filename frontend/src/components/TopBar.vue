@@ -347,10 +347,8 @@ async function save() {
     if (success) {
       ui.showToast('保存成功', false)
     } else {
-      ui.showToast('保存失败', true)
+      ui.showToast(`保存失败: ${store.lastSaveError || '未知错误'}`, true)
     }
-  } catch (e) {
-    ui.showToast(`保存失败: ${e.message}`, true)
   } finally {
     ui.setLoading(false)
   }
