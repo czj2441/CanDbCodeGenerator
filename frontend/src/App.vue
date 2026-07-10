@@ -180,13 +180,18 @@ async function openFile(fileName) {
 }
 
 // 新建文件
-async function createNewFile() {
+async function createNewFile(name) {
   try {
-    await store.newFile()
+    await store.newFile(name)
     mode.value = 'editor'
     // WS 连接已在 newFile 中启动
   } catch (e) {
     console.error('Failed to create new file:', e)
+    if (e.code === 'FILE_NAME_EXISTS') {
+      ui.showToast(t('browser.newFileExistsError'), true)
+    } else {
+      ui.showToast(e.message, true)
+    }
   }
 }
 

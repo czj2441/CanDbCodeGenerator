@@ -124,6 +124,29 @@
       </div>
     </div>
 
+    <!-- 新建文件对话框 -->
+    <div v-if="newFileModalOpen" class="modal-overlay" @click="closeNewFileModal">
+      <div class="modal-box" @click.stop>
+        <h3>{{ t('browser.newFileTitle') }}</h3>
+        <p>{{ t('browser.newFileLabel') }}</p>
+        <input
+          ref="newFileInputRef"
+          v-model="newFileName"
+          class="new-file-input"
+          :placeholder="t('browser.newFilePlaceholder')"
+          @keydown.enter="executeNewFile"
+          @keydown.escape="closeNewFileModal"
+        />
+        <p v-if="newFileError" class="new-file-error">{{ newFileError }}</p>
+        <div class="modal-actions">
+          <button class="btn btn-cancel" @click="closeNewFileModal">{{ t('browser.newFileCancel') }}</button>
+          <button class="btn btn-confirm" :disabled="creatingFile" @click="executeNewFile">
+            {{ creatingFile ? '创建中...' : t('browser.newFileCreate') }}
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- 底部版本栏 -->
     <div class="browser-footer">
       <span class="version-tag">{{ manualVersion }} {{ autoVersion }}</span>
@@ -132,7 +155,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { getSessionId } from '../api/client.js'
 import { useUiStore } from '../stores/uiStore.js'
 import { t } from '../i18n.js'
@@ -141,7 +164,7 @@ import { WsSyncClient } from '../utils/ws-client.js'
 const manualVersion = typeof __MANUAL_VERSION__ !== 'undefined' ? __MANUAL_VERSION__ : 'dev'
 const autoVersion = typeof __AUTO_VERSION__ !== 'undefined' ? __AUTO_VERSION__ : 'dev'
 
-const emit = defineEmits(['open'])
+const emit = defineEmits(['open', 'new'])
 
 const files = ref([])
 const openingSessionId = ref(null)  // 防止重复点击
@@ -151,6 +174,11 @@ const deleteModalOpen = ref(false)
 const pendingDeleteFiles = ref([])
 const selectedFiles = ref([])  // 存储选中的 file_name
 const deleting = ref(false)
+const newFileModalOpen = ref(false)
+const newFileName = ref('')
+const newFileError = ref('')
+const creatingFile = ref(false)
+const newFileInputRef = ref(null)
 let wsClient = null       // FileBrowser 独立 WS 连接
 let refreshTimer = null   // 周期性刷新列表
 
@@ -314,13 +342,31 @@ async function executeSteal() {
 }
 
 async function createNew() {
-  try {
-    const data = await wsClient.request('new_file', { name: 'Untitled' })
-    emit('open', data.session_id)
-  } catch (e) {
-    const ui = useUiStore()
-    ui.showToast(e.message, true)
+  newFileName.value = 'Untitled'
+  newFileError.value = ''
+  newFileModalOpen.value = true
+  nextTick(() => {
+    newFileInputRef.value?.focus()
+    newFileInputRef.value?.select()
+  })
+}
+
+function closeNewFileModal() {
+  newFileModalOpen.value = false
+  newFileName.value = ''
+  newFileError.value = ''
+}
+
+function executeNewFile() {
+  let name = newFileName.value.trim()
+  if (name.toLowerCase().endsWith('.properties')) {
+    name = name.slice(0, -11)
   }
+  if (!name) {
+    name = 'Untitled'
+  }
+  closeNewFileModal()
+  emit('new', name)
 }
 
 function formatTime(ts) {
@@ -691,5 +737,25 @@ onUnmounted(() => {
   font-size: 10px;
   color: var(--text-muted);
   opacity: 0.6;
+}
+
+.new-file-input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  margin-bottom: 12px;
+  outline: none;
+}
+.new-file-input:focus {
+  border-color: var(--accent);
+}
+.new-file-error {
+  color: var(--danger);
+  font-size: 12px;
+  margin: -8px 0 12px;
 }
 </style>
