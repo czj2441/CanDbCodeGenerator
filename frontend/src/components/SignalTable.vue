@@ -56,7 +56,7 @@
             <td><input class="mono" type="number" step="any" v-lazy-value="sig.max_val" @blur="e => update(sig.uuid, 'max_val', parseFloat(e.target.value))"></td>
             <td><input v-lazy-value="sig.unit" @blur="e => update(sig.uuid, 'unit', e.target.value)"></td>
             <td><input v-lazy-value="sig.comment" @blur="e => update(sig.uuid, 'comment', e.target.value)"></td>
-            <td><button class="action-delete" @click.stop="store.deleteSignal(sig.uuid)" title="删除">×</button></td>
+            <td><button class="action-delete" @click.stop="signals.deleteSignal(sig.uuid)" title="删除">×</button></td>
           </tr>
         </tbody>
       </table>
@@ -83,6 +83,10 @@
 <script setup>
 import { computed, ref, onMounted, onUnmounted, watch } from 'vue'
 import { useEditorStore } from '../stores/editor.js'
+import { useSignalsStore } from '../stores/signals.js'
+import { useMessagesStore } from '../stores/messages.js'
+import { useClipboardStore } from '../stores/clipboard.js'
+import { useUndoRedoStore } from '../stores/undoRedo.js'
 import { useUiStore } from '../stores/uiStore.js'
 import { toHex } from '../utils/format.js'
 import { toDisplayStartBit, toStorageStartBit } from '../utils/signalLayout.js'
@@ -94,6 +98,10 @@ function showToast(msg, isError = false) {
 }
 
 const store = useEditorStore()
+const signals = useSignalsStore()
+const messages = useMessagesStore()
+const clipboard = useClipboardStore()
+const undoRedo = useUndoRedoStore()
 const ui = useUiStore()
 
 const msg = computed(() => store.selectedMessage)
@@ -142,14 +150,14 @@ function onKeyDown(e) {
   if (e.key === 'c' && !isInput) {
     e.preventDefault()
     if (ui.selectedSignalUuid) {
-      store.copySignal(ui.selectedSignalUuid)
+      clipboard.copySignal(ui.selectedSignalUuid)
     }
   } else if (e.key === 'v' && !isInput) {
     e.preventDefault()
-    store.pasteSignal()
+    clipboard.pasteSignal()
   } else if (e.key === 'z' && !isInput) {
     e.preventDefault()
-    store.undo()
+    undoRedo.undo()
   }
 }
 
@@ -157,11 +165,11 @@ onMounted(() => window.addEventListener('keydown', onKeyDown))
 onUnmounted(() => window.removeEventListener('keydown', onKeyDown))
 
 function addSignal() {
-  store.addSignal({})
+  signals.addSignal({})
 }
 
 function update(idx, field, value) {
-  store.updateSignal(idx, field, value)
+  signals.updateSignal(idx, field, value)
 }
 
 /**
@@ -177,7 +185,7 @@ function displayStartBit(sig) {
 function updateStartBit(sig, displayValue) {
   const msbValue = toStorageStartBit(displayValue, sig.length, sig.byte_order, 63, sig.start_bit)
   if (msbValue >= 0) {
-    store.updateSignal(sig.uuid, 'start_bit', msbValue)
+    signals.updateSignal(sig.uuid, 'start_bit', msbValue)
   } else {
     showToast(`起始位 ${displayValue} 对于 ${sig.byte_order} length=${sig.length} 不合法`, true)
   }
@@ -185,11 +193,11 @@ function updateStartBit(sig, displayValue) {
 
 function deleteMsg() {
   if (store.selectedMsgId == null) return
-  store.deleteMessage(store.selectedMsgId)
+  messages.deleteMessage(store.selectedMsgId)
 }
 
 function fixSignal(uuid, newStartBit) {
-  store.autoFixSignal(uuid, newStartBit)
+  signals.autoFixSignal(uuid, newStartBit)
 }
 </script>
 

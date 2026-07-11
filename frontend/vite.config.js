@@ -5,7 +5,7 @@ import { readFileSync } from 'fs'
 
 function readVersion() {
   try {
-    const c = readFileSync(resolve(__dirname, '../_version.py'), 'utf-8')
+    const c = readFileSync(resolve(__dirname, '../app/_version.py'), 'utf-8')
     const m = c.match(/MANUAL_VERSION\s*=\s*"([^"]+)"/)
     const a = c.match(/AUTO_VERSION\s*=\s*"([^"]+)"/)
     return { manual: m?.[1] || 'v00.00', auto: a?.[1] || 'dev' }

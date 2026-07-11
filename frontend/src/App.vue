@@ -86,6 +86,10 @@
 <script setup>
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useEditorStore } from './stores/editor.js'
+import { useFileOperationsStore } from './stores/fileOperations.js'
+import { useClipboardStore } from './stores/clipboard.js'
+import { useSignalsStore } from './stores/signals.js'
+import { useMessagesStore } from './stores/messages.js'
 import { useUiStore } from './stores/uiStore.js'
 import { t } from './i18n.js'
 import { getSessionId, setSessionId } from './api/client.js'
@@ -104,6 +108,10 @@ import LogPanel from './components/LogPanel.vue'
 import { versionMismatch } from './utils/version-check.js'
 
 const store = useEditorStore()
+const fileOps = useFileOperationsStore()
+const clipboard = useClipboardStore()
+const signals = useSignalsStore()
+const messages = useMessagesStore()
 const ui = useUiStore()
 let beforeUnloadHandler = null  // beforeunload 事件处理器
 let navigateHandler = null     // navigate-browser 事件处理器
@@ -169,7 +177,7 @@ onUnmounted(() => {
 // 打开文件
 async function openFile(fileName) {
   try {
-    await store.loadHistoryFile(fileName)
+    await fileOps.loadHistoryFile(fileName)
     mode.value = 'editor'
     // WS 连接已在 loadHistoryFile 中启动
   } catch (e) {
@@ -183,7 +191,7 @@ async function openFile(fileName) {
 // 新建文件
 async function createNewFile(name) {
   try {
-    await store.newFile(name)
+    await fileOps.newFile(name)
     mode.value = 'editor'
     // WS 连接已在 newFile 中启动
   } catch (e) {
@@ -211,7 +219,7 @@ async function goBack() {
 
 async function backAfterSave() {
   backDirtyOpen.value = false
-  const ok = await store.saveSession()
+  const ok = await fileOps.saveSession()
   if (!ok) {
     saveFailedOpen.value = true
     return
@@ -237,7 +245,7 @@ function backAfterDiscard() {
 
 async function doGoBack() {
   // 先释放文件锁（需要 WS 连接），再断开 WS
-  await store.releaseSession()
+  await fileOps.releaseSession()
   // sendBeacon 兆底（WS 可能已断开）
   const sid = getSessionId()
   if (sid) {
@@ -261,18 +269,18 @@ const contextMenuItems = computed(() => {
   const idx = ui.contextMenu.idx
   if (target === 'signal' && idx !== null) {
     return [
-      { label: t('ctx.copySignal'), action: () => store.copySignal(idx) },
-      { label: t('ctx.cutSignal'), action: () => store.cutSignal(idx) },
-      { label: t('ctx.pasteSignal'), action: () => store.pasteSignal(), disabled: !store.clipboard || store.clipboard.type !== 'signal' },
-      { label: t('ctx.deleteSignal'), action: () => store.deleteSignal(idx), danger: true },
+      { label: t('ctx.copySignal'), action: () => clipboard.copySignal(idx) },
+      { label: t('ctx.cutSignal'), action: () => clipboard.cutSignal(idx) },
+      { label: t('ctx.pasteSignal'), action: () => clipboard.pasteSignal(), disabled: !clipboard.clipboard || clipboard.clipboard.type !== 'signal' },
+      { label: t('ctx.deleteSignal'), action: () => signals.deleteSignal(idx), danger: true },
     ]
   }
   if (target === 'message') {
     return [
-      { label: t('ctx.copyMessage'), action: () => store.copyMessage() },
-      { label: t('ctx.pasteMessage'), action: () => store.pasteMessage(), disabled: !store.clipboard || store.clipboard.type !== 'message' },
-      { label: t('ctx.duplicateMessage'), action: () => store.duplicateMessage() },
-      { label: t('ctx.deleteMessage'), action: () => store.deleteMessage(store.selectedMsgId), danger: true },
+      { label: t('ctx.copyMessage'), action: () => clipboard.copyMessage() },
+      { label: t('ctx.pasteMessage'), action: () => clipboard.pasteMessage(), disabled: !clipboard.clipboard || clipboard.clipboard.type !== 'message' },
+      { label: t('ctx.duplicateMessage'), action: () => clipboard.duplicateMessage() },
+      { label: t('ctx.deleteMessage'), action: () => messages.deleteMessage(store.selectedMsgId), danger: true },
     ]
   }
   return []

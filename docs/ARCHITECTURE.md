@@ -10,13 +10,13 @@
 
 - **前端**：Vue 3 SPA + Vite + Pinia 状态管理
 - **后端**：Python 轻量级 HTTP 服务器（同时服务静态文件）
-- **通信**：RESTful API，JSON 格式，`X-Session-Id` 请求头实现多会话隔离
+- **通信**：WebSocket 全双工通信 + HTTP 静态文件服务
 - **数据持久化**：Properties 格式（`data/` 目录）
 
 ### 1.2 会话模型
 
 - 每个浏览器标签页对应独立 session，绑定一个 Properties 文件
-- 后端 `session_manager.py` 管理会话生命周期（创建/恢复/销毁）
+- 后端 `app/services/session_manager.py` 管理会话生命周期（创建/恢复/销毁）
 - 自动保存：变更延迟 500ms 写入磁盘
 - 超时清理：30 分钟无操作自动回收
 
@@ -249,13 +249,21 @@ showToast(text, isError = false) {
 
 | 文件 | 职责 |
 |------|------|
-| `api_server.py` | REST API 路由，CRUD 端点，数据模型定义 |
-| `session_manager.py` | 多会话生命周期管理，自动保存，超时清理 |
-| `core/can_database.py` | 数据模型（dataclass）：Signal/Message/CanDatabase |
-| `core/properties_io.py` | Properties 格式读写，javaproperties 库 |
-| `core/dbc_io.py` | DBC 格式导出 |
-| `core/json_io.py` | JSON 格式导出 |
-| `core/xml_io.py` | XML 格式导出 |
+| `app/server/lifecycle.py` | HTTP 服务启动入口 + 生命周期管理 |
+| `app/server/http_handler.py` | 静态文件服务 + 诊断端点 |
+| `app/ws/server.py` | WebSocket 服务端（asyncio event loop） |
+| `app/ws/transport.py` | WS I/O 封装（连接管理 + 广播） |
+| `app/ws/router.py` | 消息路由（type → handler 分发） |
+| `app/ws/handlers/` | 业务 Handler（信号/报文/文件/系统 CRUD） |
+| `app/models/database.py` | CanDatabase 运行时模型（RLock + 信号验证 + 序列化） |
+| `app/models/signal.py` | Signal 数据类 |
+| `app/models/message.py` | Message 数据类 |
+| `app/services/session_manager.py` | 多会话生命周期管理，自动保存，超时清理 |
+| `app/services/undo_engine.py` | 撤销/重做引擎 |
+| `app/io/properties_io.py` | Properties 格式读写 |
+| `app/io/dbc_io.py` | DBC 格式导入导出 |
+| `app/io/json_io.py` | JSON 格式读写 |
+| `app/io/xml_io.py` | XML 格式读写 |
 
 ---
 

@@ -107,6 +107,9 @@
 <script setup>
 import { computed } from 'vue'
 import { useEditorStore } from '../stores/editor.js'
+import { useMessagesStore } from '../stores/messages.js'
+import { useSignalsStore } from '../stores/signals.js'
+import { useClipboardStore } from '../stores/clipboard.js'
 import { useUiStore } from '../stores/uiStore.js'
 import { toHex, parseHex } from '../utils/format.js'
 import { t } from '../i18n.js'
@@ -118,6 +121,9 @@ function showToast(msg, isError = false) {
 }
 
 const store = useEditorStore()
+const messages = useMessagesStore()
+const signals = useSignalsStore()
+const clipboard = useClipboardStore()
 const ui = useUiStore()
 const msg = computed(() => store.selectedMessage)
 const selectedSig = computed(() => {
@@ -140,35 +146,35 @@ function modifyDisplayStartBit(displayValue) {
   if (!selectedSig.value) return
   const msbValue = toStorageStartBit(displayValue, selectedSig.value.length, selectedSig.value.byte_order, 63, selectedSig.value.start_bit)
   if (msbValue >= 0) {
-    store.updateSignal(ui.selectedSignalUuid, 'start_bit', msbValue)
+    signals.updateSignal(ui.selectedSignalUuid, 'start_bit', msbValue)
   } else {
     showToast(`起始位 ${displayValue} 对于 ${selectedSig.value.byte_order} length=${selectedSig.value.length} 不合法`, true)
   }
 }
 
 function update(field, value) {
-  store.updateMessageField(field, value)
+  messages.updateMessageField(field, value)
 }
 
 function updateSignal(field, value) {
   if (ui.selectedSignalUuid) {
-    store.updateSignal(ui.selectedSignalUuid, field, value)
+    signals.updateSignal(ui.selectedSignalUuid, field, value)
   }
 }
 
 function duplicate() {
-  store.duplicateMessage()
+  clipboard.duplicateMessage()
 }
 
 function copySig() {
   if (ui.selectedSignalUuid) {
-    store.copySignal(ui.selectedSignalUuid)
+    clipboard.copySignal(ui.selectedSignalUuid)
   }
 }
 
 function deleteSig() {
   if (ui.selectedSignalUuid) {
-    store.deleteSignal(ui.selectedSignalUuid)
+    signals.deleteSignal(ui.selectedSignalUuid)
   }
 }
 </script>

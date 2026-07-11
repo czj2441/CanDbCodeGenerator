@@ -2,10 +2,10 @@
   <div class="topbar">
     <button class="btn btn-icon btn-back" @click="$emit('back')" :title="t('topbar.back')">←</button>
     <div class="topbar-logo">Can<span>Matrix</span></div>
-    <input class="topbar-filename" :value="store.currentFileName" spellcheck="false" @blur="rename">
+    <span class="topbar-filename">{{ store.currentFileName }}</span>
     <span class="topbar-spacer"></span>
-    <button class="btn" @click="store.undo()" :disabled="!store.canUndo" title="撤销 (Ctrl+Z)">{{ t('topbar.undo') }}</button>
-    <button class="btn" @click="store.redo()" :disabled="!store.canRedo" title="重做 (Ctrl+Y)">{{ t('topbar.redo') || '重做' }}</button>
+    <button class="btn" @click="undoRedo.undo()" :disabled="!undoRedo.canUndo" title="撤销 (Ctrl+Z)">{{ t('topbar.undo') }}</button>
+    <button class="btn" @click="undoRedo.redo()" :disabled="!undoRedo.canRedo" title="重做 (Ctrl+Y)">{{ t('topbar.redo') || '重做' }}</button>
     <button class="btn" @click="onNew">{{ t('topbar.new') }}</button>
     <button class="btn" @click="importFile">{{ t('topbar.import') }}</button>
     <div class="export-wrapper" ref="exportWrapper">
@@ -18,6 +18,7 @@
       </div>
     </div>
     <button class="btn" @click="save" :disabled="!store.backendDirty" title="保存 (Ctrl+S)">{{ t('topbar.save') }}</button>
+    <button class="btn" @click="onSaveAs">{{ t('topbar.saveAs') }}</button>
     <span class="topbar-spacer"></span>
     <button class="btn btn-icon" @click="ui.toggleTheme" title="切换主题">{{ ui.theme === 'dark' ? '☀' : '☾' }}</button>
     <button
@@ -100,11 +101,35 @@
     style="display: none"
     @change="handleFileSelect"
   />
+
+  <!-- SaveAs Confirm Dialog -->
+  <Teleport to="body">
+    <Transition name="fade">
+      <div v-if="saveAsConfirmOpen" class="confirm-overlay" @click="saveAsConfirmOpen = false">
+        <div class="confirm-box" @click.stop>
+          <h4>{{ t('topbar.saveAsConfirmTitle') }}</h4>
+          <input
+            v-model="saveAsName"
+            class="confirm-input"
+            :placeholder="t('topbar.saveAsPlaceholder')"
+            spellcheck="false"
+            @keyup.enter="confirmSaveAs"
+          />
+          <div class="confirm-actions">
+            <button class="btn" @click="saveAsConfirmOpen = false">{{ t('topbar.newConfirmCancel') }}</button>
+            <button class="btn btn-accent" @click="confirmSaveAs">{{ t('topbar.saveAsConfirm') }}</button>
+          </div>
+        </div>
+      </div>
+    </Transition>
+  </Teleport>
 </template>
 
 <script setup>
 import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { useEditorStore } from '../stores/editor.js'
+import { useUndoRedoStore } from '../stores/undoRedo.js'
+import { useFileOperationsStore } from '../stores/fileOperations.js'
 import { useUiStore } from '../stores/uiStore.js'
 import { t } from '../i18n.js'
 import { getSessionId } from '../api/client.js'
@@ -112,6 +137,8 @@ import { getSessionId } from '../api/client.js'
 defineEmits(['back'])
 
 const store = useEditorStore()
+const undoRedo = useUndoRedoStore()
+const fileOps = useFileOperationsStore()
 const ui = useUiStore()
 const newSessionName = ref('')
 const fileInput = ref(null)
@@ -132,10 +159,10 @@ function handleKeydown(event) {
   if (event.ctrlKey || event.metaKey) {
     if (event.key === 'z' || event.key === 'Z') {
       event.preventDefault()
-      store.undo()
+      undoRedo.undo()
     } else if (event.key === 'y' || event.key === 'Y') {
       event.preventDefault()
-      store.redo()
+      undoRedo.redo()
     } else if (event.key === 's' || event.key === 'S') {
       event.preventDefault()
       save()
@@ -175,20 +202,21 @@ function onNew() {
 function confirmNew() {
   ui.newConfirmOpen = false
   const name = newSessionName.value.trim() || 'Untitled'
-  store.createNewSession(name)
+  fileOps.createNewSession(name)
 }
 
-function rename(event) {
-  let name = event.target.value.replace(/\.properties$/i, '').trim()
-  name = name.replace(/^[a-f0-9]{12}_/i, '').trim()
-  // 去除可能残留的前导下划线
-  name = name.replace(/^_+/, '').trim()
-  if (!name) {
-    // 恢复显示当前文件名，避免输入框显示空值
-    event.target.value = store.currentFileName
-    return
-  }
-  store.renameSession(name)
+const saveAsConfirmOpen = ref(false)
+const saveAsName = ref('')
+
+function onSaveAs() {
+  saveAsName.value = store.currentFileName.replace(/\.properties$/i, '').trim() || ''
+  saveAsConfirmOpen.value = true
+}
+
+function confirmSaveAs() {
+  saveAsConfirmOpen.value = false
+  const name = saveAsName.value.trim() || 'Untitled'
+  fileOps.saveAs(name)
 }
 
 async function importFile() {
@@ -239,7 +267,7 @@ async function confirmImport() {
     const content = await file.text()
     
     // 通过 store action 导入文件（内部处理 session 切换）
-    const data = await store.importFile({
+    const data = await fileOps.importFile({
       format: format,
       content: content,
       filename: file.name
@@ -257,7 +285,7 @@ async function confirmImport() {
 // “保存后导入”按钮
 async function importAfterSave() {
   importDirtyOpen.value = false
-  const success = await store.saveSession()
+  const success = await fileOps.saveSession()
   if (!success) {
     ui.showToast('保存失败，导入已取消', true)
     return
@@ -317,7 +345,7 @@ async function exportFile(fmt, options = {}) {
     // ── 正常路径（WS 在线）──
     // 先保存当前会话确保数据最新（skipSave: 保存失败后导出备份时跳过冗余保存）
     if (!options.skipSave) {
-      const saved = await store.saveSession()
+      const saved = await fileOps.saveSession()
       if (!saved) {
         ui.showToast('保存失败，将导出内存中的最新数据', true)
       }
@@ -345,7 +373,7 @@ async function exportFile(fmt, options = {}) {
 async function save() {
   try {
     ui.setLoading(true)
-    const success = await store.saveSession()
+    const success = await fileOps.saveSession()
     if (success) {
       ui.showToast('保存成功', false)
     } else {
@@ -387,9 +415,11 @@ async function save() {
   font-family: var(--font-mono);
   font-size: 12px;
   width: 220px;
-  outline: none;
+  display: inline-block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.topbar-filename:focus { border-color: var(--accent-dim); }
 
 .topbar-spacer { flex: 1; }
 

@@ -73,10 +73,10 @@
 
 <script setup>
 import { reactive, watch } from 'vue'
-import { useEditorStore } from '../stores/editor.js'
+import { useSignalsStore } from '../stores/signals.js'
 import { t } from '../i18n.js'
 
-const store = useEditorStore()
+const signals = useSignalsStore()
 
 const visible = defineModel('visible', { type: Boolean, default: false })
 
@@ -110,7 +110,7 @@ function close() {
 }
 
 async function create() {
-  await store.batchAddSignals({ ...form })
+  await signals.batchAddSignals({ ...form })
   close()
 }
 </script>

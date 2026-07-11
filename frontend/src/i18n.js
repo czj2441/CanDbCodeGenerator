@@ -4,6 +4,7 @@ const dict = {
     'topbar.import': '导入',
     'topbar.export': '导出',
     'topbar.save': '保存',
+    'topbar.saveAs': '另存为',
     'topbar.undo': '撤销',
     'topbar.redo': '重做',
     'topbar.log': '操作日志',
@@ -25,6 +26,9 @@ const dict = {
     'topbar.importUnsavedSave': '保存后导入',
     'topbar.importUnsavedDiscard': '放弃更改并导入',
     'topbar.importUnsavedCancel': '取消',
+    'topbar.saveAsConfirmTitle': '另存为',
+    'topbar.saveAsPlaceholder': '输入新文件名...',
+    'topbar.saveAsConfirm': '另存为',
 
     // FileBrowser
     'browser.title': '选择文件',
@@ -167,7 +171,7 @@ const dict = {
     'toast.messageDeleted': '报文已删除',
     'toast.signalAdded': '信号已添加',
     'toast.signalDeleted': '信号已删除',
-    'toast.renamed': '已重命名',
+    'toast.saveAs': '已另存为 {name}',
     'toast.sessionLoaded': '会话已加载',
     'toast.sessionDeleted': '会话已删除',
     'toast.newSessionCreated': '新会话已创建',

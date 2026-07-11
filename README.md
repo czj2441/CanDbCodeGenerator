@@ -20,32 +20,23 @@
 pip install -r requirements.txt
 ```
 
-### 2. 构建前端
+### 2. 构建并启动
 
+**Windows**：双击 `build.bat`（或命令行执行 `build.bat`）
+
+**Linux / macOS**：
 ```bash
-cd frontend
-npm install
-npm run build
-cd ..
+chmod +x build.sh && ./build.sh
 ```
 
-### 3. 启动服务
+脚本自动完成：前端构建 → 询问是否启动后端服务。启动后访问 `http://localhost:8080/` 即可使用。
+
+### 手动启动服务
+
+如果前端已构建完成，可直接启动：
 
 ```bash
-python api_server.py
-```
-
-访问 `http://localhost:8080/` 即可使用。
-
-### 重新部署
-
-如果执行了 `git clean`，需要重新构建：
-
-```bash
-cd frontend
-npm install && npm run build
-cd ..
-python api_server.py
+python -m app.server.lifecycle
 ```
 
 
@@ -60,16 +51,17 @@ python api_server.py
 pip install pywebview pyinstaller
 ```
 
-### 构建前端（若尚未构建）
+### 打包
+
+先执行构建脚本确保前端已构建，然后打包：
+
+**Windows**：`build.bat`（构建完成后选 `n` 不启动服务）
 
 ```bash
-cd frontend
-npm install
-npm run build
-cd ..
+pyinstaller desktop.spec --noconfirm
 ```
 
-### 打包
+**Linux / macOS**：`./build.sh`（同上）
 
 ```bash
 pyinstaller desktop.spec --noconfirm
@@ -88,21 +80,13 @@ pyinstaller desktop.spec --noconfirm
 
 ### 重新打包
 
-每次修改代码后，重新执行打包命令即可：
-
-```bash
-# 若修改了前端代码，先重新构建前端
-cd frontend && npm run build && cd ..
-
-# 重新打包（--noconfirm 覆盖旧版本）
-pyinstaller desktop.spec --noconfirm
-```
+每次修改代码后，重新执行构建脚本 + 打包命令即可（构建脚本会自动检测 `node_modules`，按需安装依赖）。
 
 ## 使用工作流
 
 ```bash
 # 1. 启动服务
-python api_server.py
+python -m app.server.lifecycle
 
 # 2. 浏览器访问 http://localhost:8080/
 #    导入 DBC → 编辑 → 导出 Properties
@@ -147,37 +131,50 @@ git commit -m "修改 EngineSpeed 因子"
 
 ```
 canmatrix_editor/
-├── api_server.py                  Web 后端服务（HTTP API + 静态文件）
-├── desktop.py                     桌面应用入口（pywebview）
-├── desktop.spec                   PyInstaller 打包配置
-├── session_manager.py             会话管理器（自动持久化、历史恢复）
-├── cli.py                         命令行入口
-├── requirements.txt               依赖清单
-├── README.md                      本文档
-├── .gitignore                     版本控制忽略规则
-├── core/                          数据模型与 IO
-│   ├── can_database.py            CanDatabase / Message / Signal 数据模型
-│   ├── properties_io.py           Properties 读写（主存储格式）
-│   ├── json_io.py                 JSON 读写（辅助格式）
-│   ├── xml_io.py                  XML 读写（辅助格式）
-│   └── dbc_io.py                  DBC 导入导出（cantools）
-├── frontend/                      Vue 3 + Vite 前端（Web 编辑器）
+├── app/                             Python 主包
+│   ├── server/                      HTTP 服务层
+│   │   ├── lifecycle.py             服务启动入口（python -m app.server.lifecycle）
+│   │   ├── http_handler.py          静态文件服务 + 诊断端点
+│   │   └── port_utils.py            端口检测工具
+│   ├── models/                      数据模型
+│   │   ├── database.py              CanDatabase（RLock + 信号验证 + 序列化）
+│   │   ├── message.py               Message 数据类
+│   │   └── signal.py                Signal 数据类
+│   ├── services/                    业务服务层
+│   │   ├── session.py               Session 数据类
+│   │   ├── session_manager.py       会话生命周期管理（自动保存、超时清理）
+│   │   ├── file_lock.py             文件锁（多标签页互斥）
+│   │   ├── file_persistence.py      磁盘持久化（原子写入）
+│   │   └── undo_engine.py           撤销/重做引擎
+│   ├── io/                          格式 IO
+│   │   ├── properties_io.py         Properties 读写（主存储格式）
+│   │   ├── dbc_io.py                DBC 导入导出（cantools）
+│   │   ├── json_io.py               JSON 读写
+│   │   ├── xml_io.py                XML 读写
+│   │   └── c_code_gen.py            C 代码生成
+│   └── ws/                          WebSocket 全双工通信
+│       ├── server.py                WS 服务端（asyncio）
+│       ├── transport.py             WS I/O 封装（连接管理 + 广播）
+│       ├── router.py                消息路由（type → handler）
+│       └── handlers/                业务 Handler（信号/报文/文件/系统）
+├── tools/                           工具脚本
+│   ├── cli.py                       CLI 无头会话
+│   ├── desktop.py                   桌面应用入口（pywebview）
+│   └── compute_version.py           版本号计算
+├── frontend/                        Vue 3 + Vite 前端（Web 编辑器）
 │   ├── package.json
 │   ├── vite.config.js
 │   └── src/
-│       ├── App.vue
-│       ├── main.js
-│       ├── stores/                Pinia 状态管理
-│       ├── api/client.js          HTTP API 客户端
-│       └── components/            UI 组件
-├── docs/                          架构与设计文档
-│   ├── ARCHITECTURE.md            架构特征参考
-│   ├── PRODUCT_POSITIONING.md     产品定位与技术路线
-│   └── DESIGN_DOC.md              软件详细设计文档
-└── dist/                          前端构建产物 / exe 输出目录
-    ├── index.html                 Vite 生成的入口
-    ├── assets/                    JS/CSS 资源
-    └── CanMatrixEditor.exe        打包后的桌面应用（执行打包后生成）
+│       ├── App.vue                  根组件（三栏布局 + 主题 + 快捷键）
+│       ├── stores/                  Pinia 状态管理
+│       ├── api/client.js            HTTP API 客户端
+│       └── components/              UI 组件
+├── docs/                            架构与设计文档
+├── desktop.spec                     PyInstaller 打包配置
+├── build.bat / build.sh             构建脚本
+├── requirements.txt                 Python 依赖
+├── README.md                        本文档
+└── dist/                            前端构建产物 / exe 输出目录
 ```
 
 ## 依赖

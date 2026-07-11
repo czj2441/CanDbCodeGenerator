@@ -14,7 +14,7 @@ echo "[Build] 工作目录: ${ROOT_DIR}/frontend"
 
 # 计算自动版本号
 echo "[Build] 计算版本号..."
-python3 "${ROOT_DIR}/compute_version.py" --write || echo "[Warn] 版本号计算失败，使用默认值"
+python3 "${ROOT_DIR}/tools/compute_version.py" --write || echo "[Warn] 版本号计算失败，使用默认值"
 
 cd "${ROOT_DIR}/frontend"
 
@@ -36,11 +36,11 @@ echo "============================================"
 echo ""
 
 # 询问是否启动后端服务
-read -p "是否启动后端服务 (python api_server.py 8080)? [Y/n]: " LAUNCH
+read -p "是否启动后端服务 (python -m app.server.lifecycle 8080)? [Y/n]: " LAUNCH
 if [[ "${LAUNCH,,}" == "n" ]]; then
     exit 0
 fi
 
 echo "[Build] 正在启动后端服务..."
 cd "${ROOT_DIR}"
-python api_server.py 8080
+python -m app.server.lifecycle 8080

@@ -61,3 +61,8 @@ temp/
 # OS
 .DS_Store
 Thumbs.db
+
+# Supplementary
+nul
+*.exe
+*.spec.bak

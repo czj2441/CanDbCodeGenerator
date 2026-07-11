@@ -2,7 +2,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <span>{{ t('msglist.title') }}</span>
-      <button class="btn-icon" @click="store.addMessage()" :title="t('msglist.addTooltip')">+</button>
+      <button class="btn-icon" @click="messages.addMessage()" :title="t('msglist.addTooltip')">+</button>
     </div>
     <div class="message-list">
       <div
@@ -10,7 +10,7 @@
         :key="m.id"
         class="message-item"
         :class="{ active: store.selectedMsgId === m.id }"
-        @click="store.selectMessage(m.id)"
+        @click="messages.selectMessage(m.id)"
       >
         <span class="message-id">{{ m.id_hex || toHex(m.id) }}</span>
         <span class="message-name">{{ m.name || t('msglist.unnamed') }}</span>
@@ -24,9 +24,11 @@
 
 <script setup>
 import { useEditorStore } from '../stores/editor.js'
+import { useMessagesStore } from '../stores/messages.js'
 import { t } from '../i18n.js'
 import { toHex } from '../utils/format.js'
 const store = useEditorStore()
+const messages = useMessagesStore()
 </script>
 
 <style scoped>

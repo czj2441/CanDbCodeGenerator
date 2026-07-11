@@ -172,7 +172,7 @@
         <button
           v-if="err.suggestion?.action === 'move_start_bit'"
           class="btn btn-xs"
-          @click="store.autoFixSignal(err.signal_uuid, err.suggestion.recommended_start_bit)"
+          @click="signals.autoFixSignal(err.signal_uuid, err.suggestion.recommended_start_bit)"
         >{{ t('signal.fixBtn') }}</button>
       </div>
     </div>
@@ -182,12 +182,14 @@
 <script setup>
 import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
 import { useEditorStore } from '../stores/editor.js'
+import { useSignalsStore } from '../stores/signals.js'
 import { useUiStore } from '../stores/uiStore.js'
 import { t } from '../i18n.js'
 import { getSignalBits, bitToGridCell, gridCellToBit, pixelToGridCell, clampStartBit, getSignalColor, motorolaBitAtPosition, motorolaFindMsbByPosition } from '../utils/signalLayout.js'
 import { toHex } from '../utils/format.js'
 
 const store = useEditorStore()
+const signals = useSignalsStore()
 const ui = useUiStore()
 
 // ── Layout constants ──
@@ -491,7 +493,7 @@ function processDrop(clientX, clientY) {
       `  松开(${grid.row},${grid.col}) bit=${grid.bit}  ${calcDetail}`,
       `  clamp(${ds.sigByteOrder}, len=${ds.sigLength}) → ${clamped}`,
     ].join('\n'))
-    store.moveSignalByLayout(ds.uuid, clamped)
+    signals.moveSignalByLayout(ds.uuid, clamped)
   } finally {
     isProcessingDrop.value = false
   }

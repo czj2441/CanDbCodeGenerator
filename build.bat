@@ -13,7 +13,7 @@ echo [Build] Building frontend...
 echo [Build] Working directory: %ROOT_DIR%frontend
 
 REM 计算自动版本号
-python "%ROOT_DIR%compute_version.py" --write
+python "%ROOT_DIR%tools\compute_version.py" --write
 if errorlevel 1 (
     echo [Warn] Version computation failed, using defaults.
 )
@@ -48,12 +48,12 @@ echo ============================================
 echo.
 
 REM Ask whether to start backend server
-set /p LAUNCH="Start backend server (python api_server.py 8080)? [Y/n]: "
+set /p LAUNCH="Start backend server (python -m app.server.lifecycle 8080)? [Y/n]: "
 if /i "%LAUNCH%"=="n" goto :done
 
 echo [Build] Starting backend server...
 cd /d "%ROOT_DIR%"
-python api_server.py 8080
+python -m app.server.lifecycle 8080
 goto :eof
 
 :done
