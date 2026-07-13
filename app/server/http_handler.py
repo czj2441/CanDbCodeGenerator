@@ -242,6 +242,9 @@ class ApiHandler(BaseHTTPRequestHandler):
         if not file_name.endswith(ext):
             file_name = file_name.rsplit(".", 1)[0] + ext
 
+        # 净化文件名：剥离 CR/LF（防响应拆分）和双引号（防头注入）
+        file_name = file_name.replace('\r', '').replace('\n', '').replace('"', '')
+
         payload = content.encode("utf-8")
         self.send_response(200)
         self._cors_headers()
