@@ -157,7 +157,10 @@ class CreateFileHandler:
         else:
             db = CanDatabase(db_name)
         file_name = f"{db_name}.properties"
-        sid = self._sm.create(file_name, db)
+        try:
+            sid = self._sm.create(file_name, db)
+        except FileNameExistsError:
+            raise HandlerError("FILE_NAME_EXISTS", f"File '{file_name}' already exists")
         return HandlerResult(data={
             "session_id": sid, "file_name": file_name,
             "message_count": len(db.messages), "signal_count": db.total_signals(),
