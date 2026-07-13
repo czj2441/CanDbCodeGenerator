@@ -191,6 +191,9 @@ class ApiHandler(BaseHTTPRequestHandler):
         self._send_json(200, _resp(True, VERSION))
 
     def _post_release(self) -> None:
+        if SESSION_MGR is None:
+            self._send_json(503, _resp(False, error="Server initializing"))
+            return
         parsed = urllib.parse.urlparse(self.path)
         params = urllib.parse.parse_qs(parsed.query)
         sid = params.get("sid", [""])[0]
@@ -200,6 +203,9 @@ class ApiHandler(BaseHTTPRequestHandler):
         self._send_json(200, _resp(True))
 
     def _get_export(self) -> None:
+        if SESSION_MGR is None:
+            self._send_json(503, _resp(False, error="Server initializing"))
+            return
         parsed = urllib.parse.urlparse(self.path)
         params = urllib.parse.parse_qs(parsed.query)
         sid = params.get("sid", [""])[0]
