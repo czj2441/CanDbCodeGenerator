@@ -3,6 +3,7 @@ import { t } from '../i18n.js'
 import { useUiStore } from './uiStore.js'
 import { useEditorStore } from './editor.js'
 import { translateError, findNextAvailableStartBit, generateSignalName } from '../utils/storeHelpers.js'
+import { getSignalBits } from '../utils/signalLayout.js'
 
 export const useSignalsStore = defineStore('signals', {
   actions: {
@@ -120,10 +121,15 @@ export const useSignalsStore = defineStore('signals', {
       if (!msg) return
       const { expandTemplate } = await import('../utils/format.js')
       const maxBits = msg.dlc * 8
-      const lastEnd = startBit + (count - 1) * bitStep + length
-      if (lastEnd > maxBits) {
-        useUiStore().showToast(`Last signal ends at bit ${lastEnd - 1}, exceeds ${maxBits - 1}`, true)
-        return
+      for (let i = 0; i < count; i++) {
+        const sb = startBit + i * bitStep
+        const bits = getSignalBits(sb, length, byteOrder)
+        for (const b of bits) {
+          if (b < 0 || b >= maxBits) {
+            useUiStore().showToast(`Signal #${startNum + i} at bit ${sb} exceeds range [0, ${maxBits - 1}]`, true)
+            return
+          }
+        }
       }
 
       const signals = []
