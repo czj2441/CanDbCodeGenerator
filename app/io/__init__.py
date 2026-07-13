@@ -18,4 +18,3 @@ __all__ = [
     'save_properties', 'load_properties',
     'to_c_header_str', 'to_c_source_str',
 ]
-"""app.io — 序列化/IO 层。"""

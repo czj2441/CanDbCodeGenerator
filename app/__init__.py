@@ -22,4 +22,3 @@ def __getattr__(name: str):
 
 
 __all__ = ['main', 'start_server_background', 'BackgroundServer', 'VERSION']
-"""app — CanMatrix Editor 后端 Python 包。"""

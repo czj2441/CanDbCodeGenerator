@@ -13,4 +13,3 @@ __all__ = [
     'WsServer',
     'WsTransport', 'WsDiagnostics',
 ]
-"""app.ws — WebSocket 通信层。"""
