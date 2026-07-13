@@ -561,9 +561,12 @@ class SessionManager:
         stale_sids = self._file_lock.get_stale_sessions(HEARTBEAT_TIMEOUT)
 
         for sid in stale_sids:
-            with self._lock:
-                self._destroy(sid)
-            self._file_lock.fire_lock_released(sid)
+            try:
+                with self._lock:
+                    self._destroy(sid)
+                self._file_lock.fire_lock_released(sid)
+            except Exception as e:
+                print(f"[SessionManager] ERROR cleaning stale session {sid[:8]}: {e}")
 
         self._start_heartbeat_checker()
 
