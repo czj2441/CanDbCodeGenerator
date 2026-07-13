@@ -417,7 +417,10 @@ class CanDatabase:
         """从字典创建。"""
         db = cls(name=data.get("name", "Untitled"))
         for mid_str, mdata in data.get("messages", {}).items():
-            mid = int(mid_str, 16) if mid_str.startswith("0x") else int(mid_str)
+            try:
+                mid = int(mid_str, 16) if mid_str.startswith("0x") else int(mid_str)
+            except (ValueError, TypeError):
+                continue
             mdata["id"] = mid
             msg = Message.from_dict(mdata)
             db.messages[mid] = msg
