@@ -39,7 +39,6 @@ export default defineConfig(({ mode }) => {
       rollupOptions: {
         // 禁用 Tree Shaking，强制打包所有模块
         treeshake: false,
-        // 显式指定入口文件，确保 api-queue 被包含
         output: {
           manualChunks: {
             'vendor': ['vue', 'pinia'],
@@ -50,10 +49,6 @@ export default defineConfig(({ mode }) => {
       commonjsOptions: {
         transformMixedEsModules: true,
       },
-    },
-    // 确保 api-queue.js 模块被正确识别
-    optimizeDeps: {
-      include: ['./src/utils/api-queue.js'],
     },
   }
 })
