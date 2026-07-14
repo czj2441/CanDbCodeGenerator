@@ -123,8 +123,8 @@ class GetSummaryHandler:
         self._sm = session_mgr
 
     def __call__(self, data: dict) -> HandlerResult:
-        sid = data.get("session_id", "")
-        session = self._sm.get(sid) if sid else None
+        sid = data["session_id"]
+        session = self._sm.get(sid)
         db = session.db if session else None
         if not db:
             raise HandlerError("SESSION_NOT_FOUND", "会话不存在")
@@ -163,8 +163,8 @@ class GetStatusHandler:
         self._sm = session_mgr
 
     def __call__(self, data: dict) -> HandlerResult:
-        sid = data.get("session_id", "")
-        session = self._sm.get(sid) if sid else None
+        sid = data["session_id"]
+        session = self._sm.get(sid)
         db = session.db if session else None
         if not db:
             raise HandlerError("SESSION_NOT_FOUND", "会话不存在")

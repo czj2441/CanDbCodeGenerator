@@ -38,7 +38,7 @@ class NewFileHandler:
         self._sm = session_mgr
 
     def __call__(self, data: dict) -> HandlerResult:
-        sid = data.get("session_id", "")
+        sid = data["session_id"]
         name = data.get("name", "Untitled")
         if not name or not str(name).strip():
             name = "Untitled"
@@ -62,7 +62,7 @@ class ImportFileHandler:
         self._sm = session_mgr
 
     def __call__(self, data: dict) -> HandlerResult:
-        sid = data.get("session_id", "")
+        sid = data["session_id"]
         fmt = data.get("format", "json")
         content = data.get("content", "")
         filename = data.get("filename", "")
@@ -113,8 +113,8 @@ class DownloadFileHandler:
         self._sm = session_mgr
 
     def __call__(self, data: dict) -> HandlerResult:
-        sid = data.get("session_id", "")
-        session = self._sm.get(sid) if sid else None
+        sid = data["session_id"]
+        session = self._sm.get(sid)
         db = session.db if session else None
         if not db:
             raise HandlerError("SESSION_NOT_FOUND", "会话不存在")
