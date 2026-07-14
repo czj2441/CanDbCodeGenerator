@@ -17,10 +17,14 @@ def validate_file_name(file_name: str) -> str:
         raise ValueError("Invalid file name")
     if '\x00' in file_name:
         raise ValueError("Null byte in file name")
+    # Windows 文件系统保留字符（含 HTTP 头注入字符 "）
+    _WIN_ILLEGAL = set(':*?"<>|')
+    if any(c in _WIN_ILLEGAL for c in file_name):
+        raise ValueError("Invalid characters in file name")
     if '/' in file_name or '\\' in file_name:
         raise ValueError("Path separator in file name")
-    # 阻止 HTTP 头注入字符
-    if '"' in file_name or '\r' in file_name or '\n' in file_name:
+    # 阻止 HTTP 头注入字符（CR/LF）
+    if '\r' in file_name or '\n' in file_name:
         raise ValueError("Invalid characters in file name")
     if os.path.isabs(file_name):
         raise ValueError("Absolute path not allowed")

@@ -245,15 +245,15 @@ class SessionManager:
             return session
 
     def save_as(self, original_session_id: str, new_name: str) -> str:
-        """另存为：克隆当前会话数据到新文件。
+        """另存为：克隆当前会话数据到新文件（仅落盘，不创建 session / 不加锁）。
 
         原始会话的 modified 状态、undo 栈、文件锁、心跳计时器全部不受影响。
 
         Returns:
-            新 session_id
+            新文件名（含 .properties 后缀）
 
         Raises:
-            FileNameExistsError: 由 create() 抛出（冲突时已自动追加后缀）
+            FileNameExistsError: 文件已存在且无法生成可用名称
             ValueError: session 不存在
         """
         session = self.get(original_session_id)
@@ -279,15 +279,21 @@ class SessionManager:
                     f"Cannot find available name for '{file_name}' (too many duplicates)"
                 )
             pure_name = file_name[:-11]  # 去掉 .properties
+            target_path = self._safe_path(file_name)
 
         # 深克隆 db（使用 type() 获取实际类，避免硬编码 CanDatabase）
         with session.db.with_lock():
             clone = type(session.db).from_dict(session.db.to_dict())
         clone.name = pure_name
 
-        # 创建新 session 并落盘
-        new_sid = self.create(file_name, clone)
-        return new_sid
+        # 仅写入磁盘，不创建 session / 不注册文件锁
+        content = clone.to_properties_str()
+        tmp_path = target_path + ".tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        os.replace(tmp_path, target_path)
+
+        return file_name
 
     def save(self, session_id: str) -> bool:
         """手动保存会话到磁盘，成功后重置 modified 标志。"""

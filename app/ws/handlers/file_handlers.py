@@ -216,13 +216,12 @@ class SaveAsHandler:
         if not check or not check.strip("_"):
             raise HandlerError("VALUE_INVALID", "文件名不能为空")
         try:
-            new_sid = self._sm.save_as(sid, new_name)
+            file_name = self._sm.save_as(sid, new_name)
         except FileNameExistsError:
             raise HandlerError("FILE_NAME_EXISTS", f"File '{new_name}' already exists")
-        new_session = self._sm.get(new_sid)
         return HandlerResult(
-            data={"session_id": new_sid, "file_name": _pure_file_name(new_session)},
-            session_id=sid, new_session_id=new_sid)
+            data={"file_name": file_name},
+            session_id=sid)
 
 
 class DeleteFileHandler:
