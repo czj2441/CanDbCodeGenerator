@@ -133,16 +133,16 @@ def main() -> None:
     ws_router = MessageRouter(ws_transport, SESSION_MGR)
     _register_all_handlers(ws_router, SESSION_MGR, ws_transport)
 
-    ws_server = WsServer(ws_transport, ws_router)
-    ws_thread = ws_server.start_in_thread()
-
-    # ── 注册锁释放回调 ──
+    # ── 注册锁释放回调（在 WS 服务启动前，避免心跳定时器竞态） ──
     SESSION_MGR.set_lock_released_callback(
         lambda sid: ws_transport.broadcast_all({
             "type": "lock_stolen",
             "data": {"victim_session_id": sid}
         })
     )
+
+    ws_server = WsServer(ws_transport, ws_router)
+    ws_thread = ws_server.start_in_thread()
 
     ApiHandler._ws_transport = ws_transport
 
@@ -230,15 +230,16 @@ def start_server_background(port: int = 8080) -> BackgroundServer:
     ws_router = MessageRouter(ws_transport, SESSION_MGR)
     _register_all_handlers(ws_router, SESSION_MGR, ws_transport)
 
-    ws_server = WsServer(ws_transport, ws_router)
-    ws_server.start_in_thread()
-
+    # ── 注册锁释放回调（在 WS 服务启动前，避免心跳定时器竞态） ──
     SESSION_MGR.set_lock_released_callback(
         lambda sid: ws_transport.broadcast_all({
             "type": "lock_stolen",
             "data": {"victim_session_id": sid}
         })
     )
+
+    ws_server = WsServer(ws_transport, ws_router)
+    ws_server.start_in_thread()
 
     ApiHandler._ws_transport = ws_transport
 
