@@ -290,6 +290,8 @@ class SessionManager:
         if not session:
             return False
         with session.db.with_lock():
+            if not session.db.modified:
+                return True
             write_session_file(session, self._data_dir)
             session.db.modified = False
         return True
@@ -309,9 +311,6 @@ class SessionManager:
             session = self.get(sid)
             if not session:
                 continue
-            with session.db.with_lock():
-                if not session.db.modified:
-                    continue
             saved_ok = False
             try:
                 saved_ok = self.save(sid)
@@ -532,20 +531,14 @@ class SessionManager:
         session = self.get(session_id)
         if not session:
             return {"success": False, "message": "Session not found"}
-        result = self._undo.undo(session)
-        if result.get("success"):
-            session.db.modified = True
-        return result
+        return self._undo.undo(session)
 
     def redo(self, session_id: str) -> dict:
         """执行重做操作。"""
         session = self.get(session_id)
         if not session:
             return {"success": False, "message": "Session not found"}
-        result = self._undo.redo(session)
-        if result.get("success"):
-            session.db.modified = True
-        return result
+        return self._undo.redo(session)
 
     def clear_undo_stacks(self, session_id: str) -> bool:
         """清空撤销/重做栈。"""

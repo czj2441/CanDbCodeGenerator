@@ -54,6 +54,7 @@ class UndoEngine:
             try:
                 with session.db.with_lock():
                     self._execute_undo(session, snap)
+                    session.db.modified = True
             except Exception as e:
                 session.undo_stack.append(snap)
                 return {"success": False, "message": f"Undo failed: {str(e)}"}
@@ -81,6 +82,7 @@ class UndoEngine:
             try:
                 with session.db.with_lock():
                     self._execute_redo(session, snap)
+                    session.db.modified = True
             except Exception as e:
                 session.redo_stack.append(snap)
                 return {"success": False, "message": f"Redo failed: {str(e)}"}
