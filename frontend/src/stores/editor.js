@@ -404,18 +404,5 @@ export const useEditorStore = defineStore('editor', {
     clearLog() {
       this.logEntries = []
     },
-
-    /**
-     * 加载信号错误列表（供 signals store 调用）
-     */
-    async loadSignalErrors() {
-      if (this.selectedMsgId == null) return
-      try {
-        const errors = await this._wsRequest('get_signal_errors', { msg_id: this.selectedMsgId })
-        this.signalErrors = errors || []
-      } catch (_) {
-        this.signalErrors = []
-      }
-    },
   },
 })
