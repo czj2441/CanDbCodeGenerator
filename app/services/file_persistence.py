@@ -18,6 +18,7 @@ else:
 HEARTBEAT_TIMEOUT = 30       # 30 秒无心跳则视为离线，自动释放文件锁
 HEARTBEAT_CHECK_INTERVAL = 30  # 每 30 秒检查一次心跳超时
 MAX_ORPHAN_STACKS = 20         # 孤儿撤销栈最大保留数量（LRU 淘汰）
+MAX_DUPLICATE_SUFFIX = 9999    # resolve_duplicate 最大递增次数
 
 
 def write_session_file(session, data_dir: str):
@@ -61,15 +62,21 @@ def load_session_file(file_path: str, model_factory=None):
         return None
 
 
-def resolve_duplicate(base_name: str, data_dir: str) -> str:
-    """重名时生成递增序号的 fallback 文件名。 Untitled.properties → Untitled_1.properties"""
+def resolve_duplicate(base_name: str, data_dir: str,
+                      max_attempts: int = MAX_DUPLICATE_SUFFIX) -> str:
+    """重名时生成递增序号的 fallback 文件名。 Untitled.properties → Untitled_1.properties
+
+    Raises:
+        FileExistsError: 达到 max_attempts 上限仍无法找到可用名称
+    """
     name, ext = os.path.splitext(base_name)
-    i = 1
-    while True:
+    for i in range(1, max_attempts + 1):
         candidate = f"{name}_{i}{ext}"
         if not os.path.isfile(os.path.join(data_dir, candidate)):
             return candidate
-        i += 1
+    raise FileExistsError(
+        f"Cannot find available name after {max_attempts} attempts: {base_name}"
+    )
 
 
 # 内部别名（供 write_session_file 使用）

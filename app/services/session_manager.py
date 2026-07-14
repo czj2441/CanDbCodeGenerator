@@ -272,7 +272,12 @@ class SessionManager:
         # 冲突时自动追加后缀
         target_path = self._safe_path(file_name)
         if os.path.isfile(target_path):
-            file_name = resolve_duplicate(file_name, self._data_dir)
+            try:
+                file_name = resolve_duplicate(file_name, self._data_dir)
+            except FileExistsError:
+                raise FileNameExistsError(
+                    f"Cannot find available name for '{file_name}' (too many duplicates)"
+                )
             pure_name = file_name[:-11]  # 去掉 .properties
 
         # 深克隆 db（使用 type() 获取实际类，避免硬编码 CanDatabase）
