@@ -89,9 +89,10 @@ class WsServer:
                     # 请求-响应类型：路由到 handler
                     result = await self._router.dispatch(ws, msg)
 
-                    # session 切换同步（new_file/import_file/load_session 可能改变 session_id）
+                    # session 切换同步（new_file/import_file/load_session/save_as 可能改变 session_id）
                     if result and result.new_session_id:
                         self._transport.unregister(session_id, ws)
+                        sm.release_session(session_id, abort=True)  # 立即释放旧 session 文件锁
                         session_id = result.new_session_id
                         self._transport.register(session_id, ws)
                         sm.update_heartbeat(session_id)

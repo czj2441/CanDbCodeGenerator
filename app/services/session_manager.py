@@ -245,15 +245,15 @@ class SessionManager:
             return session
 
     def save_as(self, original_session_id: str, new_name: str) -> str:
-        """另存为：克隆当前会话数据到新文件（仅落盘，不创建 session / 不加锁）。
+        """另存为：克隆当前会话数据到新文件，创建新 session 并切换。
 
-        原始会话的 modified 状态、undo 栈、文件锁、心跳计时器全部不受影响。
+        原始会话在 WS 切换后由 server 层 mark_stale，心跳超时后自动清理。
 
         Returns:
-            新文件名（含 .properties 后缀）
+            新 session_id
 
         Raises:
-            FileNameExistsError: 文件已存在且无法生成可用名称
+            FileNameExistsError: 文件名与当前文件相同或磁盘同名文件已存在
             ValueError: session 不存在
         """
         session = self.get(original_session_id)
@@ -269,7 +269,12 @@ class SessionManager:
 
         file_name = f"{pure_name}.properties"
 
-        # 冲突时自动追加后缀
+        # 与当前文件同名 → 直接拒绝
+        current_file_name = os.path.basename(session.file_path)
+        if file_name == current_file_name:
+            raise FileNameExistsError(f"File '{file_name}' already exists")
+
+        # 磁盘文件冲突时自动追加后缀
         target_path = self._safe_path(file_name)
         if os.path.isfile(target_path):
             try:
@@ -279,21 +284,15 @@ class SessionManager:
                     f"Cannot find available name for '{file_name}' (too many duplicates)"
                 )
             pure_name = file_name[:-11]  # 去掉 .properties
-            target_path = self._safe_path(file_name)
 
         # 深克隆 db（使用 type() 获取实际类，避免硬编码 CanDatabase）
         with session.db.with_lock():
             clone = type(session.db).from_dict(session.db.to_dict())
         clone.name = pure_name
 
-        # 仅写入磁盘，不创建 session / 不注册文件锁
-        content = clone.to_properties_str()
-        tmp_path = target_path + ".tmp"
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            f.write(content)
-        os.replace(tmp_path, target_path)
-
-        return file_name
+        # 创建新 session（含文件锁注册）并落盘
+        new_sid = self.create(file_name, clone)
+        return new_sid
 
     def save(self, session_id: str) -> bool:
         """手动保存会话到磁盘，成功后重置 modified 标志。"""
