@@ -76,7 +76,7 @@ class ApiHandler(BaseHTTPRequestHandler):
             filepath = "index.html"
 
         safe_path = os.path.normpath(filepath)
-        if safe_path.startswith(".."):
+        if safe_path.startswith("..") or os.path.isabs(safe_path):
             self._send_json(403, _resp(False, error="Forbidden"))
             return
 
@@ -91,6 +91,13 @@ class ApiHandler(BaseHTTPRequestHandler):
         full_path = os.path.join(base_dir, "dist", safe_path)
         if not os.path.isfile(full_path):
             full_path = os.path.join(base_dir, safe_path)
+
+        # realpath 边界检查：防御 symlink 和编码绕过
+        full_path = os.path.realpath(full_path)
+        base_real = os.path.realpath(base_dir)
+        if not full_path.startswith(base_real + os.sep) and full_path != base_real:
+            self._send_json(403, _resp(False, error="Forbidden"))
+            return
 
         if not os.path.isfile(full_path):
             self._send_json(404, _resp(False, error="Not found"))

@@ -88,6 +88,11 @@ class ImportFileHandler:
         except Exception as e:
             raise HandlerError("IMPORT_FAILED", f"Import failed: {e}")
 
+        try:
+            validate_file_name(new_db.name)
+        except ValueError:
+            raise HandlerError("INVALID_FILE_NAME", "非法文件名")
+
         file_name = f"{new_db.name}.properties"
         try:
             new_sid = self._sm.create(file_name, new_db)
