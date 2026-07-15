@@ -53,7 +53,7 @@
           />
           <div class="confirm-actions">
             <button class="btn" @click="ui.newConfirmOpen = false">{{ t('topbar.newConfirmCancel') }}</button>
-            <button class="btn btn-accent" @click="confirmNew">{{ t('topbar.newConfirmCreate') }}</button>
+            <button class="btn btn-accent" :disabled="newLoading" @click="confirmNew">{{ t('topbar.newConfirmCreate') }}</button>
           </div>
         </div>
       </div>
@@ -117,7 +117,7 @@
           />
           <div class="confirm-actions">
             <button class="btn" @click="saveAsConfirmOpen = false">{{ t('topbar.newConfirmCancel') }}</button>
-            <button class="btn btn-accent" @click="confirmSaveAs">{{ t('topbar.saveAsConfirm') }}</button>
+            <button class="btn btn-accent" :disabled="saveAsLoading" @click="confirmSaveAs">{{ t('topbar.saveAsConfirm') }}</button>
           </div>
         </div>
       </div>
@@ -199,24 +199,42 @@ function onNew() {
   ui.newConfirmOpen = true
 }
 
-function confirmNew() {
-  ui.newConfirmOpen = false
+async function confirmNew() {
+  if (newLoading.value) return
   const name = newSessionName.value.trim() || 'Untitled'
-  fileOps.createNewSession(name)
+  ui.newConfirmOpen = false
+  newLoading.value = true
+  try {
+    await fileOps.createNewSession(name)
+  } catch {
+    // createNewSession 内部已处理错误（toast + _resetOnSessionFailure）
+  } finally {
+    newLoading.value = false
+  }
 }
 
 const saveAsConfirmOpen = ref(false)
 const saveAsName = ref('')
+const saveAsLoading = ref(false)
+const newLoading = ref(false)
 
 function onSaveAs() {
   saveAsName.value = store.currentFileName.replace(/\.properties$/i, '').trim() || ''
   saveAsConfirmOpen.value = true
 }
 
-function confirmSaveAs() {
-  saveAsConfirmOpen.value = false
+async function confirmSaveAs() {
+  if (saveAsLoading.value) return
   const name = saveAsName.value.trim() || 'Untitled'
-  fileOps.saveAs(name)
+  saveAsLoading.value = true
+  try {
+    await fileOps.saveAs(name)
+    saveAsConfirmOpen.value = false
+  } catch {
+    // saveAs 已显示错误 toast，弹窗保持打开让用户修改文件名
+  } finally {
+    saveAsLoading.value = false
+  }
 }
 
 async function importFile() {

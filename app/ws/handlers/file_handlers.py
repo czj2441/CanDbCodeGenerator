@@ -202,19 +202,22 @@ class SaveAsHandler:
 
     def __call__(self, data: dict) -> HandlerResult:
         sid = data["session_id"]
+        session = self._sm.get(sid)
+        if not session:
+            raise HandlerError("SESSION_NOT_FOUND", "Session not found")
         new_name = data.get("name", "")
         if not new_name:
             raise HandlerError("VALUE_INVALID", "Name is required")
         try:
             validate_file_name(new_name)
         except ValueError:
-            raise HandlerError("INVALID_FILE_NAME", "非法文件名")
+            raise HandlerError("INVALID_FILE_NAME", "Invalid file name")
         check = new_name.strip()
         if check.endswith(".properties"):
             check = check[:-11]
         check = check.strip()
         if not check or not check.strip("_"):
-            raise HandlerError("VALUE_INVALID", "文件名不能为空")
+            raise HandlerError("VALUE_INVALID", "File name cannot be empty")
         try:
             new_sid = self._sm.save_as(sid, new_name)
         except FileNameExistsError:

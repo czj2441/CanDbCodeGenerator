@@ -90,7 +90,19 @@ export const useFileOperationsStore = defineStore('fileOperations', {
         undoRedo.clearUndoStack()
         useUiStore().showToast(t('toast.saveAs', { name: data.file_name }))
       } catch (e) {
-        useUiStore().showToast(e.message, true)
+        if (e.code === 'FILE_NAME_EXISTS') {
+          useUiStore().showToast(t('toast.saveAsExistsError'), true)
+        } else if (e.code === 'VALUE_INVALID') {
+          useUiStore().showToast(t('toast.saveAsNameRequired'), true)
+        } else if (e.code === 'INVALID_FILE_NAME') {
+          useUiStore().showToast(t('toast.invalidFileName'), true)
+        } else if (e.code === 'SESSION_NOT_FOUND') {
+          editor._resetOnSessionFailure()
+          useUiStore().showToast(t('toast.sessionLost'), true)
+        } else {
+          useUiStore().showToast(e.message, true)
+        }
+        throw e
       }
     },
 
