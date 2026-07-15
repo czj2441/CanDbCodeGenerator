@@ -104,6 +104,8 @@ const dict = {
     'signal.thMax': '最大值',
     'signal.thUnit': '单位',
     'signal.thComment': '注释',
+    'signal.columnSettings': '列设置',
+    'signal.resetColumns': '重置全部',
 
     // MessagePanel
     'panel.empty': '未选择报文。<br>点击左侧报文以编辑其属性。',

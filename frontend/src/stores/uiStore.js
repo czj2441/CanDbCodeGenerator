@@ -18,6 +18,9 @@ export const useUiStore = defineStore('ui', {
     theme: localStorage.getItem('canmatrix_theme') || 'dark',
     // 日志面板
     showLogPanel: false,
+    // 列可见性 + 列宽
+    hiddenColumns: JSON.parse(localStorage.getItem('canmatrix_hidden_cols') || '[]'),
+    columnWidths: JSON.parse(localStorage.getItem('canmatrix_col_widths') || '{}'),
   }),
 
   actions: {
@@ -66,6 +69,33 @@ export const useUiStore = defineStore('ui', {
 
     selectLayoutSignal(uuid) {
       this.selectedSignalUuid = this.selectedSignalUuid === uuid ? null : uuid
+    },
+
+    // ── 列可见性 ──
+    toggleColumnVisibility(key) {
+      const idx = this.hiddenColumns.indexOf(key)
+      if (idx >= 0) this.hiddenColumns.splice(idx, 1)
+      else this.hiddenColumns.push(key)
+      localStorage.setItem('canmatrix_hidden_cols', JSON.stringify(this.hiddenColumns))
+    },
+    isColumnVisible(key) {
+      return !this.hiddenColumns.includes(key)
+    },
+    resetColumnVisibility() {
+      this.hiddenColumns = []
+      localStorage.setItem('canmatrix_hidden_cols', '[]')
+    },
+    // ── 列宽（百分比） ──
+    setColumnWidths(widths) {
+      this.columnWidths = widths
+      localStorage.setItem('canmatrix_col_widths', JSON.stringify(widths))
+    },
+    getColumnWidth(key, defaultPct) {
+      return this.columnWidths[key] ?? defaultPct
+    },
+    resetColumnWidths() {
+      this.columnWidths = {}
+      localStorage.setItem('canmatrix_col_widths', '{}')
     },
 
     setLoading(val) {
