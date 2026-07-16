@@ -214,7 +214,7 @@ class SessionManager:
             for session in self._sessions.values():
                 if os.path.basename(session.file_path) == file_name:
                     # 检查锁
-                    if exclude_session and session.id != exclude_session:
+                    if session.id != exclude_session:
                         if self.is_file_locked(session.file_path, exclude_session=exclude_session):
                             raise FileLockedError(f"File '{file_name}' is opened in another tab")
                     self._file_lock.register(session.id, session.file_path)
