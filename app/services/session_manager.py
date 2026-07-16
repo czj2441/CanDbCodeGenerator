@@ -532,16 +532,12 @@ class SessionManager:
         return self._file_lock.is_file_locked(file_path, exclude_session)
 
     def release_session(self, session_id: str, abort: bool = False) -> bool:
-        """释放指定 session 的文件锁。"""
+        """释放并销毁指定 session（幂等）。abort 参数保留兼容但无行为差异。"""
         with self._lock:
             if session_id not in self._sessions:
                 return False
             logger.info("Session released: sid=%s abort=%s", session_id[:8], abort)
-            if abort:
-                return self._destroy(session_id)
-            self._file_lock.unregister(session_id)
-            self._file_lock.pop_heartbeat(session_id)
-            return True
+            return self._destroy(session_id)
 
     def update_heartbeat(self, session_id: str) -> bool:
         """更新指定 session 的心跳时间。"""

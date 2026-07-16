@@ -70,10 +70,22 @@ export const useEditorStore = defineStore('editor', {
       this._wsConnected = false
     },
 
-    _resetOnSessionFailure() {
+    /**
+     * 统一的会话拆卸入口。所有退出路径必须通过此方法。
+     * @param {'go_back'|'lock_stolen'|'session_invalid'|'permanent_failure'|'session_failure'|'lock_lost_on_reconnect'} reason
+     */
+    _teardownSession(reason) {
+      console.warn(`[Session] teardown: reason=${reason}`)
       this.stopEditorSync()
       setSessionId('')
       this.currentFileName = ''
+      this.apiStatus = 'connecting'
+      this.resetEditorState()
+      window.dispatchEvent(new CustomEvent('navigate-browser'))
+    },
+
+    _resetOnSessionFailure() {
+      this._teardownSession('session_failure')
     },
 
     resetEditorState() {
@@ -122,14 +134,12 @@ export const useEditorStore = defineStore('editor', {
             this._wsConnected = false
           } else if (status === 'session_invalid') {
             // 4003: 后端重启或 session 超时，当前 session 已失效
-            this._resetOnSessionFailure()
+            this._teardownSession('session_invalid')
             useUiStore().showToast(t('toast.sessionLost') || 'Session lost, please return to file list', true)
-            window.dispatchEvent(new CustomEvent('navigate-browser'))
           } else if (status === 'permanent_failure') {
             // 真正的协议级错误（4001 hello timeout / 4002 bad protocol）
-            this._resetOnSessionFailure()
+            this._teardownSession('permanent_failure')
             useUiStore().showToast(t('toast.sessionLost') || 'Session lost, please return to file list', true)
-            window.dispatchEvent(new CustomEvent('navigate-browser'))
           }
         }
       })
@@ -191,10 +201,9 @@ export const useEditorStore = defineStore('editor', {
           const d = msg.data
 
           if (d.lock_status === 'lost') {
-            this._applyWsMessage({
-              type: 'lock_stolen',
-              data: { victim_session_id: getSessionId() }
-            })
+            console.warn('[WS] full_sync: lock lost on reconnect, navigating to file list')
+            this._teardownSession('lock_lost_on_reconnect')
+            useUiStore().showToast(t('toast.sessionLost') || 'Session lost', true)
             break
           }
 
@@ -350,15 +359,8 @@ export const useEditorStore = defineStore('editor', {
           if (victimSid && victimSid !== getSessionId()) break
 
           WsFrontendDiag.count('lock_stolen')
-          console.warn('[WS] lock stolen, victim:', victimSid,
-                       msg.data?.stealer_session_id ? ', by: ' + msg.data.stealer_session_id : '')
-          this._wsIntentionalClose = true
-          this._wsClient?._cleanupPendingRequests()
-          this._wsClient?.disconnect()
-          this._wsClient = null
-          this._wsConnected = false
-          this.resetEditorState()
-          window.dispatchEvent(new CustomEvent('navigate-browser'))
+          console.warn('[WS] lock stolen, victim:', victimSid)
+          this._teardownSession('lock_stolen')
           useUiStore().showToast(t('toast.noEditPermission'), true)
           break
         }
@@ -397,7 +399,7 @@ export const useEditorStore = defineStore('editor', {
         this._healthFailCount = 0
         this.apiStatus = 'connected'
         this._hasBeenConnected = true
-        this.checkVersion()
+        // 版本信息已通过 WS pong/server_version 推送（ws-client.js），无需 HTTP 轮询
       } else {
         this._healthFailCount++
         if (this._healthFailCount >= 2) {

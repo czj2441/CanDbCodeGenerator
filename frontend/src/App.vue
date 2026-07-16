@@ -148,7 +148,8 @@ onMounted(() => {
   beforeUnloadHandler = (e) => {
     const sid = getSessionId()
     if (sid) {
-      navigator.sendBeacon('/api/release?sid=' + encodeURIComponent(sid))
+      navigator.sendBeacon('/api/release?sid=' + encodeURIComponent(sid) + '&abort=1')
+      setSessionId('')  // 清除 sessionStorage，防止 Ctrl+F5 后旧 ID 残留
     }
     if (sid && store.backendDirty) {
       e.preventDefault()
@@ -251,12 +252,8 @@ async function doGoBack() {
   if (sid) {
     navigator.sendBeacon('/api/release?sid=' + encodeURIComponent(sid) + '&abort=1')
   }
-  // 停止 WS 连接
-  store.stopEditorSync()
-  setSessionId('')   // 清除已销毁的 session ID，防止幻影恢复
-  store.apiStatus = 'connecting'  // 重置编辑器健康状态，清除死遮罩
-  // 清理编辑器所有状态（包含 clipboard 等）
-  store.resetEditorState()
+  // 统一拆卸：停止 WS + 清除 sessionStorage + 重置状态 + 导航回文件列表
+  store._teardownSession('go_back')
   mode.value = 'browser'
 }
 
