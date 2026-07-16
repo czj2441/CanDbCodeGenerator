@@ -86,6 +86,7 @@ export const useEditorStore = defineStore('editor', {
       this.signalErrors = []
       this.logEntries = []
       this._dataVersion = 0
+      this._hasBeenConnected = false
       // 通过拆分 store 清理
       const undoRedo = useUndoRedoStore()
       undoRedo.clearUndoStack()
