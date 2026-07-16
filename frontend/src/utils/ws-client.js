@@ -91,9 +91,9 @@ export class ApiError extends Error {
 // ═══════════════════════════════════════════
 
 export class WsSyncClient {
-  constructor({ url, sessionId, onMessage, onStatusChange }) {
+  constructor({ url, getSessionId, onMessage, onStatusChange }) {
     this.url = url
-    this.sessionId = sessionId
+    this._getSessionId = getSessionId
     this.onMessage = onMessage
     this.onStatusChange = onStatusChange
     this._requestCounter = 0
@@ -130,7 +130,7 @@ export class WsSyncClient {
       // 否则回调中发出的请求会早于 hello 到达服务器）
       this.ws.send(JSON.stringify({
         type: 'hello',
-        session_id: this.sessionId,
+        session_id: this._getSessionId(),
         data_version: 0
       }))
 
@@ -153,7 +153,14 @@ export class WsSyncClient {
         return
       }
 
-      // 4xxx 关闭码 = 永久失败，停止重连
+      // 4003 = session 失效（后端重启/超时清理），通知上层处理
+      if (event.code === 4003) {
+        console.warn(`[WsSyncClient] Session invalid: ${event.reason}`)
+        this.onStatusChange?.('session_invalid')
+        return
+      }
+
+      // 其他 4xxx = 协议级永久错误，停止重连
       if (event.code >= 4000 && event.code < 5000) {
         console.warn(`[WsSyncClient] Permanent failure: code=${event.code} reason=${event.reason}`)
         this.onStatusChange?.('permanent_failure')

@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import { markRaw } from 'vue'
 import { setSessionId, getSessionId } from '../api/client.js'
 import { t } from '../i18n.js'
 import { useUiStore } from './uiStore.js'
@@ -93,6 +94,12 @@ export const useEditorStore = defineStore('editor', {
     _connectWebSocket() {
       if (this._wsClient?.connected) return
 
+      // 断开旧的 WS 客户端（可能正在重连中），防止僵尸实例
+      if (this._wsClient) {
+        this._wsClient.disconnect()
+        this._wsClient = null
+      }
+
       const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
       const wsPort = parseInt(location.port) + 1
       const wsUrl = `${protocol}//${location.hostname}:${wsPort}/ws`
@@ -100,24 +107,33 @@ export const useEditorStore = defineStore('editor', {
       this._wsIntentionalClose = false
       this._dataVersion = 0
 
-      this._wsClient = new WsSyncClient({
+      const client = new WsSyncClient({
         url: wsUrl,
-        sessionId: getSessionId() || '',
+        getSessionId: () => getSessionId() || '',
         onMessage: (msg) => { this._applyWsMessage(msg) },
         onStatusChange: (status) => {
+          // 守卫：如果不是当前活跃的 client，忽略此回调
+          if (this._wsClient !== client) return
+
           if (status === 'connected') {
             this._wsConnected = true
           } else if (status === 'disconnected') {
             this._wsConnected = false
+          } else if (status === 'session_invalid') {
+            // 4003: 后端重启或 session 超时，当前 session 已失效
+            this._resetOnSessionFailure()
+            useUiStore().showToast(t('toast.sessionLost') || 'Session lost, please return to file list', true)
+            window.dispatchEvent(new CustomEvent('navigate-browser'))
           } else if (status === 'permanent_failure') {
-            this._wsConnected = false
-            setSessionId('')
+            // 真正的协议级错误（4001 hello timeout / 4002 bad protocol）
+            this._resetOnSessionFailure()
             useUiStore().showToast(t('toast.sessionLost') || 'Session lost, please return to file list', true)
             window.dispatchEvent(new CustomEvent('navigate-browser'))
           }
         }
       })
-      this._wsClient.connect()
+      this._wsClient = markRaw(client)
+      client.connect()
     },
 
     /**

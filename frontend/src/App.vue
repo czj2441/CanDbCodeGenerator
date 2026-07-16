@@ -254,6 +254,7 @@ async function doGoBack() {
   // 停止 WS 连接
   store.stopEditorSync()
   setSessionId('')   // 清除已销毁的 session ID，防止幻影恢复
+  store.apiStatus = 'connecting'  // 重置编辑器健康状态，清除死遮罩
   // 清理编辑器所有状态（包含 clipboard 等）
   store.resetEditorState()
   mode.value = 'browser'

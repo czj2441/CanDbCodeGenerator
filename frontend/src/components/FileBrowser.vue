@@ -382,11 +382,15 @@ onMounted(() => {
 
   wsClient = new WsSyncClient({
     url: wsUrl,
-    sessionId: '',  // 服务端自动创建 session
+    getSessionId: () => '',  // 服务端自动创建 session
     onMessage: () => {},  // FileBrowser 不处理广播
     onStatusChange: (status) => {
       if (status === 'connected') {
         loadFiles()  // 连接成功后加载文件列表
+      } else if (status === 'session_invalid' || status === 'permanent_failure') {
+        // WS 永久断开，停止刷新并通知用户
+        if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null }
+        useUiStore().showToast(t('toast.sessionLost') || 'Session lost', true)
       }
     }
   })
