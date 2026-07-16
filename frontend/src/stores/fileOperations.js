@@ -15,11 +15,15 @@ export const useFileOperationsStore = defineStore('fileOperations', {
       const editor = useEditorStore()
       try {
         editor.lastSaveError = null
+        editor.saveStatus = 'saving'
         await editor._wsRequest('save', {}, 120000)
+        editor.saveStatus = 'saved'
+        editor._startSaveFadeTimer()
         return true
       } catch (e) {
         console.error('Failed to save session:', e)
         editor.lastSaveError = e.message || String(e)
+        editor.saveStatus = editor.backendDirty ? 'modified' : 'idle'
         return false
       }
     },

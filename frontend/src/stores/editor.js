@@ -23,6 +23,8 @@ export const useEditorStore = defineStore('editor', {
     apiStatus: 'connecting',
     backendDirty: false,
     lastSaveError: null,
+    saveStatus: 'idle',   // 'idle' | 'saving' | 'saved' | 'modified'
+    _saveStatusTimer: null,
     signalErrors: [],
     _healthFailCount: 0,
     _hasBeenConnected: false,
@@ -95,6 +97,8 @@ export const useEditorStore = defineStore('editor', {
       this.currentFileName = ''
       this.backendDirty = false
       this.lastSaveError = null
+      this.saveStatus = 'idle'
+      if (this._saveStatusTimer) { clearTimeout(this._saveStatusTimer); this._saveStatusTimer = null }
       this.signalErrors = []
       this.logEntries = []
       this._dataVersion = 0
@@ -102,6 +106,16 @@ export const useEditorStore = defineStore('editor', {
       // 通过拆分 store 清理
       const undoRedo = useUndoRedoStore()
       undoRedo.clearUndoStack()
+    },
+
+    _startSaveFadeTimer() {
+      if (this._saveStatusTimer) clearTimeout(this._saveStatusTimer)
+      this._saveStatusTimer = setTimeout(() => {
+        if (this.saveStatus === 'saved' && !this.backendDirty) {
+          this.saveStatus = 'idle'
+        }
+        this._saveStatusTimer = null
+      }, 3000)
     },
 
     _connectWebSocket() {
@@ -340,7 +354,17 @@ export const useEditorStore = defineStore('editor', {
 
         case 'status_changed': {
           const s = msg.data
-          if ('modified' in s) this.backendDirty = s.modified
+          if ('modified' in s) {
+            this.backendDirty = s.modified
+            if (s.modified && this.saveStatus !== 'saving') {
+              this.saveStatus = 'modified'
+              if (this._saveStatusTimer) { clearTimeout(this._saveStatusTimer); this._saveStatusTimer = null }
+            } else if (!s.modified && this.saveStatus === 'saving') {
+              // WS 确认保存完成（备用路径）
+              this.saveStatus = 'saved'
+              this._startSaveFadeTimer()
+            }
+          }
           if ('undo_count' in s) undoRedo.undoCount = s.undo_count
           if ('redo_count' in s) undoRedo.redoCount = s.redo_count
           if (s.save_error) {

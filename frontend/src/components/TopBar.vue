@@ -4,8 +4,10 @@
     <div class="topbar-logo">Can<span>Matrix</span></div>
     <span class="topbar-filename">{{ store.currentFileName }}</span>
     <span class="topbar-spacer"></span>
+    <span class="topbar-divider"></span>
     <button class="btn" @click="undoRedo.undo()" :disabled="!undoRedo.canUndo" title="撤销 (Ctrl+Z)">{{ t('topbar.undo') }}</button>
     <button class="btn" @click="undoRedo.redo()" :disabled="!undoRedo.canRedo" title="重做 (Ctrl+Y)">{{ t('topbar.redo') || '重做' }}</button>
+    <span class="topbar-divider"></span>
     <button class="btn" @click="onNew">{{ t('topbar.new') }}</button>
     <button class="btn" @click="importFile">{{ t('topbar.import') }}</button>
     <div class="export-wrapper" ref="exportWrapper">
@@ -19,6 +21,7 @@
     </div>
     <button class="btn" @click="save" :disabled="!store.backendDirty" title="保存 (Ctrl+S)">{{ t('topbar.save') }}</button>
     <button class="btn" @click="onSaveAs">{{ t('topbar.saveAs') }}</button>
+    <span class="topbar-divider"></span>
     <span class="topbar-spacer"></span>
     <button class="btn btn-icon" @click="ui.toggleTheme" title="切换主题">{{ ui.theme === 'dark' ? '☀' : '☾' }}</button>
     <button
@@ -440,6 +443,13 @@ async function save() {
 }
 
 .topbar-spacer { flex: 1; }
+
+.topbar-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+  flex-shrink: 0;
+}
 
 .api-status {
   font-size: 11px;

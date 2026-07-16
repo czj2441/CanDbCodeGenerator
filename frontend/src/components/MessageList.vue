@@ -15,6 +15,11 @@
         <span class="message-id">{{ m.id_hex || toHex(m.id) }}</span>
         <span class="message-name">{{ m.name || t('msglist.unnamed') }}</span>
         <span class="message-signal-count">{{ m.signal_count }}s</span>
+        <button
+          class="message-more-btn"
+          @click.stop="onMoreClick($event, m)"
+          :title="t('msglist.moreActions')"
+        >⋮</button>
       </div>
       <div v-if="store.messages.length === 0" class="empty" v-html="t('msglist.empty')">
       </div>
@@ -25,10 +30,23 @@
 <script setup>
 import { useEditorStore } from '../stores/editor.js'
 import { useMessagesStore } from '../stores/messages.js'
+import { useUiStore } from '../stores/uiStore.js'
 import { t } from '../i18n.js'
 import { toHex } from '../utils/format.js'
 const store = useEditorStore()
 const messages = useMessagesStore()
+const ui = useUiStore()
+
+function onMoreClick(event, message) {
+  messages.selectMessage(message.id)
+  const rect = event.currentTarget.getBoundingClientRect()
+  ui.showContextMenu(
+    Math.min(rect.right, window.innerWidth - 180),
+    Math.min(rect.bottom + 4, window.innerHeight - 200),
+    'message',
+    null
+  )
+}
 </script>
 
 <style scoped>
@@ -98,6 +116,22 @@ const messages = useMessagesStore()
   padding: 1px 5px;
   border-radius: 10px;
 }
+
+.message-more-btn {
+  opacity: 0;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  line-height: 1;
+  flex-shrink: 0;
+  transition: opacity 100ms, background 100ms;
+}
+.message-item:hover .message-more-btn { opacity: 1; }
+.message-more-btn:hover { background: var(--bg-hover); color: var(--text); }
 
 .empty {
   padding: 40px 16px;

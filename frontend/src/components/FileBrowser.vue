@@ -38,7 +38,19 @@
         </thead>
         <tbody>
           <tr v-if="files.length === 0">
-            <td colspan="7" class="empty-row">{{ t('history.empty') }}</td>
+            <td colspan="7" class="empty-state">
+              <div class="empty-state-content">
+                <div class="empty-icon">📂</div>
+                <p class="empty-title">{{ t('browser.emptyTitle') }}</p>
+                <p class="empty-desc">{{ t('browser.emptyDesc') }}</p>
+                <button class="empty-btn" @click="createNew">{{ t('browser.emptyNewBtn') }}</button>
+                <ul class="empty-hints">
+                  <li>{{ t('browser.emptyHint1') }}</li>
+                  <li>{{ t('browser.emptyHint2') }}</li>
+                  <li>{{ t('browser.emptyHint3') }}</li>
+                </ul>
+              </div>
+            </td>
           </tr>
           <tr
             v-for="file in files"
@@ -527,12 +539,23 @@ onUnmounted(() => {
   opacity: 0.6;
 }
 
-.empty-row {
-  text-align: center;
-  color: var(--text-muted);
-  padding: 48px;
-  font-size: 14px;
+.empty-state { text-align: center; padding: 80px 24px !important; }
+.empty-state-content { max-width: 360px; margin: 0 auto; }
+.empty-icon { font-size: 48px; margin-bottom: 16px; }
+.empty-title { font-size: 18px; font-weight: 600; margin-bottom: 8px; }
+.empty-desc { color: var(--text-muted); font-size: 13px; line-height: 1.6; margin-bottom: 24px; }
+.empty-btn {
+  background: var(--accent); color: #fff; border: none;
+  padding: 12px 32px; border-radius: var(--radius);
+  font-size: 15px; font-weight: 600; cursor: pointer;
+  margin-bottom: 32px;
 }
+.empty-btn:hover { opacity: 0.9; }
+.empty-hints {
+  list-style: none; padding: 0; text-align: left;
+  font-size: 12px; color: var(--text-dim); line-height: 2;
+}
+.empty-hints li::before { content: '→ '; color: var(--accent); }
 
 /* 列宽控制 */
 .col-checkbox {

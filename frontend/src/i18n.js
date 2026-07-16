@@ -54,6 +54,13 @@ const dict = {
     'browser.newFileCreate': '创建',
     'browser.newFileCancel': '取消',
     'browser.newFileExistsError': '该文件名已存在，请使用其他名称',
+    'browser.emptyTitle': '暂无项目',
+    'browser.emptyDesc': '创建一个新的 CAN 数据库项目，或导入现有的 .dbc / .properties 文件开始编辑。',
+    'browser.emptyNewBtn': '+ 新建项目',
+    'browser.emptyHint1': '点击按钮创建空白数据库',
+    'browser.emptyHint2': '添加报文 (Message) 和信号 (Signal)',
+    'browser.emptyHint3': '支持导出为 DBC / Properties / C 代码',
+    'history.empty': '暂无文件',
     'toast.fileLocked': '文件已被其他标签页打开',
     'toast.stealSuccess': '已抢占文件编辑权',
     'toast.stealFailed': '抢占失败',
@@ -80,12 +87,16 @@ const dict = {
     'status.signal': '信号',
     'status.signals': '信号',
     'status.modified': '已修改',
+    'status.saving': '正在保存...',
+    'status.saved': '已保存',
+    'status.unsaved': '已修改·未保存',
 
     // MessageList
     'msglist.title': '报文列表',
     'msglist.addTooltip': '添加报文',
     'msglist.empty': '暂无报文。<br>点击 + 添加一个。',
     'msglist.unnamed': '（未命名）',
+    'msglist.moreActions': '更多操作',
 
     // SignalTable
     'signal.selectMessage': '从左侧选择一个报文以查看其信号。',
