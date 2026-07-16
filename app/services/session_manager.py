@@ -14,12 +14,15 @@ Session Manager - 会话管理与自动持久化
   - 撤销/重做逻辑委托给 UndoEngine
 """
 
+import logging
 import os
 import re
 import threading
 import time
 import uuid
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 from .session import Session
 from .file_persistence import (
@@ -119,7 +122,8 @@ class SessionManager:
             new_path = os.path.join(self._data_dir, new_fname)
         try:
             os.replace(old_path, new_path)
-        except OSError:
+        except OSError as e:
+            logger.warning("Failed to rename legacy file %s -> %s: %s", old_path, new_path, e)
             return old_fname  # 重命名失败，保持旧名
         # 迁移缓存
         cached = self._history_cache.pop(old_fname, None)
@@ -180,6 +184,7 @@ class SessionManager:
         # 立即落盘（持有 db 锁确保序列化原子性）
         with db.with_lock():
             write_session_file(session, self._data_dir)
+        logger.info("Session created: sid=%s -> %s", session_id, file_name)
         return session_id
 
     def get(self, session_id: str) -> Optional[Session]:
@@ -242,6 +247,8 @@ class SessionManager:
             self._file_lock.register(new_sid, file_path)
             # 恢复之前保留的撤销栈（以 file_name 为键）
             self._undo.restore_orphan(file_name, session)
+            logger.info("Session restored: sid=%s from %s (%d messages)",
+                        new_sid, file_name, len(db.messages))
             return session
 
     def save_as(self, original_session_id: str, new_name: str) -> str:
@@ -292,6 +299,8 @@ class SessionManager:
 
         # 创建新 session（含文件锁注册）并落盘
         new_sid = self.create(file_name, clone)
+        logger.info("Save-as: sid=%s -> %s (new_sid=%s)",
+                    original_session_id[:8], file_name, new_sid)
         return new_sid
 
     def save(self, session_id: str) -> bool:
@@ -302,7 +311,13 @@ class SessionManager:
         with session.db.with_lock():
             if not session.db.modified:
                 return True
-            write_session_file(session, self._data_dir)
+            logger.info("Saving session %s to %s", session_id[:8],
+                        os.path.basename(session.file_path))
+            try:
+                write_session_file(session, self._data_dir)
+            except OSError as e:
+                logger.error("Failed to save session %s: %s", session_id[:8], e, exc_info=True)
+                raise
             session.db.modified = False
         return True
 
@@ -316,7 +331,17 @@ class SessionManager:
         """
         with self._lock:
             sids = list(self._sessions.keys())
+
+        # 预检：统计脏会话数，无脏会话时静默返回
+        dirty_sids = [sid for sid in sids
+                      if self.get(sid) and self.get(sid).db.modified]
+        if not dirty_sids:
+            return 0
+        logger.info("save_all_dirty: saving %d dirty session(s) out of %d total",
+                    len(dirty_sids), len(sids))
+
         saved = 0
+        failed = 0
         for sid in sids:
             session = self.get(sid)
             if not session:
@@ -326,15 +351,16 @@ class SessionManager:
                 saved_ok = self.save(sid)
             except Exception as e:
                 session.save_error = str(e)    # 异常：记录错误
-                print(f"[WARN] save_all_dirty: failed to save {sid[:8]}: {e}")
+                logger.warning("save_all_dirty: failed to save %s: %s", sid[:8], e)
 
             if saved_ok:
                 saved += 1
                 session.save_error = None  # 成功：清除旧错误
             else:
+                failed += 1
                 if not session.save_error:
                     session.save_error = "Session disappeared during save"
-                    print(f"[WARN] save_all_dirty: save returned False for {sid[:8]}")
+                    logger.warning("save_all_dirty: save returned False for %s", sid[:8])
                 # 紧急备份：save 失败时写入独立备份文件，与心跳超时路径保护级别一致
                 try:
                     os.makedirs(self._data_dir, exist_ok=True)
@@ -343,15 +369,19 @@ class SessionManager:
                         self._data_dir, f"{sid}_EMERGENCY.properties")
                     with open(emergency_path, "w", encoding="utf-8") as f:
                         f.write(content)
-                    print(f"[SessionManager] emergency backup written: {emergency_path}")
+                    logger.info("emergency backup written: %s", emergency_path)
                 except Exception as e2:
-                    print(f"[SessionManager] CRITICAL: emergency backup also failed for {sid[:8]}: {e2}")
+                    logger.critical("emergency backup also failed for %s: %s", sid[:8], e2)
+        logger.info("save_all_dirty: complete — %d succeeded, %d failed", saved, failed)
         return saved
 
     def destroy(self, session_id: str) -> bool:
         """销毁会话（内存 + 磁盘文件）。"""
         with self._lock:
-            return self._destroy(session_id)
+            result = self._destroy(session_id)
+        if result:
+            logger.info("Session destroyed: sid=%s", session_id[:8])
+        return result
 
     def list_sessions(self) -> list[dict]:
         """列出所有活跃会话信息。"""
@@ -421,7 +451,7 @@ class SessionManager:
                                     sig_count += 1
                         msg_count = len(msg_ids)
                     except Exception:
-                        pass
+                        logger.debug("Failed to parse history file %s", fname, exc_info=True)
                     self._history_cache[fname] = (mtime, size, msg_count, sig_count)
             
             entry = {
@@ -460,8 +490,10 @@ class SessionManager:
             if os.path.isfile(file_path):
                 try:
                     os.remove(file_path)
-                except OSError:
+                except OSError as e:
+                    logger.error("Failed to delete file %s: %s", file_path, e)
                     return False
+                logger.info("History file deleted: %s", file_name)
                 return True
             # 尝试查找并删除旧格式文件
             legacy_fname = self._find_legacy_file(file_name)
@@ -471,8 +503,10 @@ class SessionManager:
                 self._undo.remove_orphan(legacy_fname)
                 try:
                     os.remove(legacy_path)
-                except OSError:
+                except OSError as e:
+                    logger.error("Failed to delete legacy file %s: %s", legacy_path, e)
                     return False
+                logger.info("Legacy history file deleted: %s", legacy_fname)
                 return True
             return bool(sids_to_remove)
 
@@ -483,6 +517,7 @@ class SessionManager:
         if not session:
             return False
         file_name = os.path.basename(session.file_path)
+        logger.info("Internal destroy: sid=%s file=%s", session_id[:8], file_name)
         # 保存孤儿撤销栈（委托给 UndoEngine）
         self._undo.save_orphan(file_name, session)
         # 释放文件锁和心跳（委托给 FileLockManager）
@@ -501,6 +536,7 @@ class SessionManager:
         with self._lock:
             if session_id not in self._sessions:
                 return False
+            logger.info("Session released: sid=%s abort=%s", session_id[:8], abort)
             if abort:
                 return self._destroy(session_id)
             self._file_lock.unregister(session_id)
@@ -568,8 +604,9 @@ class SessionManager:
                 with self._lock:
                     self._destroy(sid)
                 self._file_lock.fire_lock_released(sid)
+                logger.warning("Stale session cleaned: sid=%s (heartbeat timeout)", sid[:8])
             except Exception as e:
-                print(f"[SessionManager] ERROR cleaning stale session {sid[:8]}: {e}")
+                logger.error("Error cleaning stale session %s: %s", sid[:8], e, exc_info=True)
 
         self._start_heartbeat_checker()
 

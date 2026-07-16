@@ -10,6 +10,7 @@ Output:
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from datetime import datetime
@@ -17,6 +18,8 @@ from typing import Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from app.models import CanDatabase, Message, Signal
+
+logger = logging.getLogger(__name__)
 
 
 # ── Template directory ─────────────────────────────────────────────────────────
@@ -136,7 +139,9 @@ def to_c_header_str(db: "CanDatabase") -> str:
     
     with db.with_lock():
         context = _prepare_context(db)
-        return template.render(**context)
+        result = template.render(**context)
+    logger.info("C header generated (%d signals)", context['signal_count'])
+    return result
 
 
 def to_c_source_str(db: "CanDatabase") -> str:
@@ -162,4 +167,6 @@ def to_c_source_str(db: "CanDatabase") -> str:
     
     with db.with_lock():
         context = _prepare_context(db)
-        return template.render(**context)
+        result = template.render(**context)
+    logger.info("C source generated (%d signals)", context['signal_count'])
+    return result

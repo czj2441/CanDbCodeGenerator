@@ -3,6 +3,7 @@ http_handler.py — ApiHandler（静态文件 + HTTP 路由）
 """
 
 import json
+import logging
 import os
 import sys
 import time
@@ -11,6 +12,8 @@ from http.server import BaseHTTPRequestHandler
 from typing import Any
 
 from app.version import VERSION
+
+logger = logging.getLogger(__name__)
 
 # SESSION_MGR 由 lifecycle 模块在导入时注入
 SESSION_MGR = None
@@ -120,6 +123,7 @@ class ApiHandler(BaseHTTPRequestHandler):
             self.wfile.write(content)
             self.wfile.flush()
         except Exception as e:
+            logger.error("Static file read error: %s", e)
             self._send_json(500, _resp(False, error=str(e)))
 
     # ── 路由 ──
@@ -140,17 +144,15 @@ class ApiHandler(BaseHTTPRequestHandler):
             else:
                 self._serve_static()
         except Exception as e:
-            print(f"[ERROR] do_GET: {e}", flush=True)
-            import traceback
-            traceback.print_exc()
+            logger.error("do_GET error: %s", e, exc_info=True)
             self._last_status = 500
             try:
                 self._send_json(500, _resp(False, error="Internal server error"))
-            except:
+            except Exception:
                 pass
         finally:
             elapsed = (time.monotonic() - t_start) * 1000
-            print(f"[API] {self._last_status} GET {self.path} +{elapsed:.1f}ms")
+            logger.info("[API] %d GET %s +%.1fms", self._last_status, self.path, elapsed)
 
     def do_POST(self) -> None:
         t_start = time.monotonic()
@@ -163,31 +165,31 @@ class ApiHandler(BaseHTTPRequestHandler):
                 self._last_status = 404
                 self._send_json(404, _resp(False, error="Not found. All CRUD operations moved to WebSocket."))
         except Exception as e:
-            print(f"[ERROR] do_POST: {e}", flush=True)
+            logger.error("do_POST error: %s", e, exc_info=True)
             self._last_status = 500
             try:
                 self._send_json(500, _resp(False, error="Internal server error"))
-            except:
+            except Exception:
                 pass
         finally:
             elapsed = (time.monotonic() - t_start) * 1000
-            print(f"[API] {self._last_status} POST {self.path} +{elapsed:.1f}ms")
+            logger.info("[API] %d POST %s +%.1fms", self._last_status, self.path, elapsed)
 
     def do_PUT(self) -> None:
         self._last_status = 404
         try:
             self._send_json(404, _resp(False, error="Not found. All CRUD operations moved to WebSocket."))
-        except:
+        except Exception:
             pass
-        print(f"[API] 404 PUT {self.path} (moved to WS)")
+        logger.info("[API] 404 PUT %s (moved to WS)", self.path)
 
     def do_DELETE(self) -> None:
         self._last_status = 404
         try:
             self._send_json(404, _resp(False, error="Not found. All CRUD operations moved to WebSocket."))
-        except:
+        except Exception:
             pass
-        print(f"[API] 404 DELETE {self.path} (moved to WS)")
+        logger.info("[API] 404 DELETE %s (moved to WS)", self.path)
 
     # ── 端点实现 ──
 
@@ -248,6 +250,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                 self._send_json(400, _resp(False, error=f"Unsupported format: {fmt}"))
                 return
         except Exception as e:
+            logger.error("Export failed: session=%s fmt=%s error=%s", sid[:8] if sid else '', fmt, e)
             self._send_json(500, _resp(False, error=f"Export failed: {e}"))
             return
 
@@ -268,6 +271,8 @@ class ApiHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(payload)
         self.wfile.flush()
+        logger.info("Export: session=%s fmt=%s file=%s size=%d bytes",
+                    sid[:8], fmt, file_name, len(payload))
 
     def _get_diag(self) -> None:
         try:

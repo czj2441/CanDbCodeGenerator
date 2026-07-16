@@ -6,12 +6,15 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 import uuid
 from typing import Any
 
 from .signal import Signal
 from .message import Message
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -420,6 +423,7 @@ class CanDatabase:
             try:
                 mid = int(mid_str, 16) if mid_str.startswith("0x") else int(mid_str)
             except (ValueError, TypeError):
+                logger.warning("Skipping message with invalid ID in from_dict: %s", mid_str)
                 continue
             mdata["id"] = mid
             msg = Message.from_dict(mdata)
@@ -558,6 +562,7 @@ class CanDatabase:
             try:
                 mid = int(mid_key, 16) if mid_key.startswith("0x") else int(mid_key)
             except (ValueError, TypeError):
+                logger.warning("Skipping message with invalid ID in from_properties_str: %s", mid_key)
                 continue
 
             msg = Message(
@@ -574,7 +579,8 @@ class CanDatabase:
                 if receivers_raw:
                     try:
                         receivers = _json.loads(receivers_raw)
-                    except (ValueError, TypeError):
+                    except (ValueError, TypeError) as e:
+                        logger.debug("Failed to parse receivers for signal %s: %s", _sig_key, e)
                         receivers = []
                 else:
                     receivers = []
@@ -685,14 +691,16 @@ class CanDatabase:
             try:
                 if can_msg.cycle_time is not None:
                     cycle_time = int(can_msg.cycle_time)
-            except Exception:
+            except Exception as e:
+                logger.debug("Failed to extract cycle_time from DBC message %s: %s", can_msg.name, e)
                 pass
             sender = ""
             try:
                 senders = getattr(can_msg, "senders", None)
                 if senders and isinstance(senders, list) and len(senders) > 0:
                     sender = str(senders[0])
-            except Exception:
+            except Exception as e:
+                logger.debug("Failed to extract sender from DBC message %s: %s", can_msg.name, e)
                 pass
             msg = Message.from_dict({
                 "id": can_msg.frame_id,

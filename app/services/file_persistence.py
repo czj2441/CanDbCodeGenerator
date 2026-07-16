@@ -2,8 +2,11 @@
 文件持久化 — DATA_DIR 常量 + Properties 格式读写。
 """
 
+import logging
 import os
 import sys as _sys
+
+logger = logging.getLogger(__name__)
 
 # 打包后数据目录放在用户 AppData，未打包时在源码目录
 if getattr(_sys, 'frozen', False):
@@ -43,9 +46,14 @@ def write_session_file(session, data_dir: str):
     file_path = target
     session.file_path = file_path
     tmp_path = file_path + ".tmp"
-    with open(tmp_path, "w", encoding="utf-8") as f:
-        f.write(content)
-    os.replace(tmp_path, file_path)
+    logger.info("Writing session file: %s (%d bytes)", file_path, len(content))
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        os.replace(tmp_path, file_path)
+    except OSError as e:
+        logger.error("Failed to write session file %s: %s", file_path, e, exc_info=True)
+        raise
 
 
 def load_session_file(file_path: str, model_factory=None):
@@ -56,9 +64,13 @@ def load_session_file(file_path: str, model_factory=None):
         with open(file_path, "r", encoding="utf-8") as f:
             content = f.read()
         if model_factory:
-            return model_factory.from_properties_str(content)
+            db = model_factory.from_properties_str(content)
+            logger.info("Loaded session file: %s (%d messages)",
+                        file_path, len(db.messages))
+            return db
         return None
-    except Exception:
+    except Exception as e:
+        logger.error("Failed to load session file %s: %s", file_path, e, exc_info=True)
         return None
 
 
@@ -74,6 +86,7 @@ def resolve_duplicate(base_name: str, data_dir: str,
         candidate = f"{name}_{i}{ext}"
         if not os.path.isfile(os.path.join(data_dir, candidate)):
             return candidate
+    logger.warning("Cannot find available name after %d attempts: %s", max_attempts, base_name)
     raise FileExistsError(
         f"Cannot find available name after {max_attempts} attempts: {base_name}"
     )

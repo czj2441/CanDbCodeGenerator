@@ -749,6 +749,9 @@ def main():
     catcher = StdoutCatcher(sys.stdout)
     sys.stdout = catcher
 
+    from app.logging_config import setup_logging
+    setup_logging()  # 确保 logger handler 指向 StdoutCatcher
+
     # ── 选择可用端口（HTTP + WS 双端口） ──
     port = 8080
     if not check_port_available(port) or not check_port_available(port + 1):

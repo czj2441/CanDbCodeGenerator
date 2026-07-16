@@ -2,10 +2,13 @@
 port_utils.py — 端口检测与冲突处理工具。
 """
 
+import logging
 import socket
 import subprocess
 import platform
 import time
+
+logger = logging.getLogger(__name__)
 
 
 def check_port_available(port: int) -> bool:
@@ -67,7 +70,8 @@ def find_processes_on_port(port: int) -> list:
                 return pids
 
         return []
-    except Exception:
+    except Exception as e:
+        logger.debug("Failed to find processes on port %d: %s", port, e)
         return []
 
 
@@ -88,26 +92,26 @@ def kill_process(pid: int) -> bool:
         else:
             return False
         return True
-    except Exception:
+    except Exception as e:
+        logger.warning("Failed to kill process %d: %s", pid, e)
         return False
 
 
 def handle_port_conflict(port: int, auto_clean: bool = False) -> bool:
     """处理端口冲突，返回是否成功解决。"""
-    print(f"\n[ERROR] 错误：端口 {port} 已被占用")
-    print("=" * 60)
+    logger.error("端口 %d 已被占用", port)
 
     system = platform.system()
     pids = find_processes_on_port(port)
 
     if not pids:
-        print(f"端口 {port} 被占用，但无法检测到占用进程。")
-        print("可能的原因：")
-        print("  1. 其他程序正在使用该端口")
-        print("  2. 端口处于 TIME_WAIT 状态（等待关闭）")
-        print("\n建议操作：")
-        print(f"  - 使用其他端口启动：python -m app.server.lifecycle <端口号>")
-        print(f"  - 等待几秒后重试（如果是 TIME_WAIT 状态）")
+        logger.info("端口 %d 被占用，但无法检测到占用进程。", port)
+        logger.info("可能的原因：")
+        logger.info("  1. 其他程序正在使用该端口")
+        logger.info("  2. 端口处于 TIME_WAIT 状态（等待关闭）")
+        logger.info("建议操作：")
+        logger.info("  - 使用其他端口启动：python -m app.server.lifecycle <端口号>")
+        logger.info("  - 等待几秒后重试（如果是 TIME_WAIT 状态）")
         return False
 
     api_server_pids = []
@@ -129,52 +133,51 @@ def handle_port_conflict(port: int, auto_clean: bool = False) -> bool:
         api_server_pids = pids[:10]
 
     if api_server_pids:
-        print(f"检测到 {len(api_server_pids)} 个占用端口的进程：")
+        logger.info("检测到 %d 个占用端口的进程：", len(api_server_pids))
         for pid in api_server_pids:
-            print(f"  - PID: {pid}")
-        print()
+            logger.info("  - PID: %d", pid)
 
         if auto_clean:
-            print("[Auto-cleaning] 正在终止旧进程...")
+            logger.info("[Auto-cleaning] 正在终止旧进程...")
         else:
             try:
                 response = input("是否自动终止旧进程并重启？(Y/n): ").strip().lower()
                 if response not in ['', 'y', 'yes']:
                     print("\n已取消自动清理。")
-                    print("\n手动操作建议：")
+                    logger.info("手动操作建议：")
                     if system == 'Windows':
-                        print("  Windows: taskkill /F /PID <进程ID>")
+                        logger.info("  Windows: taskkill /F /PID <进程ID>")
                     elif system == 'Linux':
-                        print("  Linux: kill -9 <进程ID> 或 pkill -f app.server.lifecycle")
+                        logger.info("  Linux: kill -9 <进程ID> 或 pkill -f app.server.lifecycle")
                     elif system == 'Darwin':
-                        print("  macOS: kill -9 <进程ID>")
+                        logger.info("  macOS: kill -9 <进程ID>")
                     else:
-                        print(f"  {system}: kill <进程ID>")
+                        logger.info("  %s: kill <进程ID>", system)
                     return False
             except (KeyboardInterrupt, EOFError):
                 print("\n\n已取消操作。")
                 return False
 
-            print("\n正在终止旧进程...")
+            logger.info("正在终止旧进程...")
 
         for pid in api_server_pids:
             if kill_process(pid):
-                print(f"  [OK] 已终止进程 {pid}")
+                logger.info("已终止进程 %d", pid)
             else:
-                print(f"  [ERROR] 无法终止进程 {pid}")
+                logger.error("无法终止进程 %d", pid)
 
-        print("等待端口释放...")
+        logger.info("等待端口释放...")
         for i in range(10):
             if check_port_available(port):
-                print("[OK] 端口已释放")
+                logger.info("端口已释放")
                 return True
             time.sleep(0.5)
 
-        print("[WARN] 端口仍未释放，请手动检查")
+        logger.warning("端口仍未释放，请手动检查")
         return False
     else:
-        print(f"端口 {port} 被其他程序占用（PID: {', '.join(map(str, pids))}）")
-        print("\n建议操作：")
-        print(f"  1. 终止占用端口的程序")
-        print(f"  2. 使用其他端口启动：python -m app.server.lifecycle <端口号>")
+        logger.warning("端口 %d 被其他程序占用（PID: %s）", port, ', '.join(map(str, pids)))
+        logger.info("建议操作：")
+        logger.info("  1. 终止占用端口的程序")
+        logger.info("  2. 使用其他端口启动：python -m app.server.lifecycle <端口号>")
         return False

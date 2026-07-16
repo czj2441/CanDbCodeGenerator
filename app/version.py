@@ -2,7 +2,12 @@
 
 后端所有需要版本信息的地方统一 import VERSION 字典。
 """
+import logging
+
 from app._version import MANUAL_VERSION, AUTO_VERSION
+
+logger = logging.getLogger(__name__)
+
 
 def _build_version_dict() -> dict:
     auto_ver = AUTO_VERSION
@@ -11,7 +16,8 @@ def _build_version_dict() -> dict:
         try:
             from tools.compute_version import compute_auto_version
             auto_ver = compute_auto_version()
-        except Exception:
+        except Exception as e:
+            logger.debug("Version computation failed: %s", e)
             auto_ver = "dev"
 
     hash_part = auto_ver.split("_")[0] if "_" in auto_ver else auto_ver

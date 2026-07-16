@@ -6,6 +6,9 @@ UndoEngine — 撤销/重做引擎。
 """
 
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 from .file_persistence import MAX_ORPHAN_STACKS
 
@@ -29,7 +32,8 @@ class UndoEngine:
             # 深度克隆快照（避免引用污染）
             try:
                 snap_copy = json.loads(json.dumps(snapshot))
-            except (TypeError, ValueError):
+            except (TypeError, ValueError) as e:
+                logger.warning("Deep copy failed for undo snapshot, using shallow copy: %s", e)
                 snap_copy = dict(snapshot)  # 浅拷贝回退
 
             session.undo_stack.append(snap_copy)
@@ -37,6 +41,7 @@ class UndoEngine:
             # 限制栈大小
             if len(session.undo_stack) > session.MAX_UNDO_SIZE:
                 session.undo_stack.pop(0)  # 移除最早的记录
+                logger.debug("Undo stack overflow: dropping oldest (max_size=%d)", session.MAX_UNDO_SIZE)
 
             # 新操作清空 redo 栈（标准行为）
             session.redo_stack.clear()
@@ -119,6 +124,7 @@ class UndoEngine:
         while len(self._orphan_stacks) > self._max_orphan_stacks:
             oldest_key = next(iter(self._orphan_stacks))
             self._orphan_stacks.pop(oldest_key)
+            logger.debug("Orphan undo stack evicted: %s", oldest_key)
 
     def restore_orphan(self, file_name: str, session):
         """恢复孤儿栈到会话（会话恢复时调用）。"""

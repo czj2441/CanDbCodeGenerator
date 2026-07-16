@@ -6,12 +6,15 @@ ws_transport.py — WebSocket 传输层 + 诊断系统
 
 import asyncio
 import json
+import logging
 import threading
 import time
 from collections import defaultdict
 from contextlib import contextmanager
 
 import websockets
+
+logger = logging.getLogger(__name__)
 
 
 class WsDiagnostics:
@@ -161,6 +164,7 @@ class WsTransport:
         """向指定 session 的所有连接推送消息。
         在调用线程完成 JSON 序列化，最小化锁持有时间。"""
         if not self.loop or self.loop.is_closed():
+            logger.warning("WS broadcast skipped: event loop unavailable, session=%s", session_id[:8])
             if self.diag.enabled:
                 self.diag.warn("broadcast_skip", reason="loop_unavailable")
             return
@@ -198,6 +202,7 @@ class WsTransport:
         except websockets.exceptions.ConnectionClosed:
             pass
         except Exception as e:
+            logger.warning("WS send failed: %s: %s", type(e).__name__, e)
             if self.diag.enabled:
                 with self.diag._counter_lock:
                     self.diag.broadcast_fails += 1
@@ -214,6 +219,7 @@ class WsTransport:
         # 1. 关闭所有客户端连接
         with self._lock:
             all_sids = list(self._clients.keys())
+        logger.info("WS transport closing: %d session(s)", len(all_sids))
         for sid in all_sids:
             with self._lock:
                 clients = self._clients.pop(sid, set())
@@ -223,10 +229,10 @@ class WsTransport:
                         ws.close(1001, "server shutting down"), loop
                     )
                 except Exception:
-                    pass
+                    logger.debug("close: ws.close scheduling failed, session=%s", sid[:8])
 
         # 2. 停止事件循环
         try:
             loop.call_soon_threadsafe(loop.stop)
         except Exception:
-            pass
+            logger.debug("close: loop.stop scheduling failed")

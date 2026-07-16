@@ -6,6 +6,7 @@ ws_server.py — WebSocket 服务端
 
 import asyncio
 import json
+import logging
 import threading
 
 import websockets
@@ -14,6 +15,8 @@ from app.services import get_session_manager
 from .transport import WsTransport
 from .router import MessageRouter
 from app.version import VERSION
+
+logger = logging.getLogger(__name__)
 
 
 class WsServer:
@@ -59,6 +62,7 @@ class WsServer:
                 if not session:
                     # 旧 session 已丢失（后端重启/超时清理）
                     # 关闭连接让前端清理状态后重连，不自动创建幻影会话
+                    logger.info("WS connection rejected: session_id=%s not found", session_id[:8])
                     await ws.close(4003, "session_not_found")
                     return
 
@@ -66,6 +70,7 @@ class WsServer:
             if session_id:
                 self._transport.register(session_id, ws)
                 sm.update_heartbeat(session_id)
+                logger.info("WS connected: session=%s", session_id[:8])
                 # 发送服务端版本号（前端用于校验）
                 await ws.send(json.dumps({"type": "server_version", "data": VERSION}))
                 await self._send_full_sync(ws, session_id)
@@ -75,6 +80,7 @@ class WsServer:
                 try:
                     msg = json.loads(raw)
                 except json.JSONDecodeError:
+                    logger.warning("WS received malformed JSON, dropping message")
                     continue
 
                 if msg.get("type") == "ping":
@@ -83,7 +89,7 @@ class WsServer:
                         await ws.send(json.dumps({"type": "pong", "data": VERSION}))
                         sm.update_heartbeat(session_id)
                     except Exception as e:
-                        print(f"[WS] ping handler error: {e}")
+                        logger.error("WS ping handler error: %s", e)
 
                 elif "requestId" in msg:
                     # 请求-响应类型：路由到 handler
@@ -93,6 +99,7 @@ class WsServer:
                     if result and result.new_session_id:
                         self._transport.unregister(session_id, ws)
                         sm.release_session(session_id, abort=True)  # 立即释放旧 session 文件锁
+                        logger.info("WS session switch: %s -> %s", session_id[:8], result.new_session_id[:8])
                         session_id = result.new_session_id
                         self._transport.register(session_id, ws)
                         sm.update_heartbeat(session_id)
@@ -102,13 +109,12 @@ class WsServer:
         except websockets.exceptions.ConnectionClosed:
             pass
         except Exception as e:
-            print(f"[WS] handler error: {type(e).__name__}: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.error("WS handler error: %s: %s", type(e).__name__, e, exc_info=True)
         finally:
             if session_id:
                 self._transport.unregister(session_id, ws)
                 sm.mark_stale(session_id)
+                logger.info("WS disconnected: session=%s", session_id[:8])
 
     # ── 全量快照 ──
 
@@ -154,6 +160,8 @@ class WsServer:
                                        messages=len(messages_data))
 
         await ws.send(json.dumps(msg, ensure_ascii=False))
+        logger.info("full_sync sent: session=%s messages=%d version=%d",
+                    session_id[:8], len(messages_data), version)
 
     # ── 服务启动 ──
 
@@ -191,7 +199,7 @@ class WsServer:
             try:
                 self._transport.loop.run_until_complete(self._serve())
             except Exception as e:
-                print(f"[WS] Event loop error: {type(e).__name__}: {e}")
+                logger.error("WS event loop error: %s: %s", type(e).__name__, e, exc_info=True)
             finally:
                 self._running = False
                 try:
@@ -202,7 +210,7 @@ class WsServer:
         self._thread = threading.Thread(target=_run, daemon=True, name="ws-server")
         self._thread.start()
         ready.wait(timeout=5)
-        print(f"[WS] WebSocket server started on ws://{self._transport.host}:{self._transport.port}/ws")
+        logger.info("WS server started on ws://%s:%d/ws", self._transport.host, self._transport.port)
         return self._thread
 
     def shutdown(self, timeout: float = 5.0):
@@ -214,7 +222,7 @@ class WsServer:
             self._running = False
 
         if was_running:
-            print("[WS] Initiating shutdown...")
+            logger.info("WS initiating shutdown...")
 
         # 1. 桥接触发 asyncio.Event → _serve() 退出 async with
         bridge = getattr(self, '_stop_event_bridge', None)
@@ -222,14 +230,14 @@ class WsServer:
             try:
                 bridge()
             except Exception as e:
-                print(f"[WS] Stop bridge error: {e}")
+                logger.error("WS stop bridge error: %s", e)
 
         # 2. 等待线程退出
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=timeout)
             if self._thread.is_alive():
-                print(f"[WS] WARNING: Thread did not exit within {timeout}s")
+                logger.warning("WS thread did not exit within %.1fs", timeout)
 
         # 3. 确保 transport 资源清理
         self._transport.close()
-        print("[WS] Shutdown complete")
+        logger.info("WS shutdown complete")

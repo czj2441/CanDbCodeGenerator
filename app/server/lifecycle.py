@@ -6,6 +6,7 @@ lifecycle.py — 服务器启动、关闭、handler 注册。
 """
 
 import atexit
+import logging
 import signal
 import sys
 import threading
@@ -19,10 +20,13 @@ except ImportError:
     class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
         pass
 
+from app.logging_config import setup_logging
 from app.services import init_session_manager
 from app.models import CanDatabase
 from .http_handler import ApiHandler
 from .port_utils import check_port_available, handle_port_conflict
+
+logger = logging.getLogger(__name__)
 
 # ── 会话管理器初始化 ──
 SESSION_MGR = init_session_manager()
@@ -79,6 +83,9 @@ def main() -> None:
     import argparse
     from app.version import VERSION
 
+    # 初始化日志（默认 INFO 级别，--ws-debug 时提升到 DEBUG）
+    setup_logging()
+
     parser = argparse.ArgumentParser(
         description='CanMatrix Editor API Server',
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -104,24 +111,28 @@ def main() -> None:
 
     args = parser.parse_args()
 
+    # 根据 --ws-debug 参数提升日志级别到 DEBUG
+    if args.ws_debug:
+        setup_logging(level=logging.DEBUG)
+
     port = args.port_opt if args.port_opt is not None else args.port
     auto_clean = args.auto_clean or args.force
 
     if auto_clean:
-        print(f"\n[Auto-cleaning] 启动模式：自动清理端口冲突")
+        logger.info("启动模式：自动清理端口冲突")
 
     if not check_port_available(port):
-        print(f"\n[WARN] 检测到端口 {port} 已被占用")
+        logger.warning("检测到端口 %d 已被占用", port)
         if not handle_port_conflict(port, auto_clean=auto_clean):
-            print("\n[ERROR] 无法启动服务器，请解决端口冲突后重试。")
+            logger.error("无法启动服务器，请解决端口冲突后重试。")
             sys.exit(1)
         if not check_port_available(port):
-            print(f"\n[ERROR] 端口 {port} 仍然被占用，无法启动。")
+            logger.error("端口 %d 仍然被占用，无法启动。", port)
             sys.exit(1)
 
     server = ThreadingHTTPServer(("localhost", port), ApiHandler)
-    print(f"\nCanMatrix Editor API server running at http://localhost:{port}")
-    print("Press Ctrl+C to stop.")
+    logger.info("CanMatrix Editor API server running at http://localhost:%d", port)
+    logger.info("Press Ctrl+C to stop.")
 
     # ── WebSocket 服务启动 ──
     from app.ws.transport import WsTransport, WsDiagnostics
@@ -147,22 +158,22 @@ def main() -> None:
     ApiHandler._ws_transport = ws_transport
 
     if args.ws_debug:
-        print(f"[WS-DIAG] WebSocket diagnostics enabled")
+        logger.info("WebSocket diagnostics enabled")
 
     # ── 优雅关闭机制 ──
     def save_all_sessions():
-        print("\n[INFO] Saving all active sessions...")
+        logger.info("Saving all active sessions...")
         count = SESSION_MGR.save_all_dirty()
         if count > 0:
-            print(f"[INFO] Save complete: {count} session(s) saved")
+            logger.info("Save complete: %d session(s) saved", count)
         else:
-            print(f"[INFO] No modified sessions to save.")
+            logger.info("No modified sessions to save.")
 
     atexit.register(save_all_sessions)
 
     def graceful_shutdown(signum, frame):
         signal_name = "SIGINT" if signum == signal.SIGINT else "SIGTERM"
-        print(f"\n[INFO] Received {signal_name} signal, initiating graceful shutdown...")
+        logger.info("Received %s signal, initiating graceful shutdown...", signal_name)
         sys.exit(0)
 
     signal.signal(signal.SIGINT, graceful_shutdown)
@@ -172,7 +183,7 @@ def main() -> None:
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nShutting down.")
+        logger.info("Shutting down.")
 
 
 class BackgroundServer:
@@ -203,24 +214,25 @@ class BackgroundServer:
         try:
             self._ws.shutdown(timeout=5)
         except Exception as e:
-            print(f"[BackgroundServer] WS shutdown error: {e}")
+            logger.error("WS shutdown error: %s", e)
 
         try:
             self._http.shutdown()
         except Exception as e:
-            print(f"[BackgroundServer] HTTP shutdown error: {e}")
+            logger.error("HTTP shutdown error: %s", e)
 
     def server_close(self):
         try:
             self._http.server_close()
         except Exception as e:
-            print(f"[BackgroundServer] HTTP server_close error: {e}")
+            logger.error("HTTP server_close error: %s", e)
 
 
 def start_server_background(port: int = 8080) -> BackgroundServer:
     """在后台线程启动 API 服务器，返回 BackgroundServer 对象。"""
+    setup_logging()
     server = ThreadingHTTPServer(("localhost", port), ApiHandler)
-    print(f"\nCanMatrix Editor API server running at http://localhost:{port}")
+    logger.info("CanMatrix Editor API server running at http://localhost:%d", port)
 
     from app.ws.transport import WsTransport
     from app.ws.router import MessageRouter
@@ -247,10 +259,10 @@ def start_server_background(port: int = 8080) -> BackgroundServer:
         start_server_background._initialized = True
 
         def save_all_sessions():
-            print("\n[INFO] Saving all active sessions...")
+            logger.info("Saving all active sessions...")
             count = SESSION_MGR.save_all_dirty()
             if count > 0:
-                print(f"[INFO] Save complete: {count} session(s) saved")
+                logger.info("Save complete: %d session(s) saved", count)
         atexit.register(save_all_sessions)
 
     server_thread = threading.Thread(target=server.serve_forever, daemon=True)

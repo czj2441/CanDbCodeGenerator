@@ -5,10 +5,13 @@ FileLockManager — 文件锁 + 心跳超时管理。
 与 SessionManager 共享同一把 RLock，保持锁语义一致。
 """
 
+import logging
 import os
 import threading
 import time
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 from .file_persistence import HEARTBEAT_TIMEOUT
 
@@ -35,6 +38,7 @@ class FileLockManager:
             self._active_files[norm_path] = set()
         self._active_files[norm_path].add(session_id)
         self._heartbeats[session_id] = time.time()
+        logger.info("File lock acquired: sid=%s file=%s", session_id[:8], os.path.basename(file_path))
 
     def unregister(self, session_id: str):
         """注销 session 占用的所有文件。（调用方必须已持有 self._lock）"""
@@ -42,6 +46,7 @@ class FileLockManager:
             sids.discard(session_id)
             if not sids:
                 del self._active_files[file_path]
+        logger.info("File lock released: sid=%s", session_id[:8])
 
     # ── 锁状态查询 ──
 
@@ -72,6 +77,7 @@ class FileLockManager:
         with self._lock:
             if session_id in self._heartbeats:
                 self._heartbeats[session_id] = time.time() - (HEARTBEAT_TIMEOUT - 10)
+                logger.warning("Session %s marked stale", session_id[:8])
 
     def get_stale_sessions(self, timeout: float) -> list[str]:
         """返回心跳超时的 session_id 列表。（线程安全）"""
@@ -86,6 +92,7 @@ class FileLockManager:
             for sid in session_ids:
                 self.unregister(sid)
                 self._heartbeats.pop(sid, None)
+        logger.info("Cleaned stale locks: %s", [s[:8] for s in session_ids])
 
     def pop_heartbeat(self, session_id: str):
         """移除单条心跳记录。（调用方必须已持有 self._lock）"""
@@ -103,4 +110,4 @@ class FileLockManager:
             try:
                 self._lock_released_callback(session_id)
             except Exception as e:
-                print(f"[FileLockManager] lock_released_callback error: {e}")
+                logger.error("lock_released_callback error: %s", e, exc_info=True)

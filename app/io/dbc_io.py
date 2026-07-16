@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any
 
@@ -18,6 +19,8 @@ from app.models import (
     Signal,
 )
 
+logger = logging.getLogger(__name__)
+
 
 def import_dbc(filepath: str) -> CanDatabase:
     """Load a DBC file and convert it to the internal CanDatabase model.
@@ -28,6 +31,7 @@ def import_dbc(filepath: str) -> CanDatabase:
     if not os.path.isfile(filepath):
         raise FileNotFoundError(f"DBC file not found: {filepath}")
 
+    logger.info("Importing DBC: %s", filepath)
     can_db: Any = cantools.database.load_file(filepath)
 
     db_name = os.path.splitext(os.path.basename(filepath))[0]
@@ -89,6 +93,8 @@ def import_dbc(filepath: str) -> CanDatabase:
 
         database.add_message(msg)
 
+    logger.info("DBC imported: %s (%d messages, %d signals)",
+                filepath, len(database.messages), database.total_signals())
     return database
 
 
@@ -97,6 +103,7 @@ def export_dbc(database: CanDatabase, filepath: str) -> None:
 
     Signals are per-message and read directly from Message.signals.
     """
+    logger.info("Exporting DBC: %s (%d messages)", filepath, len(database.messages))
     # Build cantools database objects
     can_db = cantools.database.Database()
 
@@ -145,6 +152,7 @@ def export_dbc(database: CanDatabase, filepath: str) -> None:
         can_db.messages.append(can_msg)
 
     cantools.database.dump_file(can_db, filepath)
+    logger.info("DBC exported: %s", filepath)
 
 
 # ---------------------------------------------------------------------------
@@ -162,8 +170,8 @@ def _extract_cycle_time(can_msg: Any) -> int:
                         return int(attr_val)
                     except (ValueError, TypeError):
                         pass
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Failed to extract cycle_time: %s", e)
     return 0
 
 
@@ -173,6 +181,6 @@ def _extract_sender(can_msg: Any) -> str:
         senders = getattr(can_msg, "senders", None)
         if senders and isinstance(senders, list) and len(senders) > 0:
             return str(senders[0])
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Failed to extract sender: %s", e)
     return ""

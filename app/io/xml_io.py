@@ -5,11 +5,14 @@ Uses xml.etree.ElementTree for standard-library-only dependency.
 
 from __future__ import annotations
 
+import logging
 import os
 import xml.etree.ElementTree as ET
 from xml.dom import minidom
 
 from app.models import CanDatabase, Message, Signal
+
+logger = logging.getLogger(__name__)
 
 
 def save_xml(database: CanDatabase, filepath: str) -> None:
@@ -18,6 +21,7 @@ def save_xml(database: CanDatabase, filepath: str) -> None:
     Signals are nested as <signal> elements inside each <message>.
     """
     os.makedirs(os.path.dirname(filepath) or ".", exist_ok=True)
+    logger.info("Saving XML: %s (%d messages)", filepath, len(database.messages))
 
     root = ET.Element("can_database", name=database.name)
 
@@ -58,6 +62,7 @@ def save_xml(database: CanDatabase, filepath: str) -> None:
 
     with open(filepath, "wb") as f:
         f.write(pretty)
+    logger.info("XML saved: %s", filepath)
 
 
 def load_xml(filepath: str) -> CanDatabase:
@@ -67,6 +72,8 @@ def load_xml(filepath: str) -> CanDatabase:
     """
     if not os.path.isfile(filepath):
         raise FileNotFoundError(f"XML file not found: {filepath}")
+
+    logger.info("Loading XML: %s", filepath)
 
     tree = ET.parse(filepath)
     root = tree.getroot()
@@ -107,4 +114,5 @@ def load_xml(filepath: str) -> CanDatabase:
 
         database.add_message(msg)
 
+    logger.info("XML loaded: %s (%d messages)", filepath, len(database.messages))
     return database
