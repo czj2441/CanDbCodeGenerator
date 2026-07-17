@@ -152,6 +152,15 @@ def main() -> None:
         })
     )
 
+    # ── 注册锁获取回调（通知 FileBrowser 文件被锁定） ──
+    import os
+    SESSION_MGR._file_lock.set_lock_acquired_callback(
+        lambda sid, fpath: ws_transport.broadcast_all({
+            "type": "file_locked",
+            "data": {"session_id": sid, "file_name": os.path.basename(fpath)}
+        })
+    )
+
     ws_server = WsServer(ws_transport, ws_router)
     ws_thread = ws_server.start_in_thread()
 
@@ -247,6 +256,15 @@ def start_server_background(port: int = 8080) -> BackgroundServer:
         lambda sid: ws_transport.broadcast_all({
             "type": "lock_stolen",
             "data": {"victim_session_id": sid}
+        })
+    )
+
+    # ── 注册锁获取回调（通知 FileBrowser 文件被锁定） ──
+    import os
+    SESSION_MGR._file_lock.set_lock_acquired_callback(
+        lambda sid, fpath: ws_transport.broadcast_all({
+            "type": "file_locked",
+            "data": {"session_id": sid, "file_name": os.path.basename(fpath)}
         })
     )
 

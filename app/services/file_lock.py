@@ -28,6 +28,7 @@ class FileLockManager:
         self._active_files: dict[str, set[str]] = {}  # norm_path -> {session_ids}
         self._heartbeats: dict[str, float] = {}  # session_id -> last_heartbeat_time
         self._lock_released_callback: Optional[callable] = None
+        self._lock_acquired_callback: Optional[callable] = None
 
     # ── 活跃文件注册 ──
 
@@ -111,3 +112,15 @@ class FileLockManager:
                 self._lock_released_callback(session_id)
             except Exception as e:
                 logger.error("lock_released_callback error: %s", e, exc_info=True)
+
+    def set_lock_acquired_callback(self, cb: callable):
+        """注册锁获取回调。WS 架构下用于广播 file_locked 事件。"""
+        self._lock_acquired_callback = cb
+
+    def fire_lock_acquired(self, session_id: str, file_path: str):
+        """触发锁获取回调（供 restore 等新建锁的场景调用）。"""
+        if self._lock_acquired_callback:
+            try:
+                self._lock_acquired_callback(session_id, file_path)
+            except Exception as e:
+                logger.error("lock_acquired_callback error: %s", e, exc_info=True)

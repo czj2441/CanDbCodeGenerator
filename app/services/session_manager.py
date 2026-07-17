@@ -184,6 +184,8 @@ class SessionManager:
         # 立即落盘（持有 db 锁确保序列化原子性）
         with db.with_lock():
             write_session_file(session, self._data_dir)
+        # 通知其他客户端文件被锁定
+        self._file_lock.fire_lock_acquired(session_id, file_path)
         logger.info("Session created: sid=%s -> %s", session_id, file_name)
         return session_id
 
@@ -219,6 +221,8 @@ class SessionManager:
                             raise FileLockedError(f"File '{file_name}' is opened in another tab")
                     self._file_lock.register(session.id, session.file_path)
                     session.touch()
+                    # 通知其他客户端文件被锁定（内存路径也需要广播）
+                    self._file_lock.fire_lock_acquired(session.id, session.file_path)
                     return session
 
             # 从磁盘加载（精确路径）
@@ -249,6 +253,8 @@ class SessionManager:
             self._undo.restore_orphan(file_name, session)
             logger.info("Session restored: sid=%s from %s (%d messages)",
                         new_sid, file_name, len(db.messages))
+            # 通知其他客户端文件被锁定
+            self._file_lock.fire_lock_acquired(new_sid, file_path)
             return session
 
     def save_as(self, original_session_id: str, new_name: str) -> str:

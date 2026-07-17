@@ -343,7 +343,7 @@ async function executeSteal() {
     await loadFiles()
     
     const updatedFile = files.value.find(f => f.name === targetFileName)
-    if (updatedFile && !updatedFile.is_locked) {
+    if (updatedFile) {
       open(updatedFile)
     }
   } catch (e) {
@@ -395,7 +395,10 @@ onMounted(() => {
   wsClient = new WsSyncClient({
     url: wsUrl,
     getSessionId: () => '',  // 服务端自动创建 session
-    onMessage: () => {},  // FileBrowser 不处理广播
+    onMessage: (msg) => {
+      // 收到锁状态变更广播时立即刷新文件列表
+      if (msg.type === 'lock_stolen' || msg.type === 'file_locked') loadFiles()
+    },
     onStatusChange: (status) => {
       if (status === 'connected') {
         loadFiles()  // 连接成功后加载文件列表

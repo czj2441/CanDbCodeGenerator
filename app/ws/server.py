@@ -8,6 +8,7 @@ import asyncio
 import json
 import logging
 import threading
+import uuid
 
 import websockets
 
@@ -66,7 +67,7 @@ class WsServer:
                     await ws.close(4003, "session_not_found")
                     return
 
-            # ── 注册 + full_sync（仅有有效 session 时） ──
+            # ── 注册 + full_sync ──
             if session_id:
                 self._transport.register(session_id, ws)
                 sm.update_heartbeat(session_id)
@@ -74,6 +75,12 @@ class WsServer:
                 # 发送服务端版本号（前端用于校验）
                 await ws.send(json.dumps({"type": "server_version", "data": VERSION}))
                 await self._send_full_sync(ws, session_id)
+            else:
+                # 无 session_id 的连接（如 FileBrowser 观察者），
+                # 分配匿名 ID 并注册到 transport，使其能收到 broadcast_all 广播
+                session_id = f"__anon_{uuid.uuid4().hex[:8]}"
+                self._transport.register(session_id, ws)
+                logger.info("WS connected: anonymous observer (%s)", session_id)
 
             # ── 消息循环 ──
             async for raw in ws:
