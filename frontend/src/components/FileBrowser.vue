@@ -3,11 +3,12 @@
     <div class="browser-header">
       <h2>{{ t('browser.title') }}</h2>
       <div class="header-actions">
-        <button class="new-file-btn" @click="createNew">{{ t('browser.newFile') }}</button>
+        <button class="new-file-btn" @click="createNew" :title="t('browser.newFileTooltip')">{{ t('browser.newFile') }}</button>
         <button 
           v-if="selectedFiles.length > 0" 
           class="delete-btn"
           :disabled="deleting"
+          :title="t('browser.deleteSelectedTooltip')"
           @click="confirmDelete"
         >
           {{ deleting ? t('browser.deleting') : `${t('browser.deleteSelected')} (${selectedFiles.length})` }}
@@ -84,11 +85,13 @@
               <button
                 v-if="!file.is_locked"
                 class="open-btn"
+                :title="t('browser.openTooltip')"
                 @click="open(file)"
               >{{ t('browser.open') }}</button>
               <button 
                 v-else 
                 class="steal-btn"
+                :title="t('browser.stealTooltip')"
                 @click="confirmSteal(file)"
               >{{ t('browser.steal') }}</button>
             </td>
@@ -98,65 +101,77 @@
     </div>
 
     <!-- 抢占确认对话框 -->
-    <div v-if="stealModalOpen" class="modal-overlay" @click="closeStealModal">
-      <div class="modal-box" @click.stop>
-        <h3>{{ t('browser.stealConfirmTitle') }}</h3>
-        <p>
-          <strong>{{ stealingFile?.name }}</strong><br>
-          {{ t('browser.stealConfirmDesc') }}
-        </p>
-        <div class="modal-actions">
-          <button class="btn btn-cancel" @click="closeStealModal">{{ t('browser.stealCancel') }}</button>
-          <button class="btn btn-confirm" @click="executeSteal">{{ t('browser.stealConfirm') }}</button>
+    <Teleport to="body">
+      <Transition name="fade">
+        <div v-if="stealModalOpen" class="modal-overlay" @click="closeStealModal">
+          <div class="modal-box" @click.stop>
+            <h3>{{ t('browser.stealConfirmTitle') }}</h3>
+            <p>
+              <strong>{{ stealingFile?.name }}</strong><br>
+              {{ t('browser.stealConfirmDesc') }}
+            </p>
+            <div class="modal-actions">
+              <button class="btn btn-cancel" @click="closeStealModal">{{ t('browser.stealCancel') }}</button>
+              <button class="btn btn-confirm" @click="executeSteal">{{ t('browser.stealConfirm') }}</button>
+            </div>
+          </div>
         </div>
-      </div>
-    </div>
+      </Transition>
+    </Teleport>
 
     <!-- 删除确认对话框 -->
-    <div v-if="deleteModalOpen" class="modal-overlay" @click="closeDeleteModal">
-      <div class="modal-box" @click.stop>
-        <h3>{{ t('browser.deleteConfirmTitle') }}</h3>
-        <p>
-          {{ t('browser.deleteConfirmDesc', { count: pendingDeleteFiles.length }) }}
-          <ul class="file-list-preview">
-            <li v-for="(file, idx) in displayedDeleteFiles" :key="file.session_id">
-              {{ file.name }}
-            </li>
-            <li v-if="pendingDeleteFiles.length > 5" class="more-files">
-              {{ t('browser.deleteMoreFiles', { count: pendingDeleteFiles.length }) }}
-            </li>
-          </ul>
-        </p>
-        <div class="modal-actions">
-          <button class="btn btn-cancel" @click="closeDeleteModal">{{ t('browser.deleteConfirmCancel') }}</button>
-          <button class="btn btn-danger" :disabled="deleting" @click="executeDelete">
-            {{ deleting ? t('browser.deleting') : t('browser.deleteConfirmDelete') }}
-          </button>
+    <Teleport to="body">
+      <Transition name="fade">
+        <div v-if="deleteModalOpen" class="modal-overlay" @click="closeDeleteModal">
+          <div class="modal-box" @click.stop>
+            <h3>{{ t('browser.deleteConfirmTitle') }}</h3>
+            <p>
+              {{ t('browser.deleteConfirmDesc', { count: pendingDeleteFiles.length }) }}
+              <ul class="file-list-preview">
+                <li v-for="(file, idx) in displayedDeleteFiles" :key="file.session_id">
+                  {{ file.name }}
+                </li>
+                <li v-if="pendingDeleteFiles.length > 5" class="more-files">
+                  {{ t('browser.deleteMoreFiles', { count: pendingDeleteFiles.length }) }}
+                </li>
+              </ul>
+            </p>
+            <div class="modal-actions">
+              <button class="btn btn-cancel" @click="closeDeleteModal">{{ t('browser.deleteConfirmCancel') }}</button>
+              <button class="btn btn-danger" :disabled="deleting" @click="executeDelete">
+                {{ deleting ? t('browser.deleting') : t('browser.deleteConfirmDelete') }}
+              </button>
+            </div>
+          </div>
         </div>
-      </div>
-    </div>
+      </Transition>
+    </Teleport>
 
     <!-- 新建文件对话框 -->
-    <div v-if="newFileModalOpen" class="modal-overlay" @click="closeNewFileModal">
-      <div class="modal-box" @click.stop>
-        <h3>{{ t('browser.newFileTitle') }}</h3>
-        <p>{{ t('browser.newFileLabel') }}</p>
-        <input
-          ref="newFileInputRef"
-          v-model="newFileName"
-          class="new-file-input"
-          :placeholder="t('browser.newFilePlaceholder')"
-          @keydown.enter="executeNewFile"
-          @keydown.escape="closeNewFileModal"
-        />
-        <div class="modal-actions">
-          <button class="btn btn-cancel" @click="closeNewFileModal">{{ t('browser.newFileCancel') }}</button>
-          <button class="btn btn-confirm" @click="executeNewFile">
-            {{ t('browser.newFileCreate') }}
-          </button>
+    <Teleport to="body">
+      <Transition name="fade">
+        <div v-if="newFileModalOpen" class="modal-overlay" @click="closeNewFileModal">
+          <div class="modal-box" @click.stop>
+            <h3>{{ t('browser.newFileTitle') }}</h3>
+            <p>{{ t('browser.newFileLabel') }}</p>
+            <input
+              ref="newFileInputRef"
+              v-model="newFileName"
+              class="new-file-input"
+              :placeholder="t('browser.newFilePlaceholder')"
+              @keydown.enter="executeNewFile"
+              @keydown.escape="closeNewFileModal"
+            />
+            <div class="modal-actions">
+              <button class="btn btn-cancel" @click="closeNewFileModal">{{ t('browser.newFileCancel') }}</button>
+              <button class="btn btn-confirm" @click="executeNewFile">
+                {{ t('browser.newFileCreate') }}
+              </button>
+            </div>
+          </div>
         </div>
-      </div>
-    </div>
+      </Transition>
+    </Teleport>
 
     <!-- 底部版本栏 -->
     <div class="browser-footer">
@@ -191,6 +206,14 @@ const newFileName = ref('')
 const newFileInputRef = ref(null)
 let wsClient = null       // FileBrowser 独立 WS 连接
 let refreshTimer = null   // 周期性刷新列表
+
+// Escape 键关闭模态框（优先级：stealModal > deleteModal > newFileModal）
+function handleKeydown(e) {
+  if (e.key !== 'Escape') return
+  if (stealModalOpen.value) { closeStealModal(); return }
+  if (deleteModalOpen.value) { closeDeleteModal(); return }
+  if (newFileModalOpen.value) { closeNewFileModal(); return }
+}
 
 // 计算属性：是否全选
 const selectAll = computed(() => {
@@ -383,6 +406,7 @@ function formatTime(ts) {
 }
 
 onMounted(() => {
+  window.addEventListener('keydown', handleKeydown)
   // 建立 FileBrowser 独立 WS 连接
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
   const wsPort = parseInt(location.port) + 1
@@ -412,6 +436,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  window.removeEventListener('keydown', handleKeydown)
   if (refreshTimer) clearInterval(refreshTimer)
   if (wsClient) {
     wsClient.disconnect()
@@ -656,21 +681,25 @@ onUnmounted(() => {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(0, 0, 0, 0.6);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: 1600;
 }
 
 .modal-box {
   background: var(--bg-panel);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: var(--radius-lg);
   padding: 24px;
   max-width: 500px;
   width: 90%;
+  box-shadow: var(--shadow);
 }
+
+.fade-enter-active, .fade-leave-active { transition: opacity 150ms; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
 
 .modal-box h3 {
   margin: 0 0 12px 0;
