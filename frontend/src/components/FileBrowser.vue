@@ -38,7 +38,15 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-if="files.length === 0">
+          <tr v-if="initialLoading && files.length === 0">
+            <td colspan="7" class="loading-state">
+              <div class="loading-content">
+                <div class="browser-spinner"></div>
+                <p class="loading-text">{{ t('browser.loading') }}</p>
+              </div>
+            </td>
+          </tr>
+          <tr v-else-if="files.length === 0">
             <td colspan="7" class="empty-state">
               <div class="empty-state-content">
                 <div class="empty-icon">📂</div>
@@ -59,7 +67,8 @@
             class="file-row"
             :class="{ 
               'locked': file.is_locked,
-              'selected': selectedFiles.includes(file.file_name)
+              'selected': selectedFiles.includes(file.file_name),
+              'opening': openingSessionId === file.file_name
             }"
             @click="toggleSelectFile(file)"
           >
@@ -202,6 +211,7 @@ const selectedFiles = ref([])  // 存储选中的 file_name
 const deleting = ref(false)
 const newFileModalOpen = ref(false)
 const newFileName = ref('')
+const initialLoading = ref(true)
 
 const newFileInputRef = ref(null)
 let wsClient = null       // FileBrowser 独立 WS 连接
@@ -249,6 +259,7 @@ function loadFiles() {
         useUiStore().showToast(e.message, true)
       }
     } finally {
+      initialLoading.value = false
       _loadPromise = null
     }
   })()
@@ -436,6 +447,7 @@ onMounted(() => {
         loadFiles()  // 连接成功后加载文件列表
       } else if (status === 'session_invalid' || status === 'permanent_failure') {
         // WS 永久断开，停止刷新并通知用户
+        initialLoading.value = false
         if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null }
         useUiStore().showToast(t('toast.sessionLost'), true)
       }
@@ -592,6 +604,27 @@ onUnmounted(() => {
   font-size: 12px; color: var(--text-dim); line-height: 2;
 }
 .empty-hints li::before { content: '→ '; color: var(--accent); }
+
+/* ── 初始加载状态 ── */
+.loading-state { text-align: center; padding: 80px 24px !important; }
+.loading-content { max-width: 360px; margin: 0 auto; }
+.browser-spinner {
+  width: 32px; height: 32px;
+  border: 2px solid var(--border-light);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: browser-spin 0.8s linear infinite;
+  margin: 0 auto 16px;
+}
+.loading-text { color: var(--text-muted); font-size: 13px; }
+@keyframes browser-spin { to { transform: rotate(360deg); } }
+
+/* ── 正在打开的文件行 ── */
+.file-row.opening {
+  opacity: 0.5;
+  pointer-events: none;
+  transition: opacity 150ms ease;
+}
 
 /* 列宽控制 */
 .col-checkbox {

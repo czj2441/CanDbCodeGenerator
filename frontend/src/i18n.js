@@ -60,6 +60,7 @@ const dict = {
     'browser.emptyHint1': '点击按钮创建空白数据库',
     'browser.emptyHint2': '添加报文 (Message) 和信号 (Signal)',
     'browser.emptyHint3': '支持导出为 DBC / Properties / C 代码',
+    'browser.loading': '正在加载文件列表…',
     'browser.deleting': '删除中...',
     'browser.colName': '文件名',
     'browser.colMessages': '报文',
