@@ -206,6 +206,8 @@ const newFileName = ref('')
 const newFileInputRef = ref(null)
 let wsClient = null       // FileBrowser 独立 WS 连接
 let refreshTimer = null   // 周期性刷新列表
+let _loadPromise = null    // loadFiles 请求去重
+let _lastErrorToast = 0    // 错误 toast 节流时间戳
 
 // Escape 键关闭模态框（优先级：stealModal > deleteModal > newFileModal）
 function handleKeydown(e) {
@@ -226,22 +228,32 @@ const displayedDeleteFiles = computed(() => {
   return pendingDeleteFiles.value.slice(0, 5)
 })
 
-async function loadFiles() {
-  try {
-    if (!wsClient?.connected) {
-      // WS 未连接时跳过
-      return
+function loadFiles() {
+  // 去重：如果有正在进行的请求，直接返回同一个 Promise
+  if (_loadPromise) return _loadPromise
+
+  _loadPromise = (async () => {
+    try {
+      if (!wsClient?.connected) return
+      const result = await wsClient.request('get_sessions', {
+        current_session_id: ''  // 文件浏览器不排除任何 session
+      })
+      files.value = result
+      const validIds = new Set(files.value.map(f => f.file_name))
+      selectedFiles.value = selectedFiles.value.filter(id => validIds.has(id))
+    } catch (e) {
+      // 错误 toast 节流：10 秒内最多弹一次
+      const now = Date.now()
+      if (now - _lastErrorToast > 10_000) {
+        _lastErrorToast = now
+        useUiStore().showToast(e.message, true)
+      }
+    } finally {
+      _loadPromise = null
     }
-    const result = await wsClient.request('get_sessions', {
-      current_session_id: ''  // 文件浏览器不排除任何 session
-    })
-    files.value = result
-    const validIds = new Set(files.value.map(f => f.file_name))
-    selectedFiles.value = selectedFiles.value.filter(id => validIds.has(id))
-  } catch (e) {
-    const ui = useUiStore()
-    ui.showToast(e.message, true)
-  }
+  })()
+
+  return _loadPromise
 }
 
 // 切换单个文件的选中状态
