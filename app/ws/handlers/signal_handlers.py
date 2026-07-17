@@ -3,6 +3,7 @@ signal_handlers.py — 信号相关 WS Handler
 
 EditSignal / AddSignal / DeleteSignal / BatchAddSignals / GetSignalErrors
 """
+from __future__ import annotations
 
 import math
 

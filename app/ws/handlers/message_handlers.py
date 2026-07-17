@@ -3,6 +3,7 @@ message_handlers.py — 报文相关 WS Handler
 
 EditMessage / AddMessage / DeleteMessage / DuplicateMessage / GetMessage / GetMessages
 """
+from __future__ import annotations
 
 from app.models import Message
 from app.services import FileNameExistsError

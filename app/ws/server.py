@@ -3,6 +3,7 @@ ws_server.py — WebSocket 服务端
 
 连接生命周期管理 + full_sync 构建 + 服务启动。
 """
+from __future__ import annotations
 
 import asyncio
 import json

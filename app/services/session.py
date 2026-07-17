@@ -1,6 +1,7 @@
 """
 Session 数据类 — 单个编辑会话的状态容器。
 """
+from __future__ import annotations
 
 import os
 import threading

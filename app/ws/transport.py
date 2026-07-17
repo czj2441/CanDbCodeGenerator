@@ -3,6 +3,7 @@ ws_transport.py — WebSocket 传输层 + 诊断系统
 
 所有 WebSocket 网络 I/O 的唯一出口。上层模块不接触 ws/asyncio 对象。
 """
+from __future__ import annotations
 
 import asyncio
 import json

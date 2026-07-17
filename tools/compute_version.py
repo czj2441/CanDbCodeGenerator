@@ -1,4 +1,6 @@
 """计算代码哈希版本号，供 build 脚本和运行时使用。"""
+from __future__ import annotations
+
 import hashlib
 import os
 import sys

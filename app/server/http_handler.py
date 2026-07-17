@@ -1,6 +1,7 @@
 """
 http_handler.py — ApiHandler（静态文件 + HTTP 路由）
 """
+from __future__ import annotations
 
 import json
 import logging

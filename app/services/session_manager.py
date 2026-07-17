@@ -13,6 +13,7 @@ Session Manager - 会话管理与自动持久化
   - 文件锁管理委托给 FileLockManager
   - 撤销/重做逻辑委托给 UndoEngine
 """
+from __future__ import annotations
 
 import logging
 import os
