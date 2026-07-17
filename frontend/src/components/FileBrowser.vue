@@ -14,6 +14,26 @@
           {{ deleting ? t('browser.deleting') : `${t('browser.deleteSelected')} (${selectedFiles.length})` }}
         </button>
       </div>
+      <!-- 搜索工具栏 -->
+      <div class="filter-bar">
+        <div class="search-wrapper">
+          <input
+            v-model="searchQuery"
+            class="search-input"
+            type="text"
+            :placeholder="t('browser.searchPlaceholder')"
+          />
+          <button
+            v-if="searchQuery"
+            class="search-clear-btn"
+            @click="searchQuery = ''"
+            :title="t('browser.searchClear')"
+          >✕</button>
+        </div>
+        <span class="result-count" v-if="searchQuery">
+          {{ t('browser.resultCount', { shown: displayedFiles.length, total: files.length }) }}
+        </span>
+      </div>
     </div>
 
     <!-- 表格形式文件列表 -->
@@ -29,10 +49,18 @@
                 @change="toggleSelectAll"
               />
             </th>
-            <th class="col-name">{{ t('browser.colName') }}</th>
-            <th class="col-messages">{{ t('browser.colMessages') }}</th>
-            <th class="col-signals">{{ t('browser.colSignals') }}</th>
-            <th class="col-time">{{ t('browser.colTime') }}</th>
+            <th class="col-name sortable" @click.stop="toggleSort('name')">
+              {{ t('browser.colName') }} <span class="sort-icon">{{ getSortIcon('name') }}</span>
+            </th>
+            <th class="col-messages sortable" @click.stop="toggleSort('message_count')">
+              {{ t('browser.colMessages') }} <span class="sort-icon">{{ getSortIcon('message_count') }}</span>
+            </th>
+            <th class="col-signals sortable" @click.stop="toggleSort('signal_count')">
+              {{ t('browser.colSignals') }} <span class="sort-icon">{{ getSortIcon('signal_count') }}</span>
+            </th>
+            <th class="col-time sortable" @click.stop="toggleSort('mtime')">
+              {{ t('browser.colTime') }} <span class="sort-icon">{{ getSortIcon('mtime') }}</span>
+            </th>
             <th class="col-status">{{ t('browser.colStatus') }}</th>
             <th class="col-actions">{{ t('browser.colActions') }}</th>
           </tr>
@@ -61,8 +89,17 @@
               </div>
             </td>
           </tr>
+          <tr v-else-if="displayedFiles.length === 0">
+            <td colspan="7" class="empty-state filter-empty">
+              <div class="empty-state-content">
+                <div class="empty-icon">🔍</div>
+                <p class="empty-title">{{ t('browser.noResults') }}</p>
+                <p class="empty-desc">{{ t('browser.noResultsHint') }}</p>
+              </div>
+            </td>
+          </tr>
           <tr
-            v-for="file in files"
+            v-for="file in displayedFiles"
             :key="file.file_name"
             class="file-row"
             :class="{ 
@@ -213,6 +250,11 @@ const newFileModalOpen = ref(false)
 const newFileName = ref('')
 const initialLoading = ref(true)
 
+// ── 搜索/排序 ──
+const searchQuery = ref('')
+const sortField = ref('mtime')     // 默认按修改时间
+const sortOrder = ref('desc')      // 默认降序（最新的在前）
+
 const newFileInputRef = ref(null)
 let wsClient = null       // FileBrowser 独立 WS 连接
 let refreshTimer = null   // 周期性刷新列表
@@ -227,9 +269,9 @@ function handleKeydown(e) {
   if (newFileModalOpen.value) { closeNewFileModal(); return }
 }
 
-// 计算属性：是否全选
+// 计算属性：是否全选（基于当前显示的文件）
 const selectAll = computed(() => {
-  const unlockableFiles = files.value.filter(f => !f.is_locked)
+  const unlockableFiles = displayedFiles.value.filter(f => !f.is_locked)
   return unlockableFiles.length > 0 && unlockableFiles.every(f => selectedFiles.value.includes(f.file_name))
 })
 
@@ -237,6 +279,44 @@ const selectAll = computed(() => {
 const displayedDeleteFiles = computed(() => {
   return pendingDeleteFiles.value.slice(0, 5)
 })
+
+// ── 搜索+排序后的显示列表 ──
+const displayedFiles = computed(() => {
+  let result = files.value
+
+  // 1. 搜索过滤（按 file.name 包含关键字，大小写不敏感）
+  const q = searchQuery.value.trim().toLowerCase()
+  if (q) {
+    result = result.filter(f => f.name.toLowerCase().includes(q))
+  }
+
+  // 2. 排序（浅拷贝避免修改原数组）
+  const field = sortField.value
+  const order = sortOrder.value === 'asc' ? 1 : -1
+  result = [...result].sort((a, b) => {
+    let va = a[field], vb = b[field]
+    if (typeof va === 'string') {
+      return va.localeCompare(vb) * order
+    }
+    return ((va ?? 0) - (vb ?? 0)) * order
+  })
+
+  return result
+})
+
+function toggleSort(field) {
+  if (sortField.value === field) {
+    sortOrder.value = sortOrder.value === 'asc' ? 'desc' : 'asc'
+  } else {
+    sortField.value = field
+    sortOrder.value = 'asc'
+  }
+}
+
+function getSortIcon(field) {
+  if (sortField.value !== field) return '↕'
+  return sortOrder.value === 'asc' ? '↑' : '↓'
+}
 
 function loadFiles() {
   // 去重：如果有正在进行的请求，直接返回同一个 Promise
@@ -279,14 +359,14 @@ function toggleSelectFile(file) {
   }
 }
 
-// 全选/取消全选
+// 全选/取消全选（基于当前显示的文件）
 function toggleSelectAll() {
   if (selectAll.value) {
     // 取消全选
     selectedFiles.value = []
   } else {
-    // 全选所有未锁定的文件
-    selectedFiles.value = files.value
+    // 全选当前显示的所有未锁定文件
+    selectedFiles.value = displayedFiles.value
       .filter(f => !f.is_locked)
       .map(f => f.file_name)
   }
@@ -853,4 +933,55 @@ onUnmounted(() => {
 .new-file-input:focus {
   border-color: var(--accent);
 }
+
+/* ── 搜索/排序 ── */
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0 0;
+}
+
+.search-wrapper {
+  position: relative;
+  flex: 0 1 240px;
+}
+
+.search-input {
+  width: 100%;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+}
+.search-input:focus { border-color: var(--accent); }
+
+.search-clear-btn {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 2px 6px;
+}
+.search-clear-btn:hover { color: var(--text); }
+
+.result-count {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.sortable { cursor: pointer; user-select: none; }
+.sortable:hover { color: var(--text); }
+.sort-icon { font-size: 11px; margin-left: 4px; opacity: 0.6; }
+
+.filter-empty { padding: 48px 24px !important; }
 </style>
