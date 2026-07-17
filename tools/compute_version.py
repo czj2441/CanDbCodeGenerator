@@ -17,7 +17,7 @@ EXCLUDE_DIRS = {
 }
 
 # 排除的文件名（不参与哈希）
-EXCLUDE_FILES = {'_version.py'}
+EXCLUDE_FILES = {'_version.py', '_auto_version.py'}
 
 
 def compute_auto_version(root_dir: str | None = None) -> str:
@@ -58,26 +58,14 @@ def compute_auto_version(root_dir: str | None = None) -> str:
 
 
 def _write_version(auto_version: str) -> None:
-    """将自动版本号写入 _version.py 的 AUTO_VERSION 行。"""
+    """将自动版本号写入 _auto_version.py（gitignored 构建产物）。"""
     version_file = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'app', '_version.py'
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        'app', '_auto_version.py'
     )
-    try:
-        lines = open(version_file, 'r', encoding='utf-8').readlines()
-    except FileNotFoundError:
-        # 文件不存在则创建
-        with open(version_file, 'w', encoding='utf-8') as f:
-            f.write('"""版本号定义 — 构建时由 compute_version.py 更新 AUTO_VERSION。"""\n')
-            f.write('MANUAL_VERSION = "v00.00"\n')
-            f.write(f'AUTO_VERSION = "{auto_version}"\n')
-        return
-
     with open(version_file, 'w', encoding='utf-8') as f:
-        for line in lines:
-            if line.startswith('AUTO_VERSION'):
-                f.write(f'AUTO_VERSION = "{auto_version}"\n')
-            else:
-                f.write(line)
+        f.write('"""构建时自动生成 — 请勿手动编辑，已被 .gitignore 排除。"""\n')
+        f.write(f'AUTO_VERSION = "{auto_version}"\n')
 
 
 if __name__ == '__main__':

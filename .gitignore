@@ -21,6 +21,7 @@ wheels/
 .pytest_cache/
 .coverage
 htmlcov/
+app/_auto_version.py
 
 # Virtual environments
 venv/

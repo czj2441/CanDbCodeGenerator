@@ -1,3 +1,2 @@
-"""版本号定义 — 构建时由 compute_version.py 更新 AUTO_VERSION。"""
+"""手工维护的版本号 — 此文件内容稳定，安全提交到 git。"""
 MANUAL_VERSION = "v01.00"
-AUTO_VERSION = "371b3007_2607161622"

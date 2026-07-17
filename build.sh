@@ -23,7 +23,7 @@ echo "[Build] Python 依赖安装完成。"
 echo "[Build] 正在构建前端..."
 echo "[Build] 工作目录: ${ROOT_DIR}/frontend"
 
-# 计算自动版本号
+# 计算自动版本号（写入 app/_auto_version.py，已被 .gitignore 排除）
 echo "[Build] 计算版本号..."
 python "${ROOT_DIR}/tools/compute_version.py" --write || echo "[Warn] 版本号计算失败，使用默认值"
 

@@ -26,7 +26,7 @@ echo [Build] Python dependencies installed.
 echo [Build] Building frontend...
 echo [Build] Working directory: %ROOT_DIR%frontend
 
-REM 计算自动版本号
+REM 计算自动版本号（写入 app/_auto_version.py，已被 .gitignore 排除）
 python "%ROOT_DIR%tools\compute_version.py" --write
 if errorlevel 1 (
     echo [Warn] Version computation failed, using defaults.

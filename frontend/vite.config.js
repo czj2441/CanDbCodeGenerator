@@ -4,12 +4,18 @@ import { resolve } from 'path'
 import { readFileSync } from 'fs'
 
 function readVersion() {
+  let manual = 'v01.00', auto = 'dev'
   try {
     const c = readFileSync(resolve(__dirname, '../app/_version.py'), 'utf-8')
     const m = c.match(/MANUAL_VERSION\s*=\s*"([^"]+)"/)
+    if (m) manual = m[1]
+  } catch { /* keep default */ }
+  try {
+    const c = readFileSync(resolve(__dirname, '../app/_auto_version.py'), 'utf-8')
     const a = c.match(/AUTO_VERSION\s*=\s*"([^"]+)"/)
-    return { manual: m?.[1] || 'v00.00', auto: a?.[1] || 'dev' }
-  } catch { return { manual: 'v00.00', auto: 'dev' } }
+    if (a) auto = a[1]
+  } catch { /* keep default */ }
+  return { manual, auto }
 }
 
 export default defineConfig(({ mode }) => {

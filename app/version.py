@@ -4,21 +4,27 @@
 """
 import logging
 
-from app._version import MANUAL_VERSION, AUTO_VERSION
+from app._version import MANUAL_VERSION
 
 logger = logging.getLogger(__name__)
+
+# Level 1: 构建产物（由 compute_version.py --write 生成，已在 .gitignore 中排除）
+try:
+    from app._auto_version import AUTO_VERSION
+except ImportError:
+    AUTO_VERSION = "dev"
 
 
 def _build_version_dict() -> dict:
     auto_ver = AUTO_VERSION
     if auto_ver == "dev":
-        # 开发模式：动态计算（运行时源码文件存在）
+        # Level 2: 动态计算（新克隆未构建，源码可用）
         try:
             from tools.compute_version import compute_auto_version
             auto_ver = compute_auto_version()
         except Exception as e:
-            logger.debug("Version computation failed: %s", e)
-            auto_ver = "dev"
+            logger.debug("Dynamic version computation failed: %s", e)
+            # Level 3: 保持 "dev"
 
     hash_part = auto_ver.split("_")[0] if "_" in auto_ver else auto_ver
     return {
