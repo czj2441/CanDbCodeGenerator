@@ -9,6 +9,13 @@ setlocal
 REM Store script directory
 set "ROOT_DIR=%~dp0"
 
+echo [Build] Installing Python dependencies...
+pip install -r "%ROOT_DIR%requirements.txt"
+if errorlevel 1 (
+    echo [Warn] pip install failed, some features may not work.
+)
+echo [Build] Python dependencies installed.
+
 echo [Build] Building frontend...
 echo [Build] Working directory: %ROOT_DIR%frontend
 

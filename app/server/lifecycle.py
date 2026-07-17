@@ -21,6 +21,37 @@ except ImportError:
         pass
 
 from app.logging_config import setup_logging
+
+
+def _check_dependencies():
+    """检查必要的第三方依赖是否已安装。"""
+    missing = []
+    for pkg, import_name in [
+        ('cantools', 'cantools'),
+        ('javaproperties', 'javaproperties'),
+        ('websockets', 'websockets'),
+        ('Jinja2', 'jinja2'),
+    ]:
+        try:
+            __import__(import_name)
+        except ImportError:
+            missing.append(pkg)
+    if missing:
+        import logging as _log
+        _log.getLogger(__name__).error(
+            "缺少必要依赖: %s\n请运行: pip install -r requirements.txt",
+            ', '.join(missing)
+        )
+        print(
+            f"\n[ERROR] 缺少必要依赖: {', '.join(missing)}\n"
+            f"请运行: pip install -r requirements.txt\n",
+            file=sys.stderr
+        )
+        sys.exit(1)
+
+
+_check_dependencies()
+
 from app.services import init_session_manager
 from app.models import CanDatabase
 from .http_handler import ApiHandler

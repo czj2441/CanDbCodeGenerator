@@ -9,6 +9,10 @@ set -e
 # 获取脚本所在目录（兼容软链接）
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+echo "[Build] 正在安装 Python 依赖..."
+pip3 install -r "${ROOT_DIR}/requirements.txt" || echo "[Warn] pip install 失败，部分功能可能不可用。"
+echo "[Build] Python 依赖安装完成。"
+
 echo "[Build] 正在构建前端..."
 echo "[Build] 工作目录: ${ROOT_DIR}/frontend"
 
