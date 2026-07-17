@@ -9,8 +9,15 @@ set -e
 # 获取脚本所在目录（兼容软链接）
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# PyPI 镜像源（留空则使用官方源，国内推荐清华源）
+PIP_MIRROR=""
+
 echo "[Build] 正在安装 Python 依赖..."
-pip3 install -r "${ROOT_DIR}/requirements.txt" || echo "[Warn] pip install 失败，部分功能可能不可用。"
+if [ -n "${PIP_MIRROR}" ]; then
+    pip3 install -r "${ROOT_DIR}/requirements.txt" -i "${PIP_MIRROR}" || echo "[Warn] pip install 失败，部分功能可能不可用。"
+else
+    pip3 install -r "${ROOT_DIR}/requirements.txt" || echo "[Warn] pip install 失败，部分功能可能不可用。"
+fi
 echo "[Build] Python 依赖安装完成。"
 
 echo "[Build] 正在构建前端..."

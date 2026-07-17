@@ -9,8 +9,15 @@ setlocal
 REM Store script directory
 set "ROOT_DIR=%~dp0"
 
+REM PyPI 镜像源（留空则使用官方源，国内推荐清华源）
+set "PIP_MIRROR="
+
 echo [Build] Installing Python dependencies...
-pip install -r "%ROOT_DIR%requirements.txt"
+if defined PIP_MIRROR (
+    pip install -r "%ROOT_DIR%requirements.txt" -i %PIP_MIRROR%
+) else (
+    pip install -r "%ROOT_DIR%requirements.txt"
+)
 if errorlevel 1 (
     echo [Warn] pip install failed, some features may not work.
 )
