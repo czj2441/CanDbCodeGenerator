@@ -60,6 +60,14 @@ const dict = {
     'browser.emptyHint1': '点击按钮创建空白数据库',
     'browser.emptyHint2': '添加报文 (Message) 和信号 (Signal)',
     'browser.emptyHint3': '支持导出为 DBC / Properties / C 代码',
+    'browser.deleting': '删除中...',
+    'browser.colName': '文件名',
+    'browser.colMessages': '报文',
+    'browser.colSignals': '信号',
+    'browser.colTime': '修改时间',
+    'browser.colStatus': '状态',
+    'browser.colActions': '操作',
+    'browser.deleteMoreFiles': '... 等 {count} 个文件',
     'history.empty': '暂无文件',
     'toast.fileLocked': '文件已被其他标签页打开',
     'toast.stealSuccess': '已抢占文件编辑权',
@@ -69,6 +77,7 @@ const dict = {
     'toast.noEditPermission': '无编辑权限，已在其它标签页打开此文件',
     'toast.filesDeleted': '已删除 {count} 个文件',
     'toast.deleteFailed': '删除失败',
+    'toast.deleteFailedCount': '删除失败: {count} 个文件',
 
     // BackConfirm
     'backConfirm.title': '未保存的更改',

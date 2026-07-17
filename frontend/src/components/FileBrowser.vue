@@ -10,7 +10,7 @@
           :disabled="deleting"
           @click="confirmDelete"
         >
-          {{ deleting ? '删除中...' : `${t('browser.deleteSelected')} (${selectedFiles.length})` }}
+          {{ deleting ? t('browser.deleting') : `${t('browser.deleteSelected')} (${selectedFiles.length})` }}
         </button>
       </div>
     </div>
@@ -28,12 +28,12 @@
                 @change="toggleSelectAll"
               />
             </th>
-            <th class="col-name">文件名</th>
-            <th class="col-messages">报文</th>
-            <th class="col-signals">信号</th>
-            <th class="col-time">修改时间</th>
-            <th class="col-status">状态</th>
-            <th class="col-actions">操作</th>
+            <th class="col-name">{{ t('browser.colName') }}</th>
+            <th class="col-messages">{{ t('browser.colMessages') }}</th>
+            <th class="col-signals">{{ t('browser.colSignals') }}</th>
+            <th class="col-time">{{ t('browser.colTime') }}</th>
+            <th class="col-status">{{ t('browser.colStatus') }}</th>
+            <th class="col-actions">{{ t('browser.colActions') }}</th>
           </tr>
         </thead>
         <tbody>
@@ -123,14 +123,14 @@
               {{ file.name }}
             </li>
             <li v-if="pendingDeleteFiles.length > 5" class="more-files">
-              ... 等 {{ pendingDeleteFiles.length }} 个文件
+              {{ t('browser.deleteMoreFiles', { count: pendingDeleteFiles.length }) }}
             </li>
           </ul>
         </p>
         <div class="modal-actions">
           <button class="btn btn-cancel" @click="closeDeleteModal">{{ t('browser.deleteConfirmCancel') }}</button>
           <button class="btn btn-danger" :disabled="deleting" @click="executeDelete">
-            {{ deleting ? '删除中...' : t('browser.deleteConfirmDelete') }}
+            {{ deleting ? t('browser.deleting') : t('browser.deleteConfirmDelete') }}
           </button>
         </div>
       </div>
@@ -149,11 +149,10 @@
           @keydown.enter="executeNewFile"
           @keydown.escape="closeNewFileModal"
         />
-        <p v-if="newFileError" class="new-file-error">{{ newFileError }}</p>
         <div class="modal-actions">
           <button class="btn btn-cancel" @click="closeNewFileModal">{{ t('browser.newFileCancel') }}</button>
-          <button class="btn btn-confirm" :disabled="creatingFile" @click="executeNewFile">
-            {{ creatingFile ? '创建中...' : t('browser.newFileCreate') }}
+          <button class="btn btn-confirm" @click="executeNewFile">
+            {{ t('browser.newFileCreate') }}
           </button>
         </div>
       </div>
@@ -188,8 +187,7 @@ const selectedFiles = ref([])  // 存储选中的 file_name
 const deleting = ref(false)
 const newFileModalOpen = ref(false)
 const newFileName = ref('')
-const newFileError = ref('')
-const creatingFile = ref(false)
+
 const newFileInputRef = ref(null)
 let wsClient = null       // FileBrowser 独立 WS 连接
 let refreshTimer = null   // 周期性刷新列表
@@ -290,7 +288,7 @@ async function executeDelete() {
       ui.showToast(t('toast.filesDeleted', { count: successCount }))
     }
     if (failedCount > 0) {
-      ui.showToast(`${t('toast.deleteFailed')}: ${failedCount} 个文件`, true)
+      ui.showToast(t('toast.deleteFailedCount', { count: failedCount }), true)
     }
     
     selectedFiles.value = []
@@ -355,7 +353,6 @@ async function executeSteal() {
 
 async function createNew() {
   newFileName.value = 'Untitled'
-  newFileError.value = ''
   newFileModalOpen.value = true
   nextTick(() => {
     newFileInputRef.value?.focus()
@@ -366,7 +363,6 @@ async function createNew() {
 function closeNewFileModal() {
   newFileModalOpen.value = false
   newFileName.value = ''
-  newFileError.value = ''
 }
 
 function executeNewFile() {
@@ -405,7 +401,7 @@ onMounted(() => {
       } else if (status === 'session_invalid' || status === 'permanent_failure') {
         // WS 永久断开，停止刷新并通知用户
         if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null }
-        useUiStore().showToast(t('toast.sessionLost') || 'Session lost', true)
+        useUiStore().showToast(t('toast.sessionLost'), true)
       }
     }
   })
@@ -782,10 +778,5 @@ onUnmounted(() => {
 }
 .new-file-input:focus {
   border-color: var(--accent);
-}
-.new-file-error {
-  color: var(--danger);
-  font-size: 12px;
-  margin: -8px 0 12px;
 }
 </style>
