@@ -178,7 +178,13 @@ export class WsSyncClient {
     this._intentionalClose = true
     this._stopPing()
     this._cancelReconnect()
-    this._cleanupPendingRequests()
+    // Intentional disconnect: clear pending requests silently (don't reject).
+    // This prevents "Connection lost" errors from surfacing in callers
+    // (e.g. FileBrowser's loadFiles polling when component unmounts).
+    for (const [, pending] of this._pendingRequests) {
+      clearTimeout(pending.timer)
+    }
+    this._pendingRequests.clear()
     if (this.ws) {
       this.ws.onclose = null
       this.ws.close()
