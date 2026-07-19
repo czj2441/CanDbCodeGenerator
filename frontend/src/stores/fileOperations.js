@@ -111,37 +111,6 @@ export const useFileOperationsStore = defineStore('fileOperations', {
     },
 
     /**
-     * 创建新会话
-     */
-    async createNewSession(name = 'Untitled') {
-      const editor = useEditorStore()
-      const undoRedo = useUndoRedoStore()
-
-      try {
-        editor.stopEditorSync()
-        editor.startEditorSync()
-        await editor._waitForWsReady()
-
-        const data = await editor._wsRequest('new_file', { name })
-        const sid = data.session_id
-        setSessionId(sid)
-        editor.currentFileName = data.file_name
-        editor.selectedMsgId = null
-        editor.messageCache = {}
-        editor.messages = []
-        resetMessageIdGenerator()
-        editor.signalErrors = []
-        editor._defaultSignalLength = 8
-        editor._dataVersion = 0
-        undoRedo.clearUndoStack()
-        useUiStore().showToast(t('toast.newSessionCreated'))
-      } catch (e) {
-        editor._resetOnSessionFailure()
-        useUiStore().showToast(e.message, true)
-      }
-    },
-
-    /**
      * 导入文件到新会话
      */
     async importFile({ format, content, filename }) {

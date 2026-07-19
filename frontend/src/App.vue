@@ -1,7 +1,7 @@
 <template>
   <div class="app" @contextmenu="onContextMenu">
     <!-- 文件浏览器模式 -->
-    <FileBrowser v-if="mode === 'browser'" @open="openFile" @new="createNewFile" />
+    <FileBrowser v-if="mode === 'browser'" @open="openFile" @new="createNewFile" @import="importFileFromBrowser" />
     <!-- 编辑器模式 -->
     <template v-else>
       <TopBar @back="goBack" />
@@ -202,6 +202,16 @@ async function createNewFile(name) {
     } else {
       ui.showToast(e.message, true)
     }
+  }
+}
+
+// 从 FileBrowser 导入文件
+async function importFileFromBrowser({ format, content, filename }) {
+  try {
+    await fileOps.importFile({ format, content, filename })
+    mode.value = 'editor'
+  } catch (e) {
+    console.error('Failed to import file:', e)
   }
 }
 

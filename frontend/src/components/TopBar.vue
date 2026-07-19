@@ -8,8 +8,6 @@
     <button class="btn" @click="undoRedo.undo()" :disabled="!undoRedo.canUndo" title="撤销 (Ctrl+Z)">{{ t('topbar.undo') }}</button>
     <button class="btn" @click="undoRedo.redo()" :disabled="!undoRedo.canRedo" title="重做 (Ctrl+Y)">{{ t('topbar.redo') || '重做' }}</button>
     <span class="topbar-divider"></span>
-    <button class="btn" @click="onNew">{{ t('topbar.new') }}</button>
-    <button class="btn" @click="importFile">{{ t('topbar.import') }}</button>
     <div class="export-wrapper" ref="exportWrapper">
       <button class="btn btn-accent" @click="exportDropdownOpen = !exportDropdownOpen">{{ t('topbar.export') }} ▾</button>
       <div v-if="exportDropdownOpen" class="export-menu">
@@ -40,71 +38,6 @@
     </span>
   </div>
 
-  <!-- New Confirm Dialog -->
-  <Teleport to="body">
-    <Transition name="fade">
-      <div v-if="ui.newConfirmOpen" class="confirm-overlay" @click="ui.newConfirmOpen = false">
-        <div class="confirm-box" @click.stop>
-          <h4>{{ t('topbar.newConfirmTitle') }}</h4>
-          <p>{{ t('topbar.newConfirmDesc') }}</p>
-          <input
-            v-model="newSessionName"
-            class="confirm-input"
-            :placeholder="t('topbar.newNamePlaceholder')"
-            spellcheck="false"
-            @keyup.enter="confirmNew"
-          />
-          <div class="confirm-actions">
-            <button class="btn" @click="ui.newConfirmOpen = false">{{ t('topbar.newConfirmCancel') }}</button>
-            <button class="btn btn-accent" :disabled="newLoading" @click="confirmNew">{{ t('topbar.newConfirmCreate') }}</button>
-          </div>
-        </div>
-      </div>
-    </Transition>
-  </Teleport>
-
-  <!-- Import Confirm Dialog -->
-  <Teleport to="body">
-    <Transition name="fade">
-      <div v-if="importConfirmOpen" class="confirm-overlay" @click="importConfirmOpen = false">
-        <div class="confirm-box" @click.stop>
-          <h4>{{ t('topbar.importConfirmTitle') || '确认导入' }}</h4>
-          <p>{{ t('topbar.importConfirmDesc') || '导入将替换当前会话的所有数据，是否继续？' }}</p>
-          <div class="confirm-actions">
-            <button class="btn" @click="importConfirmOpen = false">{{ t('topbar.importConfirmCancel') || '取消' }}</button>
-            <button class="btn btn-accent" @click="confirmImport">{{ t('topbar.importConfirmImport') || '导入' }}</button>
-          </div>
-        </div>
-      </div>
-    </Transition>
-  </Teleport>
-
-  <!-- Import Unsaved Changes Dialog -->
-  <Teleport to="body">
-    <Transition name="fade">
-      <div v-if="importDirtyOpen" class="confirm-overlay" @click="importDirtyOpen = false">
-        <div class="confirm-box" @click.stop>
-          <h4>{{ t('topbar.importUnsavedTitle') }}</h4>
-          <p>{{ t('topbar.importUnsavedDesc') }}</p>
-          <div class="confirm-actions">
-            <button class="btn" @click="importDirtyOpen = false">{{ t('topbar.importUnsavedCancel') || '取消' }}</button>
-            <button class="btn" @click="importAfterDiscard">{{ t('topbar.importUnsavedDiscard') || '放弃更改并导入' }}</button>
-            <button class="btn btn-accent" @click="importAfterSave">{{ t('topbar.importUnsavedSave') || '保存后导入' }}</button>
-          </div>
-        </div>
-      </div>
-    </Transition>
-  </Teleport>
-
-  <!-- Hidden file input -->
-  <input
-    ref="fileInput"
-    type="file"
-    accept=".dbc,.properties,.json"
-    style="display: none"
-    @change="handleFileSelect"
-  />
-
   <!-- SaveAs Confirm Dialog -->
   <Teleport to="body">
     <Transition name="fade">
@@ -119,7 +52,7 @@
             @keyup.enter="confirmSaveAs"
           />
           <div class="confirm-actions">
-            <button class="btn" @click="saveAsConfirmOpen = false">{{ t('topbar.newConfirmCancel') }}</button>
+            <button class="btn" @click="saveAsConfirmOpen = false">{{ t('topbar.saveAsCancel') }}</button>
             <button class="btn btn-accent" :disabled="saveAsLoading" @click="confirmSaveAs">{{ t('topbar.saveAsConfirm') }}</button>
           </div>
         </div>
@@ -143,11 +76,6 @@ const store = useEditorStore()
 const undoRedo = useUndoRedoStore()
 const fileOps = useFileOperationsStore()
 const ui = useUiStore()
-const newSessionName = ref('')
-const fileInput = ref(null)
-const importConfirmOpen = ref(false)
-const pendingFile = ref(null)
-const importDirtyOpen = ref(false)
 const exportDropdownOpen = ref(false)
 const exportWrapper = ref(null)
 
@@ -196,30 +124,9 @@ function handleTriggerExport() {
   exportFile('properties', { skipSave: true })
 }
 
-watch(() => ui.newConfirmOpen, (open) => { if (open) newSessionName.value = '' })
-
-function onNew() {
-  ui.newConfirmOpen = true
-}
-
-async function confirmNew() {
-  if (newLoading.value) return
-  const name = newSessionName.value.trim() || 'Untitled'
-  ui.newConfirmOpen = false
-  newLoading.value = true
-  try {
-    await fileOps.createNewSession(name)
-  } catch {
-    // createNewSession 内部已处理错误（toast + _resetOnSessionFailure）
-  } finally {
-    newLoading.value = false
-  }
-}
-
 const saveAsConfirmOpen = ref(false)
 const saveAsName = ref('')
 const saveAsLoading = ref(false)
-const newLoading = ref(false)
 
 function onSaveAs() {
   saveAsName.value = store.currentFileName.replace(/\.properties$/i, '').trim() || ''
@@ -238,87 +145,6 @@ async function confirmSaveAs() {
   } finally {
     saveAsLoading.value = false
   }
-}
-
-async function importFile() {
-  // 检查是否有未保存的更改
-  if (store.backendDirty) {
-    importDirtyOpen.value = true
-    return
-  }
-  // 无未保存更改 → 直接打开文件选择
-  if (fileInput.value) {
-    fileInput.value.click()
-  }
-}
-
-async function handleFileSelect(event) {
-  const file = event.target.files[0]
-  if (!file) return
-
-  // 重置 file input，允许重复选择同一文件
-  event.target.value = ''
-
-  // 检测文件格式
-  const ext = file.name.split('.').pop().toLowerCase()
-  const supportedFormats = ['dbc', 'properties', 'json']
-  
-  if (!supportedFormats.includes(ext)) {
-    ui.showToast(`不支持的文件格式: .${ext}，支持 .dbc, .properties, .json`, true)
-    return
-  }
-
-  // 保存待导入文件信息
-  pendingFile.value = { file, format: ext }
-  
-  // 显示确认对话框
-  importConfirmOpen.value = true
-}
-
-async function confirmImport() {
-  if (!pendingFile.value) return
-  
-  const { file, format } = pendingFile.value
-  importConfirmOpen.value = false
-  
-  try {
-    ui.setLoading(true)
-    
-    // 读取文件内容
-    const content = await file.text()
-    
-    // 通过 store action 导入文件（内部处理 session 切换）
-    const data = await fileOps.importFile({
-      format: format,
-      content: content,
-      filename: file.name
-    })
-    
-    ui.showToast(`成功导入 ${file.name}（${data.message_count || 0} 个报文）`, false)
-  } catch (e) {
-    ui.showToast(`导入失败: ${e.message}`, true)
-  } finally {
-    ui.setLoading(false)
-    pendingFile.value = null
-  }
-}
-
-// “保存后导入”按钮
-async function importAfterSave() {
-  importDirtyOpen.value = false
-  const success = await fileOps.saveSession()
-  if (!success) {
-    ui.showToast('保存失败，导入已取消', true)
-    return
-  }
-  // 保存成功 → 打开文件选择
-  if (fileInput.value) fileInput.value.click()
-}
-
-// “放弃更改并导入”按钮
-function importAfterDiscard() {
-  importDirtyOpen.value = false
-  if (fileInput.value) fileInput.value.click()
 }
 
 async function exportFile(fmt, options = {}) {

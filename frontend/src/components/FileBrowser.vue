@@ -4,6 +4,7 @@
       <h2>{{ t('browser.title') }}</h2>
       <div class="header-actions">
         <button class="new-file-btn" @click="createNew" :title="t('browser.newFileTooltip')">{{ t('browser.newFile') }}</button>
+        <button class="import-btn" @click="triggerImport" :title="t('browser.importFileTooltip')">{{ t('browser.importFile') }}</button>
         <button 
           v-if="selectedFiles.length > 0" 
           class="delete-btn"
@@ -81,6 +82,7 @@
                 <p class="empty-title">{{ t('browser.emptyTitle') }}</p>
                 <p class="empty-desc">{{ t('browser.emptyDesc') }}</p>
                 <button class="empty-btn" @click="createNew">{{ t('browser.emptyNewBtn') }}</button>
+                <button class="empty-btn empty-btn-secondary" @click="triggerImport">{{ t('browser.emptyImportBtn') }}</button>
                 <ul class="empty-hints">
                   <li>{{ t('browser.emptyHint1') }}</li>
                   <li>{{ t('browser.emptyHint2') }}</li>
@@ -219,6 +221,32 @@
       </Transition>
     </Teleport>
 
+    <!-- 导入确认对话框 -->
+    <Teleport to="body">
+      <Transition name="fade">
+        <div v-if="importConfirmOpen" class="modal-overlay" @click="importConfirmOpen = false">
+          <div class="modal-box" @click.stop>
+            <h3>{{ t('browser.importConfirmTitle') }}</h3>
+            <p>{{ t('browser.importConfirmDesc') }}</p>
+            <p class="import-filename"><strong>{{ pendingImportFile?.file.name }}</strong></p>
+            <div class="modal-actions">
+              <button class="btn btn-cancel" @click="importConfirmOpen = false">{{ t('browser.importConfirmCancel') }}</button>
+              <button class="btn btn-confirm" @click="executeImport">{{ t('browser.importConfirmBtn') }}</button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- 隐藏的文件输入 -->
+    <input
+      ref="importFileInput"
+      type="file"
+      accept=".dbc,.properties,.json"
+      style="display: none"
+      @change="handleImportFileSelect"
+    />
+
     <!-- 底部版本栏 -->
     <div class="browser-footer">
       <span class="version-tag">{{ manualVersion }} {{ autoVersion }}</span>
@@ -236,7 +264,7 @@ import { WsSyncClient } from '../utils/ws-client.js'
 const manualVersion = typeof __MANUAL_VERSION__ !== 'undefined' ? __MANUAL_VERSION__ : 'dev'
 const autoVersion = typeof __AUTO_VERSION__ !== 'undefined' ? __AUTO_VERSION__ : 'dev'
 
-const emit = defineEmits(['open', 'new'])
+const emit = defineEmits(['open', 'new', 'import'])
 
 const files = ref([])
 const openingSessionId = ref(null)  // 防止重复点击
@@ -256,17 +284,21 @@ const sortField = ref('mtime')     // 默认按修改时间
 const sortOrder = ref('desc')      // 默认降序（最新的在前）
 
 const newFileInputRef = ref(null)
+const importFileInput = ref(null)
+const importConfirmOpen = ref(false)
+const pendingImportFile = ref(null)
 let wsClient = null       // FileBrowser 独立 WS 连接
 let refreshTimer = null   // 周期性刷新列表
 let _loadPromise = null    // loadFiles 请求去重
 let _lastErrorToast = 0    // 错误 toast 节流时间戳
 
-// Escape 键关闭模态框（优先级：stealModal > deleteModal > newFileModal）
+// Escape 键关闭模态框（优先级：stealModal > deleteModal > newFileModal > importConfirm）
 function handleKeydown(e) {
   if (e.key !== 'Escape') return
   if (stealModalOpen.value) { closeStealModal(); return }
   if (deleteModalOpen.value) { closeDeleteModal(); return }
   if (newFileModalOpen.value) { closeNewFileModal(); return }
+  if (importConfirmOpen.value) { importConfirmOpen.value = false; return }
 }
 
 // 计算属性：是否全选（基于当前显示的文件）
@@ -503,6 +535,48 @@ function executeNewFile() {
   emit('new', name)
 }
 
+// ── 导入功能 ──
+function triggerImport() {
+  if (importFileInput.value) {
+    importFileInput.value.click()
+  }
+}
+
+function handleImportFileSelect(event) {
+  const file = event.target.files[0]
+  if (!file) return
+
+  // 重置 file input，允许重复选择同一文件
+  event.target.value = ''
+
+  const ext = file.name.split('.').pop().toLowerCase()
+  const supportedFormats = ['dbc', 'properties', 'json']
+
+  if (!supportedFormats.includes(ext)) {
+    useUiStore().showToast(t('browser.importUnsupported', { ext }), true)
+    return
+  }
+
+  pendingImportFile.value = { file, format: ext }
+  importConfirmOpen.value = true
+}
+
+async function executeImport() {
+  if (!pendingImportFile.value) return
+
+  const { file, format } = pendingImportFile.value
+  importConfirmOpen.value = false
+
+  try {
+    const content = await file.text()
+    emit('import', { format, content, filename: file.name })
+  } catch (e) {
+    useUiStore().showToast(`导入失败: ${e.message}`, true)
+  } finally {
+    pendingImportFile.value = null
+  }
+}
+
 function formatTime(ts) {
   const d = new Date(ts * 1000)
   return d.toLocaleString()
@@ -596,6 +670,20 @@ onUnmounted(() => {
   opacity: 0.9;
 }
 
+.import-btn {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 8px 16px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  cursor: pointer;
+  font-weight: 500;
+}
+.import-btn:hover {
+  background: var(--bg-hover);
+}
+
 .delete-btn {
   background: var(--danger);
   color: #fff;
@@ -679,6 +767,15 @@ onUnmounted(() => {
   margin-bottom: 32px;
 }
 .empty-btn:hover { opacity: 0.9; }
+.empty-btn-secondary {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+  margin-left: 8px;
+}
+.empty-btn-secondary:hover {
+  background: var(--bg-hover);
+}
 .empty-hints {
   list-style: none; padding: 0; text-align: left;
   font-size: 12px; color: var(--text-dim); line-height: 2;
@@ -837,6 +934,11 @@ onUnmounted(() => {
   font-size: 14px;
   color: var(--text-muted);
   line-height: 1.5;
+}
+
+.import-filename {
+  word-break: break-all;
+  margin-bottom: 16px !important;
 }
 
 .file-list-preview {
