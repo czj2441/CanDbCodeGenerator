@@ -241,11 +241,9 @@ class ApiHandler(BaseHTTPRequestHandler):
                 mime = "text/plain"
             elif fmt == "c_header":
                 content = session.db.to_c_header_str()
-                ext = "_signals.h"
                 mime = "text/plain"
             elif fmt == "c_source":
                 content = session.db.to_c_source_str()
-                ext = "_signals.c"
                 mime = "text/plain"
             else:
                 self._send_json(400, _resp(False, error=f"Unsupported format: {fmt}"))
@@ -255,9 +253,14 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._send_json(500, _resp(False, error=f"Export failed: {e}"))
             return
 
-        file_name = session.db.name or "export"
-        if not file_name.endswith(ext):
-            file_name = file_name.rsplit(".", 1)[0] + ext
+        if fmt in ("c_header", "c_source"):
+            from app.io.c_code_gen import c_export_filename
+            file_name = c_export_filename(session.db.name or "export",
+                                          'h' if fmt == "c_header" else 'c')
+        else:
+            file_name = session.db.name or "export"
+            if not file_name.endswith(ext):
+                file_name = file_name.rsplit(".", 1)[0] + ext
 
         # 净化文件名：剥离 CR/LF（防响应拆分）和双引号（防头注入）
         file_name = file_name.replace('\r', '').replace('\n', '').replace('"', '')

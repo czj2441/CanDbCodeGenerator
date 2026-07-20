@@ -138,11 +138,18 @@ if HAS_WEBBROWSER_INTEROP:
 
         def save_file(self, format_str, session_id):
             """打开原生保存对话框，返回 JSON 字符串。"""
-            ext_map = {'dbc': '.dbc', 'properties': '.properties', 'json': '.json', 'c_header': '_signals.h', 'c_source': '_signals.c'}
-            ext = ext_map.get(format_str, f'.{format_str}')
+            if format_str in ('c_header', 'c_source'):
+                from app.io.c_code_gen import c_export_filename
+                kind = 'h' if format_str == 'c_header' else 'c'
+                ext = f'.{kind}'
+                default_name = c_export_filename("export", kind)
+            else:
+                ext_map = {'dbc': '.dbc', 'properties': '.properties', 'json': '.json'}
+                ext = ext_map.get(format_str, f'.{format_str}')
+                default_name = f"export{ext}"
 
             dialog = SaveFileDialog()
-            dialog.FileName = f"export{ext}"
+            dialog.FileName = default_name
             dialog.Filter = f"{format_str.upper()} 文件 (*{ext})|*{ext}"
             result = dialog.ShowDialog()
 

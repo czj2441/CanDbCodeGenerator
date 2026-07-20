@@ -128,17 +128,20 @@ class DownloadFileHandler:
                 ext = ".properties"
             elif fmt == "c_header":
                 content = db.to_c_header_str()
-                ext = "_signals.h"
             elif fmt == "c_source":
                 content = db.to_c_source_str()
-                ext = "_signals.c"
             else:
                 raise HandlerError("VALUE_INVALID", f"Unsupported format: {fmt}")
         except Exception as e:
             raise HandlerError("EXPORT_FAILED", f"Export failed: {e}")
-        file_name = db.name or "export"
-        if not file_name.endswith(ext):
-            file_name = file_name.rsplit(".", 1)[0] + ext
+        if fmt in ("c_header", "c_source"):
+            from app.io.c_code_gen import c_export_filename
+            file_name = c_export_filename(db.name or "export",
+                                          'h' if fmt == "c_header" else 'c')
+        else:
+            file_name = db.name or "export"
+            if not file_name.endswith(ext):
+                file_name = file_name.rsplit(".", 1)[0] + ext
         return HandlerResult(data={"content": content, "format": fmt, "filename": file_name},
                              session_id=sid)
 

@@ -44,6 +44,22 @@ def _sanitize_identifier(name: str) -> str:
     return s
 
 
+# ── C export filename ──────────────────────────────────────────────────────────
+
+_C_EXPORT_PREFIX = "CanCom_UserDef_SigGen_"
+
+
+def c_export_filename(db_name: str, kind: str) -> str:
+    """生成 C 导出文件名: CanCom_UserDef_SigGen_{sanitized}.{h|c}
+    
+    Args:
+        db_name: 原始数据库名（将被 sanitize）
+        kind: 'h' 为头文件, 'c' 为源文件
+    """
+    sanitized = _sanitize_identifier(db_name)
+    return f"{_C_EXPORT_PREFIX}{sanitized}{'.h' if kind == 'h' else '.c'}"
+
+
 def _prepare_context(db: "CanDatabase") -> dict[str, Any]:
     """Transform CanDatabase into Jinja2 template context.
     
@@ -107,6 +123,7 @@ def _prepare_context(db: "CanDatabase") -> dict[str, Any]:
     return {
         'db_name': db_name,
         'db_name_upper': db_name.upper(),
+        'header_filename': f"{_C_EXPORT_PREFIX}{db_name}.h",
         'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         'messages': messages_data,
         'signals': all_signals,
