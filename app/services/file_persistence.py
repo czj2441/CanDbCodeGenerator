@@ -18,6 +18,12 @@ else:
     _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     DATA_DIR = os.path.join(_PROJECT_ROOT, "data")
 
+# 快照目录（与 data/ 同级）
+if getattr(_sys, 'frozen', False):
+    SNAPSHOT_DIR = os.path.join(_app_data, 'snapshots')
+else:
+    SNAPSHOT_DIR = os.path.join(_PROJECT_ROOT, 'snapshots')
+
 HEARTBEAT_TIMEOUT = 30       # 30 秒无心跳则视为离线，自动释放文件锁
 HEARTBEAT_CHECK_INTERVAL = 30  # 每 30 秒检查一次心跳超时
 MAX_ORPHAN_STACKS = 20         # 孤儿撤销栈最大保留数量（LRU 淘汰）

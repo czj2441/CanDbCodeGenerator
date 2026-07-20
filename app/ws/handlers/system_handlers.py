@@ -1,8 +1,11 @@
 """
 system_handlers.py — 系统级 WS Handler
 
-Undo / Redo / ReleaseLock / StealLock / GetSummary / GetSessionInfo / GetStatus
+Undo / Redo / ReleaseLock / StealLock / GetSummary / GetSessionInfo / GetStatus / GetSnapshotDebug
 """
+
+import json
+import os
 
 from app.ws.router import HandlerResult, HandlerError
 from ._common import pure_file_name as _pure_file_name
@@ -179,3 +182,56 @@ class GetStatusHandler:
             status_data["redo_count"] = len(session.redo_stack)
             status_data["save_error"] = session.save_error
         return HandlerResult(data=status_data, session_id=sid)
+
+
+class GetSnapshotDebugHandler:
+    """返回快照系统的 debug 信息（内存状态 + 磁盘文件）。"""
+    def __init__(self, session_mgr):
+        self._sm = session_mgr
+
+    def __call__(self, data: dict) -> HandlerResult:
+        from app.services.file_persistence import SNAPSHOT_DIR
+        current_sid = data.get("session_id", "")
+
+        # 内存中的快照候选（modified=True 的活跃 session）
+        in_memory = []
+        with self._sm._lock:
+            for sid, session in self._sm._sessions.items():
+                in_memory.append({
+                    "session_id": sid,
+                    "file_name": os.path.basename(session.file_path),
+                    "modified": session.db.modified,
+                    "message_count": len(session.db.messages),
+                    "undo_count": len(session.undo_stack),
+                    "redo_count": len(session.redo_stack),
+                })
+
+        # 磁盘上的快照文件
+        on_disk = []
+        if os.path.isdir(SNAPSHOT_DIR):
+            for fname in os.listdir(SNAPSHOT_DIR):
+                if not fname.endswith(".snapshot.json"):
+                    continue
+                path = os.path.join(SNAPSHOT_DIR, fname)
+                try:
+                    with open(path, "r", encoding="utf-8") as f:
+                        snap = json.load(f)
+                    on_disk.append({
+                        "session_id": snap.get("session_id", "?"),
+                        "file_name": snap.get("file_name", "?"),
+                        "snapshotted_at": snap.get("snapshotted_at", 0),
+                        "size_bytes": os.path.getsize(path),
+                        "db_name": snap.get("database", {}).get("name", "?"),
+                        "message_count": len(snap.get("database", {}).get("messages", {})),
+                    })
+                except Exception:
+                    on_disk.append({
+                        "session_id": fname.replace(".snapshot.json", ""),
+                        "file_name": "(parse error)",
+                        "snapshotted_at": 0, "size_bytes": 0,
+                    })
+
+        return HandlerResult(data={
+            "in_memory": in_memory,
+            "on_disk": on_disk,
+        }, session_id=current_sid)

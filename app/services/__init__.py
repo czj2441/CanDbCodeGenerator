@@ -8,7 +8,7 @@ from .session_manager import (
     get_session_manager, init_session_manager,
 )
 from .file_persistence import (
-    DATA_DIR, HEARTBEAT_TIMEOUT, HEARTBEAT_CHECK_INTERVAL, MAX_ORPHAN_STACKS,
+    DATA_DIR, SNAPSHOT_DIR, HEARTBEAT_TIMEOUT, HEARTBEAT_CHECK_INTERVAL, MAX_ORPHAN_STACKS,
     write_session_file, load_session_file,
 )
 
@@ -16,6 +16,6 @@ __all__ = [
     'Session', 'SessionManager', 'FileLockedError', 'FileNameExistsError',
     'FileLockManager', 'UndoEngine',
     'get_session_manager', 'init_session_manager',
-    'DATA_DIR', 'HEARTBEAT_TIMEOUT', 'HEARTBEAT_CHECK_INTERVAL', 'MAX_ORPHAN_STACKS',
+    'DATA_DIR', 'SNAPSHOT_DIR', 'HEARTBEAT_TIMEOUT', 'HEARTBEAT_CHECK_INTERVAL', 'MAX_ORPHAN_STACKS',
     'write_session_file', 'load_session_file',
 ]

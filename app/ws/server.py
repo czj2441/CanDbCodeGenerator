@@ -121,6 +121,14 @@ class WsServer:
         finally:
             if session_id:
                 self._transport.unregister(session_id, ws)
+                # 断连时写快照（在 mark_stale 前，session 仍可获取）
+                session = sm.get(session_id)
+                if session:
+                    from app.services.snapshot import write_snapshot
+                    try:
+                        write_snapshot(session)
+                    except Exception as e:
+                        logger.error("Snapshot on WS disconnect failed: %s", e)
                 sm.mark_stale(session_id)
                 logger.info("WS disconnected: session=%s", session_id[:8])
 

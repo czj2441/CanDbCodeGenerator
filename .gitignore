@@ -49,6 +49,7 @@ frontend/package-lock.json
 
 # Runtime data
 data/
+snapshots/
 
 # Temp files (test screenshots & scripts)
 temp/

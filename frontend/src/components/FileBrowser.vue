@@ -14,6 +14,12 @@
         >
           {{ deleting ? t('browser.deleting') : `${t('browser.deleteSelected')} (${selectedFiles.length})` }}
         </button>
+        <button 
+          class="debug-btn" 
+          :class="{ active: showDebug }"
+          @click="showDebug = !showDebug; if (showDebug) loadSnapshotDebug()"
+          title="Snapshot Debug"
+        >🔧</button>
       </div>
       <!-- 搜索工具栏 -->
       <div class="filter-bar">
@@ -128,6 +134,7 @@
             <td class="col-status">
               <span v-if="file.is_locked" class="lock-badge">{{ t('browser.locked') }}</span>
               <span v-else-if="file.is_modified" class="unsaved-badge">{{ t('browser.unsaved') }}</span>
+              <span v-else-if="file.has_snapshot" class="snapshot-badge" title="有未保存的恢复数据，打开后可恢复">↻ 有恢复数据</span>
             </td>
             <td class="col-actions" @click.stop>
               <button
@@ -146,6 +153,43 @@
           </tr>
         </tbody>
       </table>
+    </div>
+
+    <!-- Snapshot Debug 面板 -->
+    <div class="snapshot-debug" v-if="showDebug">
+      <div class="debug-header" @click="debugExpanded = !debugExpanded">
+        <span>🔧 Snapshot Debug</span>
+        <span class="debug-toggle">{{ debugExpanded ? '▼' : '▶' }}</span>
+      </div>
+      <div class="debug-content" v-if="debugExpanded">
+        <div class="debug-section">
+          <h4>内存 Session ({{ snapshotDebug.in_memory?.length || 0 }})</h4>
+          <table v-if="snapshotDebug.in_memory?.length">
+            <tr><th>Session</th><th>文件</th><th>Modified</th><th>报文</th><th>Undo/Redo</th></tr>
+            <tr v-for="s in snapshotDebug.in_memory" :key="s.session_id">
+              <td>{{ s.session_id.slice(0, 8) }}</td>
+              <td>{{ s.file_name }}</td>
+              <td :class="{ 'modified-yes': s.modified }">{{ s.modified ? '✓ 脏' : '—' }}</td>
+              <td>{{ s.message_count }}</td>
+              <td>{{ s.undo_count }}/{{ s.redo_count }}</td>
+            </tr>
+          </table>
+        </div>
+        <div class="debug-section">
+          <h4>磁盘快照 ({{ snapshotDebug.on_disk?.length || 0 }})</h4>
+          <table v-if="snapshotDebug.on_disk?.length">
+            <tr><th>Session</th><th>文件</th><th>快照时间</th><th>大小</th><th>报文数</th></tr>
+            <tr v-for="s in snapshotDebug.on_disk" :key="s.session_id">
+              <td>{{ s.session_id.slice(0, 8) }}</td>
+              <td>{{ s.file_name }}</td>
+              <td>{{ formatTime(s.snapshotted_at) }}</td>
+              <td>{{ (s.size_bytes / 1024).toFixed(1) }}KB</td>
+              <td>{{ s.message_count }}</td>
+            </tr>
+          </table>
+          <p v-else class="debug-empty">无快照文件</p>
+        </div>
+      </div>
     </div>
 
     <!-- 抢占确认对话框 -->
@@ -278,6 +322,11 @@ const newFileModalOpen = ref(false)
 const newFileName = ref('')
 const initialLoading = ref(true)
 
+// ── Snapshot Debug ──
+const showDebug = ref(false)
+const debugExpanded = ref(false)
+const snapshotDebug = ref({ in_memory: [], on_disk: [] })
+
 // ── 搜索/排序 ──
 const searchQuery = ref('')
 const sortField = ref('mtime')     // 默认按修改时间
@@ -377,6 +426,13 @@ function loadFiles() {
   })()
 
   return _loadPromise
+}
+
+async function loadSnapshotDebug() {
+  if (!wsClient?.connected) return
+  try {
+    snapshotDebug.value = await wsClient.request('get_snapshot_debug', { session_id: '' })
+  } catch (e) { /* 静默 */ }
 }
 
 // 切换单个文件的选中状态
@@ -610,7 +666,10 @@ onMounted(() => {
   wsClient.connect()
 
   // 周期性刷新文件列表（3秒，比旧的 500ms 更宽松）
-  refreshTimer = setInterval(loadFiles, 3000)
+  refreshTimer = setInterval(() => {
+    loadFiles()
+    if (showDebug.value) loadSnapshotDebug()
+  }, 3000)
 })
 
 onUnmounted(() => {
@@ -860,6 +919,17 @@ onUnmounted(() => {
   font-weight: 500;
 }
 
+.snapshot-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  background: var(--accent);
+  color: #fff;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: help;
+}
+
 .open-btn {
   background: transparent;
   border: 1px solid var(--accent);
@@ -1086,4 +1156,41 @@ onUnmounted(() => {
 .sort-icon { font-size: 11px; margin-left: 4px; opacity: 0.6; }
 
 .filter-empty { padding: 48px 24px !important; }
+
+/* ── Snapshot Debug 面板 ── */
+.debug-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  cursor: pointer;
+  opacity: 0.5;
+  font-size: 14px;
+}
+.debug-btn:hover { opacity: 1; }
+.debug-btn.active { opacity: 1; background: var(--bg-panel); border-color: var(--accent); }
+
+.snapshot-debug {
+  border-top: 1px solid var(--border);
+  padding: 8px 16px;
+  font-size: 12px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+.debug-header {
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  font-weight: 600;
+  padding: 4px 0;
+}
+.debug-content { padding: 8px 0; }
+.debug-section { margin-bottom: 12px; }
+.debug-section h4 { margin: 0 0 4px; font-size: 12px; color: var(--text-dim); }
+.debug-section table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.debug-section th, .debug-section td {
+  padding: 2px 6px; border: 1px solid var(--border); text-align: left;
+}
+.modified-yes { color: var(--accent); font-weight: 600; }
+.debug-empty { color: var(--text-dim); font-style: italic; }
 </style>

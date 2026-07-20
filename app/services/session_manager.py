@@ -75,6 +75,7 @@ class SessionManager:
         self._undo = UndoEngine()  # 撤销/重做引擎
         self._model_factory = None  # 由外部注入
         self._heartbeat_timer: Optional[threading.Timer] = None
+        self._snapshot_timer: Optional[threading.Timer] = None
         # list_history 磁盘解析缓存: fname -> (mtime, size, msg_count, sig_count)
         self._history_cache: dict[str, tuple] = {}
         os.makedirs(self._data_dir, exist_ok=True)
@@ -241,9 +242,29 @@ class SessionManager:
             if self.is_file_locked(file_path, exclude_session=exclude_session):
                 raise FileLockedError(f"File '{file_name}' is opened in another tab")
 
-            db = load_session_file(file_path, self._model_factory)
-            if db is None:
-                return None
+            # ★ 快照优先于磁盘文件
+            from .snapshot import find_snapshot_for_file
+            snapshot_result = find_snapshot_for_file(file_name)
+            if snapshot_result:
+                snapshot, snap_path = snapshot_result
+                try:
+                    db = self._model_factory.from_dict(snapshot["database"])
+                    db.modified = True
+                    # from_dict 成功后才删除快照（消费语义）
+                    try:
+                        os.remove(snap_path)
+                    except FileNotFoundError:
+                        pass
+                    logger.info("Restored from snapshot: file=%s", file_name)
+                except Exception as e:
+                    logger.error("Snapshot restore failed for %s, fallback to disk: %s", file_name, e)
+                    db = load_session_file(file_path, self._model_factory)
+                    if db is None:
+                        return None
+            else:
+                db = load_session_file(file_path, self._model_factory)
+                if db is None:
+                    return None
 
             # 每次打开都生成新 session_id
             new_sid = uuid.uuid4().hex[:12]
@@ -326,6 +347,9 @@ class SessionManager:
                 logger.error("Failed to save session %s: %s", session_id[:8], e, exc_info=True)
                 raise
             session.db.modified = False
+        # 正式版本已落盘，删除快照
+        from .snapshot import remove_snapshot
+        remove_snapshot(session_id)
         return True
 
     def save_all_dirty(self) -> int:
@@ -382,6 +406,23 @@ class SessionManager:
         logger.info("save_all_dirty: complete — %d succeeded, %d failed", saved, failed)
         return saved
 
+    def snapshot_all_dirty(self) -> int:
+        """遍历所有活跃会话，为脏会话写快照（atexit / 定时器调用）。"""
+        from .snapshot import write_snapshot
+        count = 0
+        with self._lock:
+            sids = list(self._sessions.keys())
+        for sid in sids:
+            session = self.get(sid)
+            if not session:
+                continue
+            try:
+                if write_snapshot(session):
+                    count += 1
+            except Exception as e:
+                logger.error("Snapshot failed for %s: %s", sid[:8], e)
+        return count
+
     def destroy(self, session_id: str) -> bool:
         """销毁会话（内存 + 磁盘文件）。"""
         with self._lock:
@@ -406,7 +447,11 @@ class SessionManager:
         history = []
         if not os.path.isdir(self._data_dir):
             return history
-        
+
+        # 扫描快照目录，构建快照文件名集合
+        from .snapshot import _scan_snapshot_filenames
+        snapshot_fnames = _scan_snapshot_filenames()
+
         # 构建 basename -> Session 的映射（用于优先使用内存数据）
         with self._lock:
             active_by_fname = {os.path.basename(s.file_path): s for s in self._sessions.values()}
@@ -471,6 +516,7 @@ class SessionManager:
                 "signal_count": sig_count,
                 "is_locked": self.is_file_locked(os.path.normpath(fpath), exclude_session=exclude_session),
                 "is_modified": is_modified,
+                "has_snapshot": display_fname in snapshot_fnames,
             }
             # 活跃文件提供 session_id（供 steal_lock 使用）
             if fname in active_by_fname:
@@ -523,6 +569,12 @@ class SessionManager:
         session = self._sessions.pop(session_id, None)
         if not session:
             return False
+        # 脏数据写快照（在 save_orphan 前，优先保护 db 数据）
+        try:
+            from .snapshot import write_snapshot
+            write_snapshot(session)
+        except Exception as e:
+            logger.error("Snapshot on destroy failed for %s: %s", session_id[:8], e)
         file_name = os.path.basename(session.file_path)
         logger.info("Internal destroy: sid=%s file=%s", session_id[:8], file_name)
         # 保存孤儿撤销栈（委托给 UndoEngine）
@@ -626,6 +678,23 @@ class SessionManager:
         if self._heartbeat_timer:
             self._heartbeat_timer.cancel()
             self._heartbeat_timer = None
+
+    # ── 快照定时器（崩溃兆底） ──
+
+    def start_snapshot_scheduler(self, interval: int = 60):
+        """启动低频快照定时器（kill -9 崩溃兆底）。"""
+        self._snapshot_timer = threading.Timer(interval, self._snapshot_tick)
+        self._snapshot_timer.daemon = True
+        self._snapshot_timer.start()
+
+    def _snapshot_tick(self):
+        """快照定时器回调。"""
+        try:
+            self.snapshot_all_dirty()
+        except Exception as e:
+            logger.error("Snapshot tick error: %s", e)
+        finally:
+            self.start_snapshot_scheduler()  # 重新启动
 
 
 # ── 全局单例（由 api_server 初始化） ──

@@ -78,6 +78,7 @@ def _register_all_handlers(ws_router, session_mgr, ws_transport=None):
         SaveAsHandler, DeleteFileHandler, GetSessionsHandler, ReleaseLockHandler,
         StealLockHandler, GetSummaryHandler, GetSessionInfoHandler, GetMessageHandler,
         GetSignalErrorsHandler, GetStatusHandler, GetMessagesHandler,
+        GetSnapshotDebugHandler,
     )
 
     ws_router.register("edit_signal", EditSignalHandler(session_mgr))
@@ -107,6 +108,7 @@ def _register_all_handlers(ws_router, session_mgr, ws_transport=None):
     ws_router.register("get_signal_errors", GetSignalErrorsHandler(session_mgr))
     ws_router.register("get_status", GetStatusHandler(session_mgr))
     ws_router.register("get_messages", GetMessagesHandler(session_mgr))
+    ws_router.register("get_snapshot_debug", GetSnapshotDebugHandler(session_mgr))
 
 
 def main() -> None:
@@ -200,16 +202,17 @@ def main() -> None:
     if args.ws_debug:
         logger.info("WebSocket diagnostics enabled")
 
-    # ── 优雅关闭机制 ──
-    def save_all_sessions():
-        logger.info("Saving all active sessions...")
-        count = SESSION_MGR.save_all_dirty()
-        if count > 0:
-            logger.info("Save complete: %d session(s) saved", count)
-        else:
-            logger.info("No modified sessions to save.")
+    # ── 快照系统初始化 ──
+    from app.services.snapshot import cleanup_stale_snapshots
+    cleanup_stale_snapshots()  # 启动时清理过期快照
+    SESSION_MGR.start_snapshot_scheduler(interval=60)  # 60s 定时器作为 kill -9 崩溃兆底
 
-    atexit.register(save_all_sessions)
+    def snapshot_on_exit():
+        count = SESSION_MGR.snapshot_all_dirty()
+        if count > 0:
+            logger.info("Exit snapshot: %d dirty session(s) snapshotted", count)
+
+    atexit.register(snapshot_on_exit)
 
     def graceful_shutdown(signum, frame):
         signal_name = "SIGINT" if signum == signal.SIGINT else "SIGTERM"
@@ -307,12 +310,15 @@ def start_server_background(port: int = 8080) -> BackgroundServer:
     if not hasattr(start_server_background, '_initialized'):
         start_server_background._initialized = True
 
-        def save_all_sessions():
-            logger.info("Saving all active sessions...")
-            count = SESSION_MGR.save_all_dirty()
+        from app.services.snapshot import cleanup_stale_snapshots
+        cleanup_stale_snapshots()
+        SESSION_MGR.start_snapshot_scheduler(interval=60)
+
+        def snapshot_on_exit():
+            count = SESSION_MGR.snapshot_all_dirty()
             if count > 0:
-                logger.info("Save complete: %d session(s) saved", count)
-        atexit.register(save_all_sessions)
+                logger.info("Exit snapshot: %d dirty session(s) snapshotted", count)
+        atexit.register(snapshot_on_exit)
 
     server_thread = threading.Thread(target=server.serve_forever, daemon=True)
     server_thread.start()
