@@ -15,7 +15,7 @@
 const CanCom_UserDef_SignalAttr_t CanCom_UserDef_{{ msg.name_sanitized }}_Signals[{{ msg.signal_count }}] = {
 {% for sig in msg.signals %}
     /* [{{ loop.index0 }}] {{ sig.name }}{% if sig.comment %} - {{ sig.comment }}{% endif %} */
-    { .startBit = {{ sig.start_bit }}, .byteOrder = {{ sig.byte_order_val }}, .signalLength = {{ sig.length }} },
+    { .startBit = {{ sig.start_bit }}, .byteOrder = {{ 0 if sig.byte_order == 'motorola' else 1 }}, .signalLength = {{ sig.length }} },
 {% endfor %}
 };
 

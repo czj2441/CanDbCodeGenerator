@@ -80,7 +80,7 @@ def _prepare_context(db: "CanDatabase") -> dict[str, Any]:
                 'sig_name': sig_name,
                 'sig_name_upper': sig_name.upper(),
                 'start_bit': sig.start_bit,
-                'byte_order_val': 0 if sig.byte_order == 'motorola' else 1,
+                'byte_order': sig.byte_order,
                 'length': sig.length,
                 'comment': sig.comment,
                 'global_index': global_idx,
