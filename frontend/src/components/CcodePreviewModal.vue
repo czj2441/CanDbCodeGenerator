@@ -4,14 +4,23 @@
       <div v-if="visible" class="modal-overlay" @click.self="close">
         <div class="modal-panel">
           <div class="modal-header">
-            <span class="modal-title">{{ t('ccode_preview.title') }} — {{ filename }}</span>
+            <span class="modal-title">{{ t('ccode_preview.title') }}</span>
             <div class="header-actions">
               <button class="btn btn-accent" @click="download">{{ t('ccode_preview.download') }}</button>
               <button class="btn" @click="close">{{ t('ccode_preview.close') }}</button>
             </div>
           </div>
+          <div class="tab-bar">
+            <button :class="{ active: activeTab === 'header' }" @click="activeTab = 'header'">
+              {{ t('ccode_preview.headerTab') }}
+            </button>
+            <button :class="{ active: activeTab === 'source' }" @click="activeTab = 'source'">
+              {{ t('ccode_preview.sourceTab') }}
+            </button>
+          </div>
           <div class="modal-body">
-            <pre class="ccode-preview-code"><code v-html="highlightedCode"></code></pre>
+            <pre v-show="activeTab === 'header'" class="ccode-preview-code"><code v-html="highlightedHeader"></code></pre>
+            <pre v-show="activeTab === 'source'" class="ccode-preview-code"><code v-html="highlightedSource"></code></pre>
           </div>
         </div>
       </div>
@@ -31,26 +40,40 @@ hljs.registerLanguage('c', c)
 const visible = defineModel('visible', { type: Boolean, default: false })
 
 const props = defineProps({
-  code: { type: String, default: '' },
-  filename: { type: String, default: '' },
-  format: { type: String, default: 'c_header' },
+  headerCode: { type: String, default: '' },
+  headerFilename: { type: String, default: '' },
+  sourceCode: { type: String, default: '' },
+  sourceFilename: { type: String, default: '' },
 })
 
 const uiStore = useUiStore()
-const cachedCode = ref('')
+const activeTab = ref('header')
+const cachedHeader = ref('')
+const cachedSource = ref('')
 
-const highlightedCode = computed(() => {
-  if (!cachedCode.value) return ''
+const highlightedHeader = computed(() => {
+  if (!cachedHeader.value) return ''
   try {
-    return hljs.highlight(cachedCode.value, { language: 'c' }).value
+    return hljs.highlight(cachedHeader.value, { language: 'c' }).value
   } catch {
-    return escapeHtml(cachedCode.value)
+    return escapeHtml(cachedHeader.value)
+  }
+})
+
+const highlightedSource = computed(() => {
+  if (!cachedSource.value) return ''
+  try {
+    return hljs.highlight(cachedSource.value, { language: 'c' }).value
+  } catch {
+    return escapeHtml(cachedSource.value)
   }
 })
 
 watch(visible, (val) => {
   if (val) {
-    cachedCode.value = props.code
+    cachedHeader.value = props.headerCode
+    cachedSource.value = props.sourceCode
+    activeTab.value = 'header'
   }
 })
 
@@ -58,16 +81,25 @@ function escapeHtml(str) {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
-function download() {
-  const blob = new Blob([cachedCode.value], { type: 'text/plain;charset=utf-8' })
+function downloadBlob(content, filename) {
+  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = props.filename || 'export.c'
+  a.download = filename || 'export.c'
   document.body.appendChild(a)
   a.click()
   setTimeout(() => { URL.revokeObjectURL(url); a.remove() }, 100)
-  uiStore.showToast(t('ccode_preview.toastDownloaded', { filename: props.filename }), false)
+}
+
+function download() {
+  downloadBlob(cachedHeader.value, props.headerFilename)
+  setTimeout(() => {
+    downloadBlob(cachedSource.value, props.sourceFilename)
+  }, 150)
+  uiStore.showToast(t('ccode_preview.toastDownloadedBoth', {
+    h: props.headerFilename, c: props.sourceFilename
+  }), false)
 }
 
 function close() {
@@ -121,6 +153,36 @@ function close() {
   display: flex;
   gap: 8px;
   flex-shrink: 0;
+}
+
+.tab-bar {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  padding: 0 18px;
+  gap: 0;
+}
+
+.tab-bar button {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  padding: 8px 16px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.tab-bar button:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.tab-bar button.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
 }
 
 .modal-body {

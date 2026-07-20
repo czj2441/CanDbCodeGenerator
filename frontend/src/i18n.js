@@ -272,6 +272,9 @@ const dict = {
     'ccode_preview.download': '下载',
     'ccode_preview.close': '关闭',
     'ccode_preview.toastDownloaded': '已导出: {filename}',
+    'ccode_preview.headerTab': 'Header (.h)',
+    'ccode_preview.sourceTab': 'Source (.c)',
+    'ccode_preview.toastDownloadedBoth': '已导出: {h}, {c}',
 }
 
 export function t(key, vars = {}) {

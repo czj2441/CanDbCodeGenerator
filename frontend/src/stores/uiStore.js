@@ -23,7 +23,11 @@ export const useUiStore = defineStore('ui', {
     // Modal 状态
     batchModalOpen: false,
     // C 代码预览
-    ccodePreview: { open: false, code: '', filename: '', format: '' },
+    ccodePreview: {
+      open: false,
+      headerCode: '', headerFilename: '',
+      sourceCode: '', sourceFilename: '',
+    },
     // 视图状态
     layoutViewMode: false,
     selectedSignalUuid: null,
@@ -215,8 +219,12 @@ export const useUiStore = defineStore('ui', {
       useEditorStore().isLoading = val
     },
 
-    openCcodePreview({ code, filename, format }) {
-      this.ccodePreview = { open: true, code, filename, format }
+    openCcodePreview({ headerCode, headerFilename, sourceCode, sourceFilename }) {
+      this.ccodePreview = {
+        open: true,
+        headerCode, headerFilename,
+        sourceCode, sourceFilename,
+      }
     },
     closeCcodePreview() {
       this.ccodePreview.open = false

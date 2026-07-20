@@ -13,8 +13,7 @@
       <div v-if="exportDropdownOpen" class="export-menu">
         <button @click="exportFile('dbc'); exportDropdownOpen = false">DBC</button>
         <button @click="exportFile('properties'); exportDropdownOpen = false">Properties</button>
-        <button @click="exportFile('c_header'); exportDropdownOpen = false">C Header (.h)</button>
-        <button @click="exportFile('c_source'); exportDropdownOpen = false">C Source (.c)</button>
+        <button @click="exportCcode(); exportDropdownOpen = false">C Code (.h + .c)</button>
       </div>
     </div>
     <button class="btn" @click="save" :disabled="!store.backendDirty" title="保存 (Ctrl+S)">{{ t('topbar.save') }}</button>
@@ -63,9 +62,10 @@
   <!-- C Code Preview Modal -->
   <CcodePreviewModal
     v-model:visible="ui.ccodePreview.open"
-    :code="ui.ccodePreview.code"
-    :filename="ui.ccodePreview.filename"
-    :format="ui.ccodePreview.format"
+    :header-code="ui.ccodePreview.headerCode"
+    :header-filename="ui.ccodePreview.headerFilename"
+    :source-code="ui.ccodePreview.sourceCode"
+    :source-filename="ui.ccodePreview.sourceFilename"
   />
 </template>
 
@@ -183,15 +183,6 @@ async function exportFile(fmt, options = {}) {
         const err = await resp.json().catch(() => ({ error: resp.statusText }))
         throw new Error(err.error || `HTTP ${resp.status}`)
       }
-      // C 代码：走预览而非直接下载
-      if (fmt === 'c_header' || fmt === 'c_source') {
-        const disposition = resp.headers.get('Content-Disposition') || ''
-        const filenameMatch = disposition.match(/filename="(.+)"/)
-        const filename = filenameMatch ? filenameMatch[1] : `export.${fmt === 'c_header' ? 'h' : 'c'}`
-        const code = await resp.text()
-        ui.openCcodePreview({ code, filename, format: fmt })
-        return
-      }
       const blob = await resp.blob()
       const disposition = resp.headers.get('Content-Disposition') || ''
       const filenameMatch = disposition.match(/filename="(.+)"/)
@@ -218,11 +209,6 @@ async function exportFile(fmt, options = {}) {
 
     // ── 浏览器模式：WS 获取内容 + Blob 下载 ──
     const data = await store._wsRequest('download_file', { format: fmt }, 60000)
-    // 对 C 代码格式：打开预览模态框而非直接下载
-    if (fmt === 'c_header' || fmt === 'c_source') {
-      ui.openCcodePreview({ code: data.content, filename: data.filename, format: fmt })
-      return
-    }
     const mimeMap = { dbc: 'application/octet-stream', properties: 'text/plain' }
     const blob = new Blob([data.content], { type: `${mimeMap[fmt] || 'text/plain'};charset=utf-8` })
     const url = URL.createObjectURL(blob)
@@ -233,6 +219,73 @@ async function exportFile(fmt, options = {}) {
     a.click()
     setTimeout(() => { URL.revokeObjectURL(url); a.remove() }, 100)
     ui.showToast(`已导出: ${data.filename}`, false)
+  } catch (e) {
+    ui.showToast(`导出失败: ${e.message}`, true)
+  } finally {
+    ui.setLoading(false)
+  }
+}
+
+async function exportCcode() {
+  try {
+    ui.setLoading(true)
+    const sid = getSessionId() || ''
+
+    // ── pywebview 桌面模式：分别调用原生保存（不支持预览） ──
+    if (window.pywebview?.api?.save_file) {
+      ui.showToast('正在打开保存对话框...', false)
+      const rawH = await window.pywebview.api.save_file('c_header', sid)
+      const resultH = typeof rawH === 'string' ? JSON.parse(rawH) : rawH
+      if (!resultH.success && resultH.error !== '用户取消') {
+        ui.showToast(`导出失败: ${resultH.error}`, true)
+      }
+      const rawC = await window.pywebview.api.save_file('c_source', sid)
+      const resultC = typeof rawC === 'string' ? JSON.parse(rawC) : rawC
+      if (!resultC.success && resultC.error !== '用户取消') {
+        ui.showToast(`导出失败: ${resultC.error}`, true)
+      }
+      return
+    }
+
+    // ── WS 断开降级：两次 HTTP 请求 ──
+    if (!store._wsClient?.connected) {
+      const [headerResp, sourceResp] = await Promise.all([
+        fetch(`/api/export?sid=${encodeURIComponent(sid)}&fmt=c_header`),
+        fetch(`/api/export?sid=${encodeURIComponent(sid)}&fmt=c_source`),
+      ])
+      if (!headerResp.ok || !sourceResp.ok) {
+        const status = !headerResp.ok ? headerResp.status : sourceResp.status
+        throw new Error(`HTTP ${status}`)
+      }
+      const parseFilename = (resp, fallback) => {
+        const disposition = resp.headers.get('Content-Disposition') || ''
+        const m = disposition.match(/filename="(.+)"/)
+        return m ? m[1] : fallback
+      }
+      const headerCode = await headerResp.text()
+      const sourceCode = await sourceResp.text()
+      ui.openCcodePreview({
+        headerCode, headerFilename: parseFilename(headerResp, 'export.h'),
+        sourceCode, sourceFilename: parseFilename(sourceResp, 'export.c'),
+      })
+      return
+    }
+
+    // ── WS 在线：先保存一次，再并发请求两种格式 ──
+    const saved = await fileOps.saveSession()
+    if (!saved) {
+      ui.showToast('保存失败，将导出内存中的最新数据', true)
+    }
+
+    const [headerData, sourceData] = await Promise.all([
+      store._wsRequest('download_file', { format: 'c_header' }, 60000),
+      store._wsRequest('download_file', { format: 'c_source' }, 60000),
+    ])
+
+    ui.openCcodePreview({
+      headerCode: headerData.content, headerFilename: headerData.filename,
+      sourceCode: sourceData.content, sourceFilename: sourceData.filename,
+    })
   } catch (e) {
     ui.showToast(`导出失败: ${e.message}`, true)
   } finally {
