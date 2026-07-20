@@ -59,15 +59,6 @@ echo  Output: %ROOT_DIR%dist\
 echo ============================================
 echo.
 
-REM Ask whether to start backend server
-set /p LAUNCH="Start backend server (python -m app.server.lifecycle 8080)? [Y/n]: "
-if /i "%LAUNCH%"=="n" goto :done
-
 echo [Build] Starting backend server...
 cd /d "%ROOT_DIR%"
 python -m app.server.lifecycle 8080
-goto :eof
-
-:done
-cd /d "%ROOT_DIR%"
-endlocal

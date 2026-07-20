@@ -44,12 +44,6 @@ echo " 产物已输出到: ${ROOT_DIR}/dist/"
 echo "============================================"
 echo ""
 
-# 询问是否启动后端服务
-read -p "是否启动后端服务 (python -m app.server.lifecycle 8080)? [Y/n]: " LAUNCH
-if [[ "${LAUNCH,,}" == "n" ]]; then
-    exit 0
-fi
-
 echo "[Build] 正在启动后端服务..."
 cd "${ROOT_DIR}"
 python -m app.server.lifecycle 8080
