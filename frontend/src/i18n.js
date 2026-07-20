@@ -266,6 +266,12 @@ const dict = {
     'log.type.info': '信息',
     'log.type.drag': '拖拽',
     'log.type.layout': '布局',
+
+    // CcodePreview
+    'ccode_preview.title': '代码预览',
+    'ccode_preview.download': '下载',
+    'ccode_preview.close': '关闭',
+    'ccode_preview.toastDownloaded': '已导出: {filename}',
 }
 
 export function t(key, vars = {}) {

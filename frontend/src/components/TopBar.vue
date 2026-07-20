@@ -59,6 +59,14 @@
       </div>
     </Transition>
   </Teleport>
+
+  <!-- C Code Preview Modal -->
+  <CcodePreviewModal
+    v-model:visible="ui.ccodePreview.open"
+    :code="ui.ccodePreview.code"
+    :filename="ui.ccodePreview.filename"
+    :format="ui.ccodePreview.format"
+  />
 </template>
 
 <script setup>
@@ -69,6 +77,7 @@ import { useFileOperationsStore } from '../stores/fileOperations.js'
 import { useUiStore } from '../stores/uiStore.js'
 import { t } from '../i18n.js'
 import { getSessionId } from '../api/client.js'
+import CcodePreviewModal from './CcodePreviewModal.vue'
 
 defineEmits(['back'])
 
@@ -174,6 +183,15 @@ async function exportFile(fmt, options = {}) {
         const err = await resp.json().catch(() => ({ error: resp.statusText }))
         throw new Error(err.error || `HTTP ${resp.status}`)
       }
+      // C 代码：走预览而非直接下载
+      if (fmt === 'c_header' || fmt === 'c_source') {
+        const disposition = resp.headers.get('Content-Disposition') || ''
+        const filenameMatch = disposition.match(/filename="(.+)"/)
+        const filename = filenameMatch ? filenameMatch[1] : `export.${fmt === 'c_header' ? 'h' : 'c'}`
+        const code = await resp.text()
+        ui.openCcodePreview({ code, filename, format: fmt })
+        return
+      }
       const blob = await resp.blob()
       const disposition = resp.headers.get('Content-Disposition') || ''
       const filenameMatch = disposition.match(/filename="(.+)"/)
@@ -200,7 +218,12 @@ async function exportFile(fmt, options = {}) {
 
     // ── 浏览器模式：WS 获取内容 + Blob 下载 ──
     const data = await store._wsRequest('download_file', { format: fmt }, 60000)
-    const mimeMap = { dbc: 'application/octet-stream', properties: 'text/plain', c_header: 'text/plain', c_source: 'text/plain' }
+    // 对 C 代码格式：打开预览模态框而非直接下载
+    if (fmt === 'c_header' || fmt === 'c_source') {
+      ui.openCcodePreview({ code: data.content, filename: data.filename, format: fmt })
+      return
+    }
+    const mimeMap = { dbc: 'application/octet-stream', properties: 'text/plain' }
     const blob = new Blob([data.content], { type: `${mimeMap[fmt] || 'text/plain'};charset=utf-8` })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
