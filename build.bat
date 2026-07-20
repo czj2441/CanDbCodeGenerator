@@ -34,17 +34,15 @@ if errorlevel 1 (
 
 cd /d "%ROOT_DIR%frontend"
 
-REM Install dependencies if node_modules is missing
-if not exist "node_modules\" (
-    echo [Build] node_modules not found, installing dependencies...
-    call npm install
-    if errorlevel 1 (
-        echo [Error] npm install failed!
-        cd /d "%ROOT_DIR%"
-        exit /b 1
-    )
-    echo [Build] Dependencies installed.
+REM 始终执行 npm install 以确保依赖完整（依赖已全时极快）
+echo [Build] Checking dependencies...
+call npm install
+if errorlevel 1 (
+    echo [Error] npm install failed!
+    cd /d "%ROOT_DIR%"
+    exit /b 1
 )
+echo [Build] Dependencies ready.
 
 REM Run build
 call npm run build
