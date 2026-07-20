@@ -3,18 +3,15 @@
     <span>{{ store.messageCount }} {{ store.messageCount === 1 ? t('status.message') : t('status.messages') }}</span>
     <span>{{ store.signalCount }} {{ store.signalCount === 1 ? t('status.signal') : t('status.signals') }}</span>
     <span class="spacer"></span>
-    <span class="save-indicator" :class="store.saveStatus">
+    <span class="save-indicator" :class="saveClass">
       <template v-if="store.saveStatus === 'saving'">
         <span class="save-spinner">⏳</span> {{ t('status.saving') }}
       </template>
-      <template v-else-if="store.saveStatus === 'saved'">
+      <template v-else-if="store.saveStatus === 'saved' && !store.backendDirty">
         <span class="save-check">✓</span> {{ t('status.saved') }}
       </template>
-      <template v-else-if="store.saveStatus === 'modified'">
-        <span class="save-dot">●</span> {{ t('status.unsaved') }}
-      </template>
       <template v-else-if="store.backendDirty">
-        <span class="save-dot">●</span> {{ t('status.modified') }}
+        <span class="save-dot">●</span> {{ t('status.unsaved') }}
       </template>
     </span>
     <span class="version-tag">{{ manualVersion }} {{ autoVersion }}</span>
@@ -22,9 +19,16 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import { useEditorStore } from '../stores/editor.js'
 import { t } from '../i18n.js'
 const store = useEditorStore()
+const saveClass = computed(() => {
+  if (store.saveStatus === 'saving') return 'saving'
+  if (store.saveStatus === 'saved' && !store.backendDirty) return 'saved'
+  if (store.backendDirty) return 'modified'
+  return ''
+})
 const manualVersion = typeof __MANUAL_VERSION__ !== 'undefined' ? __MANUAL_VERSION__ : 'dev'
 const autoVersion = typeof __AUTO_VERSION__ !== 'undefined' ? __AUTO_VERSION__ : 'dev'
 </script>

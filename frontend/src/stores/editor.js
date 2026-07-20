@@ -118,6 +118,28 @@ export const useEditorStore = defineStore('editor', {
       }, 3000)
     },
 
+    /**
+     * 统一的后端状态同步入口。
+     * status_changed / undo_applied / redo_applied / full_sync 均通过此方法
+     * 更新 backendDirty、saveStatus、undo/redo 计数。
+     */
+    _syncBackendStatus(status) {
+      if (!status) return
+      if ('modified' in status) {
+        this.backendDirty = !!status.modified
+        if (status.modified && this.saveStatus !== 'saving') {
+          this.saveStatus = 'modified'
+          if (this._saveStatusTimer) { clearTimeout(this._saveStatusTimer); this._saveStatusTimer = null }
+        } else if (!status.modified && this.saveStatus === 'saving') {
+          this.saveStatus = 'saved'
+          this._startSaveFadeTimer()
+        }
+      }
+      const undoRedo = useUndoRedoStore()
+      if ('undo_count' in status) undoRedo.undoCount = status.undo_count || 0
+      if ('redo_count' in status) undoRedo.redoCount = status.redo_count || 0
+    },
+
     _connectWebSocket() {
       if (this._wsClient?.connected) return
 
@@ -196,7 +218,6 @@ export const useEditorStore = defineStore('editor', {
      */
     _applyWsMessage(msg) {
       const stopTimer = WsFrontendDiag.timeStart('apply_msg')
-      const undoRedo = useUndoRedoStore()
 
       if (msg.data_version && msg.data_version < this._dataVersion) {
         WsFrontendDiag.count('msg_dropped')
@@ -224,8 +245,7 @@ export const useEditorStore = defineStore('editor', {
           this.messages = d.messages || []
           resetMessageIdGenerator()
           if (d.status) {
-            this.backendDirty = d.status.modified || false
-            undoRedo.syncCounts(d.status)
+            this._syncBackendStatus(d.status)
           }
           if (this.selectedMsgId != null &&
               !this.messages.some(m => m.id === this.selectedMsgId)) {
@@ -328,10 +348,7 @@ export const useEditorStore = defineStore('editor', {
 
         case 'undo_applied':
         case 'redo_applied': {
-          if (msg.data.status) {
-            this.backendDirty = msg.data.status.modified
-            undoRedo.syncCounts(msg.data.status)
-          }
+          this._syncBackendStatus(msg.data.status)
           if (msg.data.messages) {
             this.messages = msg.data.messages
           }
@@ -353,22 +370,9 @@ export const useEditorStore = defineStore('editor', {
         }
 
         case 'status_changed': {
-          const s = msg.data
-          if ('modified' in s) {
-            this.backendDirty = s.modified
-            if (s.modified && this.saveStatus !== 'saving') {
-              this.saveStatus = 'modified'
-              if (this._saveStatusTimer) { clearTimeout(this._saveStatusTimer); this._saveStatusTimer = null }
-            } else if (!s.modified && this.saveStatus === 'saving') {
-              // WS 确认保存完成（备用路径）
-              this.saveStatus = 'saved'
-              this._startSaveFadeTimer()
-            }
-          }
-          if ('undo_count' in s) undoRedo.undoCount = s.undo_count
-          if ('redo_count' in s) undoRedo.redoCount = s.redo_count
-          if (s.save_error) {
-            useUiStore().showToast(t('toast.autoSaveFailed', { error: s.save_error }), true)
+          this._syncBackendStatus(msg.data)
+          if (msg.data.save_error) {
+            useUiStore().showToast(t('toast.autoSaveFailed', { error: msg.data.save_error }), true)
           }
           break
         }
