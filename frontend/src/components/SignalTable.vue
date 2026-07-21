@@ -33,7 +33,7 @@
       </div>
       <div v-else-if="msg.signals.length === 0" class="empty" v-html="t('signal.empty')">
       </div>
-      <table v-else class="signal-table">
+      <table v-else class="signal-table" ref="tableRef" @keydown="onCellKeyDown">
         <colgroup>
           <col v-for="col in visibleColumns" :key="col.key"
                :style="{ width: getColumnPct(col) + '%' }">
@@ -164,6 +164,7 @@ function getColumnPct(col) {
 
 const showColMenu = ref(false)
 const colToggleRef = ref(null)
+const tableRef = ref(null)
 
 function resetAll() {
   ui.resetColumnVisibility()
@@ -326,6 +327,116 @@ function deleteMsg() {
 function fixSignal(uuid, newStartBit) {
   signals.autoFixSignal(uuid, newStartBit)
 }
+
+// ── 方向键单元格导航 ──
+const NON_NAVIGABLE_COLS = new Set(['idx', 'actions'])
+
+/** 从当前 DOM 元素定位所在行列索引 */
+function getCellPosition(el) {
+  const td = el.closest('td')
+  if (!td) return null
+  const tr = td.parentElement
+  if (!tr || tr.tagName !== 'TR') return null
+  const tbody = tr.parentElement
+  if (!tbody || tbody.tagName !== 'TBODY') return null
+  const rowIdx = Array.from(tbody.children).indexOf(tr)
+  return { rowIdx, colIdx: td.cellIndex }
+}
+
+/** 获取目标单元格内的可编辑元素 */
+function getCellEditor(rowIdx, colIdx) {
+  const table = tableRef.value
+  if (!table) return null
+  const tbody = table.tBodies[0]
+  if (!tbody) return null
+  const row = tbody.rows[rowIdx]
+  if (!row) return null
+  const cell = row.cells[colIdx]
+  if (!cell) return null
+  return cell.querySelector('input:not([readonly]), select')
+}
+
+/** 从当前列出发，沿 direction 方向查找下一个可导航列 */
+function findNavigableCol(colIdx, direction) {
+  const cols = visibleColumns.value
+  let i = colIdx + direction
+  while (i >= 0 && i < cols.length) {
+    if (!NON_NAVIGABLE_COLS.has(cols[i].key)) return i
+    i += direction
+  }
+  return -1
+}
+
+function onCellKeyDown(e) {
+  const NAV_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'])
+  if (!NAV_KEYS.has(e.key)) return
+
+  const el = e.target
+  if (el.tagName !== 'INPUT' && el.tagName !== 'SELECT') return
+  if (!tableRef.value?.contains(el)) return
+
+  const pos = getCellPosition(el)
+  if (!pos) return
+
+  const cols = visibleColumns.value
+  const totalRows = msg.value?.signals?.length ?? 0
+  let { rowIdx, colIdx } = pos
+  let targetRow = rowIdx
+  let targetCol = colIdx
+
+  // ── 水平导航（左右） ──
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+    // 对 input：仅在光标处于边界时才导航
+    if (el.tagName === 'INPUT') {
+      // type="number" 等不支持 selectionStart/End，无光标概念，始终允许导航
+      const supportsSelection = el.type === 'text' || el.type === 'search' || el.type === 'url' || el.type === 'tel' || el.type === 'password' || el.type === ''
+      if (supportsSelection) {
+        if (e.key === 'ArrowLeft' && el.selectionStart > 0) return
+        if (e.key === 'ArrowRight' && el.selectionEnd < el.value.length) return
+      }
+    }
+    // select 元素：左右键不导航（无原生冲突，但也无意义）
+    if (el.tagName === 'SELECT') return
+
+    const dir = e.key === 'ArrowLeft' ? -1 : 1
+    const nextCol = findNavigableCol(colIdx, dir)
+    if (nextCol < 0) return
+    targetCol = nextCol
+  }
+
+  // ── 垂直导航（上下） ──
+  if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+    // select 元素：保留原生选项切换行为
+    if (el.tagName === 'SELECT') return
+
+    const dir = e.key === 'ArrowUp' ? -1 : 1
+    targetRow = rowIdx + dir
+    if (targetRow < 0 || targetRow >= totalRows) return
+
+    // 若当前列不可编辑，跳到最近的可编辑列
+    if (NON_NAVIGABLE_COLS.has(cols[colIdx]?.key)) {
+      const nextCol = findNavigableCol(colIdx, 1)
+      if (nextCol < 0) return
+      targetCol = nextCol
+    }
+  }
+
+  e.preventDefault()
+
+  // ── 聚焦目标 ──
+  const target = getCellEditor(targetRow, targetCol)
+  if (!target) return
+
+  target.focus()
+  if (target.tagName === 'INPUT') target.select()
+
+  // 确保目标行在视口内
+  target.closest('tr')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+
+  // 同步行选中状态
+  const targetSig = msg.value.signals[targetRow]
+  if (targetSig) ui.selectedSignalUuid = targetSig.uuid
+}
 </script>
 
 <style scoped>
@@ -422,7 +533,8 @@ function fixSignal(uuid, newStartBit) {
 .signal-table input:focus,
 .signal-table select:focus {
   background: var(--bg-raised);
-  border-color: var(--accent-dim);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px color-mix(in oklch, var(--accent) 40%, transparent);
 }
 .signal-table input.mono { font-family: var(--font-mono); }
 .signal-table input.hex { opacity: 0.5; text-align: center; }

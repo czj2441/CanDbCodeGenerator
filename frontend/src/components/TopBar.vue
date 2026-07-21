@@ -90,22 +90,24 @@ const exportWrapper = ref(null)
 
 // 直接使用 store.currentFileName，避免本地 ref 与 store 状态不一致
 function handleKeydown(event) {
-  // ⚠️ 维护注意：跳过输入框内的快捷键，避免与浏览器原生撤销冲突
   const tag = event.target.tagName
-  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || event.target.isContentEditable) {
-    return
-  }
+  const isInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || event.target.isContentEditable
 
   if (event.ctrlKey || event.metaKey) {
+    // Ctrl+S 无论焦点在哪都应触发保存（阻止浏览器"保存网页"对话框）
+    if (event.key === 's' || event.key === 'S') {
+      event.preventDefault()
+      save()
+      return
+    }
+    // Ctrl+Z / Ctrl+Y 在输入框内跳过（避免与浏览器原生撤销/重做冲突）
+    if (isInput) return
     if (event.key === 'z' || event.key === 'Z') {
       event.preventDefault()
       undoRedo.undo()
     } else if (event.key === 'y' || event.key === 'Y') {
       event.preventDefault()
       undoRedo.redo()
-    } else if (event.key === 's' || event.key === 'S') {
-      event.preventDefault()
-      save()
     }
   }
 }
