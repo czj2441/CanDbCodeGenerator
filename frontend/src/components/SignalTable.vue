@@ -541,6 +541,15 @@ function onCellKeyDown(e) {
   box-shadow: 0 0 0 1px color-mix(in oklch, var(--accent) 40%, transparent);
 }
 .signal-table input.mono { font-family: var(--font-mono); }
+/* 隐藏数值输入框的上下按钮 */
+.signal-table input[type="number"]::-webkit-inner-spin-button,
+.signal-table input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.signal-table input[type="number"] {
+  -moz-appearance: textfield;
+}
 .signal-table .idx-label {
   display: block;
   text-align: center;
