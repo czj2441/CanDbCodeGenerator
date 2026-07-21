@@ -565,20 +565,28 @@ class SessionManager:
 
     # ── 内部方法 ──
 
-    def _destroy(self, session_id: str) -> bool:
+    def _destroy(self, session_id: str, abort: bool = False) -> bool:
         session = self._sessions.pop(session_id, None)
         if not session:
             return False
-        # 脏数据写快照（在 save_orphan 前，优先保护 db 数据）
-        try:
-            from .snapshot import write_snapshot
-            write_snapshot(session)
-        except Exception as e:
-            logger.error("Snapshot on destroy failed for %s: %s", session_id[:8], e)
         file_name = os.path.basename(session.file_path)
-        logger.info("Internal destroy: sid=%s file=%s", session_id[:8], file_name)
-        # 保存孤儿撤销栈（委托给 UndoEngine）
-        self._undo.save_orphan(file_name, session)
+        if abort:
+            # 用户主动放弃变更：不写快照，并清理定时器可能已写入的旧快照
+            from .snapshot import remove_snapshot
+            remove_snapshot(session_id)
+            # 放弃操作不保留孤儿撤销栈（与磁盘状态保持一致）
+            self._undo.remove_orphan(file_name)
+            logger.info("Internal destroy (abort): sid=%s file=%s", session_id[:8], file_name)
+        else:
+            # 正常销毁（心跳超时等）：脏数据写快照保护
+            try:
+                from .snapshot import write_snapshot
+                write_snapshot(session)
+            except Exception as e:
+                logger.error("Snapshot on destroy failed for %s: %s", session_id[:8], e)
+            # 保存孤儿撤销栈（委托给 UndoEngine）
+            self._undo.save_orphan(file_name, session)
+            logger.info("Internal destroy: sid=%s file=%s", session_id[:8], file_name)
         # 释放文件锁和心跳（委托给 FileLockManager）
         self._file_lock.unregister(session_id)
         self._file_lock.pop_heartbeat(session_id)
@@ -591,12 +599,16 @@ class SessionManager:
         return self._file_lock.is_file_locked(file_path, exclude_session)
 
     def release_session(self, session_id: str, abort: bool = False) -> bool:
-        """释放并销毁指定 session（幂等）。abort 参数保留兼容但无行为差异。"""
+        """释放并销毁指定 session（幂等）。
+
+        Args:
+            abort: True 表示用户主动放弃变更，跳过快照写入并清理已有快照。
+        """
         with self._lock:
             if session_id not in self._sessions:
                 return False
             logger.info("Session released: sid=%s abort=%s", session_id[:8], abort)
-            return self._destroy(session_id)
+            return self._destroy(session_id, abort=abort)
 
     def update_heartbeat(self, session_id: str) -> bool:
         """更新指定 session 的心跳时间。"""
