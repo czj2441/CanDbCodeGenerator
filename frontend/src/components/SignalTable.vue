@@ -51,7 +51,7 @@
         <tbody>
           <tr v-for="(sig, idx) in msg.signals" :key="sig.uuid" :data-sig-id="sig.uuid" :class="{ 'has-error': errorUuids.has(sig.uuid), 'selected': selectedSigUuid === sig.uuid }" @mousedown="handleRowMouseDown(sig.uuid, $event)">
             <td v-for="col in visibleColumns" :key="col.key" :class="{ 'col-idx': col.key === 'idx' }">
-              <template v-if="col.key === 'idx'"><input class="hex" :value="idx" readonly></template>
+              <template v-if="col.key === 'idx'"><span class="idx-label">{{ idx }}</span></template>
               <template v-else-if="col.key === 'name'"><input v-lazy-value="sig.name" @blur="e => update(sig.uuid, 'name', e.target.value)"></template>
               <template v-else-if="col.key === 'start'"><input class="mono" type="number" v-lazy-value="displayStartBit(sig)" @blur="e => updateStartBit(sig, parseInt(e.target.value)||0)"></template>
               <template v-else-if="col.key === 'length'"><input class="mono" type="number" v-lazy-value="sig.length" @blur="e => update(sig.uuid, 'length', parseInt(e.target.value))"></template>
@@ -252,8 +252,12 @@ function handleRowMouseDown(uuid, event) {
   // 需同步扩展下面的 INTERACTIVE_TAGS 集合，否则会被误判为"空白区域"触发 toggle。
   const INTERACTIVE_TAGS = new Set(['INPUT', 'SELECT'])
   const isInteractive = INTERACTIVE_TAGS.has(event.target.tagName)
+  const isIdxClick = event.target.closest('.col-idx')
 
-  if (isInteractive) {
+  if (isIdxClick) {
+    // 点击 # 列：始终选中该行（不 toggle）
+    ui.selectedSignalUuid = uuid
+  } else if (isInteractive) {
     // 点击交互元素：确保选中该信号（已选中则保持，不切换）
     if (ui.selectedSignalUuid !== uuid) {
       ui.selectedSignalUuid = uuid
@@ -537,7 +541,18 @@ function onCellKeyDown(e) {
   box-shadow: 0 0 0 1px color-mix(in oklch, var(--accent) 40%, transparent);
 }
 .signal-table input.mono { font-family: var(--font-mono); }
-.signal-table input.hex { opacity: 0.5; text-align: center; }
+.signal-table .idx-label {
+  display: block;
+  text-align: center;
+  opacity: 0.45;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  user-select: none;
+  cursor: pointer;
+  line-height: 1.8;
+}
+.signal-table tr:hover .idx-label { opacity: 0.7; }
+.signal-table tr.selected .idx-label { opacity: 1; font-weight: 600; }
 
 .action-delete {
   background: transparent;

@@ -332,18 +332,20 @@ async function save() {
 .topbar-logo span { color: var(--text); }
 
 .topbar-filename {
-  background: var(--bg-raised);
-  border: 1px solid var(--border);
+  background: color-mix(in oklch, var(--accent) 8%, transparent);
+  border: none;
   border-radius: var(--radius-sm);
-  padding: 4px 10px;
+  padding: 4px 12px;
   color: var(--text);
   font-family: var(--font-mono);
   font-size: 12px;
-  width: 220px;
+  font-weight: 500;
+  max-width: 280px;
   display: inline-block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  letter-spacing: 0.2px;
 }
 
 .topbar-spacer { flex: 1; }
