@@ -84,7 +84,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watchEffect } from 'vue'
 import { useEditorStore } from './stores/editor.js'
 import { useFileOperationsStore } from './stores/fileOperations.js'
 import { useClipboardStore } from './stores/clipboard.js'
@@ -113,6 +113,13 @@ const clipboard = useClipboardStore()
 const signals = useSignalsStore()
 const messages = useMessagesStore()
 const ui = useUiStore()
+
+// 浏览器标题栏动态脏标记
+watchEffect(() => {
+  const base = 'CAN Matrix Editor'
+  document.title = store.backendDirty ? `● ${base}` : base
+})
+
 let beforeUnloadHandler = null  // beforeunload 事件处理器
 let navigateHandler = null     // navigate-browser 事件处理器
 

@@ -3,6 +3,7 @@
     <button class="btn btn-icon btn-back" @click="$emit('back')" :title="t('topbar.back')">←</button>
     <div class="topbar-logo">Can<span>Matrix</span></div>
     <span class="topbar-filename">{{ store.currentFileName }}</span>
+    <span v-if="store.backendDirty" class="topbar-dirty-badge" :title="t('status.unsaved')">● {{ t('status.unsaved') }}</span>
     <span class="topbar-spacer"></span>
     <span class="topbar-divider"></span>
     <button class="btn" @click="undoRedo.undo()" :disabled="!undoRedo.canUndo" title="撤销 (Ctrl+Z)">{{ t('topbar.undo') }}</button>
@@ -16,7 +17,7 @@
         <button @click="exportCcode(); exportDropdownOpen = false">C Code (.h + .c)</button>
       </div>
     </div>
-    <button class="btn" @click="save" :disabled="!store.backendDirty" title="保存 (Ctrl+S)">{{ t('topbar.save') }}</button>
+    <button class="btn" :class="{ 'btn-dirty': store.backendDirty }" @click="save" :disabled="!store.backendDirty" title="保存 (Ctrl+S)">{{ t('topbar.save') }}</button>
     <button class="btn" @click="onSaveAs">{{ t('topbar.saveAs') }}</button>
     <span class="topbar-divider"></span>
     <span class="topbar-spacer"></span>
@@ -296,16 +297,11 @@ async function exportCcode() {
 }
 
 async function save() {
-  try {
-    ui.setLoading(true)
-    const success = await fileOps.saveSession()
-    if (success) {
-      ui.showToast('保存成功', false)
-    } else {
-      ui.showToast(`保存失败: ${store.lastSaveError || '未知错误'}`, true)
-    }
-  } finally {
-    ui.setLoading(false)
+  const success = await fileOps.saveSession()
+  if (success) {
+    ui.showToast('保存成功', false)
+  } else {
+    ui.showToast(`保存失败: ${store.lastSaveError || '未知错误'}`, true)
   }
 }
 </script>
@@ -489,5 +485,26 @@ async function save() {
 
 .export-menu button:hover {
   background: var(--bg-hover);
+}
+
+.topbar-dirty-badge {
+  color: var(--warn);
+  font-size: 12px;
+  font-weight: 600;
+  animation: dirty-pulse 2s ease-in-out infinite;
+  white-space: nowrap;
+}
+.btn-dirty {
+  background: var(--warn);
+  color: #fff;
+  border-color: transparent;
+  font-weight: 600;
+}
+.btn-dirty:hover {
+  background: color-mix(in oklch, var(--warn) 85%, black);
+}
+@keyframes dirty-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 </style>
