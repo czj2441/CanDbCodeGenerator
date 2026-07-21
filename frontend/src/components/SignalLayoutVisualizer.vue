@@ -49,15 +49,6 @@
                 fill: textDim, fontSize: 11, listening: false,
               }"
             />
-            <!-- DLC 边界 -->
-            <v-rect
-              v-if="dlcBytes < rows"
-              :config="{
-                x: labelWidth, y: headerH + dlcBytes * cellSize,
-                width: cols * cellSize, height: (rows - dlcBytes) * cellSize,
-                fill: oobFill, listening: false,
-              }"
-            />
             <!-- 单元格 bit 编号 -->
             <template v-for="r in rowIndices" :key="'bnr-' + r">
               <v-text
@@ -66,7 +57,7 @@
                   x: labelWidth + c * cellSize + 2,
                   y: headerH + r * cellSize + cellSize - 12,
                   text: String(r * 8 + (7 - c)),
-                  fontSize: 9, fill: textDim, fontStyle: 'bold',
+                  fontSize: Math.max(6, Math.min(9, cellSize - 10)), fill: textDim, fontStyle: 'bold',
                   align: 'left', verticalAlign: 'bottom', listening: false,
                 }"
               />
@@ -100,7 +91,7 @@
                 text: lbl.text,
                 width: lbl.span * cellSize,
                 height: cellSize,
-                fontSize: Math.min(12, cellSize - 10),
+                fontSize: Math.max(8, Math.min(12, cellSize - 6)),
                 fill: textPrimary, fontStyle: 'bold',
                 align: 'center', verticalAlign: 'middle', listening: false,
               }"
@@ -192,20 +183,35 @@ const store = useEditorStore()
 const signals = useSignalsStore()
 const ui = useUiStore()
 
-// ── Layout constants ──
-const cellSize = 36
+// ── Stage config ──
+const msg = computed(() => store.selectedMessage)
+const dlcBytes = computed(() => msg.value?.dlc || 0)
+const stageRef = ref(null)
+
+// ── Dynamic layout (rows 跟随 DLC，cellSize 由容器宽度决定，纵向自由滚动) ──
 const headerH = 32
 const labelWidth = 44
 const cols = 8
-const rows = 8
+const MIN_CELL_SIZE = 12
 
-const baseW = labelWidth + cols * cellSize + 1
-const baseH = headerH + rows * cellSize + 1
+const containerWidth = ref(600)
 
-// 0-based 索引数组（修复 v-for="n in N" 的 1-index 陷阱）
+const rows = computed(() => dlcBytes.value || 1)
+
+const cellSize = computed(() => {
+  const cw = containerWidth.value
+  if (cw <= 0) return 36
+  const ideal = Math.floor((cw - labelWidth - 1) / cols)
+  return Math.max(MIN_CELL_SIZE, ideal)
+})
+
+const baseW = computed(() => labelWidth + cols * cellSize.value + 1)
+const baseH = computed(() => headerH + rows.value * cellSize.value + 1)
+
+// 0-based 索引数组
 const colIndices = Array.from({ length: cols }, (_, i) => i)
-const rowIndices = Array.from({ length: rows }, (_, i) => i)
-const gridLineRowIndices = Array.from({ length: rows + 1 }, (_, i) => i)
+const rowIndices = computed(() => Array.from({ length: rows.value }, (_, i) => i))
+const gridLineRowIndices = computed(() => Array.from({ length: rows.value + 1 }, (_, i) => i))
 const gridLineColIndices = Array.from({ length: cols + 1 }, (_, i) => i)
 
 // ── Theme colors from CSS vars ──
@@ -218,24 +224,15 @@ const textDim = computed(() => getCssVar('--text-dim', 'oklch(0.55 0.01 260)'))
 const gridStroke = computed(() => getCssVar('--layout-grid', 'oklch(0.35 0.005 260)'))
 const gridLineStroke = computed(() => getCssVar('--border-light', 'oklch(0.28 0.005 260)'))
 const gridHeaderFill = computed(() => getCssVar('--bg-panel', 'oklch(0.22 0.005 260)'))
-const oobFill = computed(() => getCssVar('--layout-oob', 'oklch(0.25 0.08 25 / 0.3)'))
 
-const containerWidth = ref(baseW)
-const containerHeight = ref(baseH)
 const canvasWrap = ref(null)
 let resizeObserver = null
-
-const scale = computed(() => {
-  const s = Math.min(containerWidth.value / baseW, containerHeight.value / baseH)
-  return Math.max(0.7, s)
-})
 
 onMounted(() => {
   if (!canvasWrap.value) return
   resizeObserver = new ResizeObserver(([entry]) => {
-    const { width, height } = entry.contentRect
+    const { width } = entry.contentRect
     containerWidth.value = width - 16
-    containerHeight.value = height - 16
   })
   resizeObserver.observe(canvasWrap.value)
   
@@ -250,16 +247,9 @@ onUnmounted(() => {
   window.removeEventListener('mouseup', handleGlobalMouseUp, true)
 })
 
-// ── Stage config ──
-const msg = computed(() => store.selectedMessage)
-const dlcBytes = computed(() => msg.value?.dlc || 0)
-const stageRef = ref(null)
-
 const stageConfig = computed(() => ({
-  width: baseW * scale.value,
-  height: baseH * scale.value,
-  scaleX: scale.value,
-  scaleY: scale.value,
+  width: baseW.value,
+  height: baseH.value,
 }))
 
 // ── 拖拽状态 ref（需在 cellMap 之前声明）──
@@ -377,11 +367,10 @@ function clientToGrid(clientX, clientY) {
   if (!stage) return null
   const container = stage.container()
   const rect = container.getBoundingClientRect()
-  const s = scale.value
-  const stageX = (clientX - rect.left) / s
-  const stageY = (clientY - rect.top) / s
-  const raw = pixelToGridCell(stageX, stageY, { labelWidth, headerH, cellSize })
-  const r = Math.max(0, Math.min(rows - 1, raw.row))
+  const stageX = clientX - rect.left
+  const stageY = clientY - rect.top
+  const raw = pixelToGridCell(stageX, stageY, { labelWidth, headerH, cellSize: cellSize.value })
+  const r = Math.max(0, Math.min(rows.value - 1, raw.row))
   const c = Math.max(0, Math.min(cols - 1, raw.col))
   return { row: r, col: c, bit: gridCellToBit(r, c) }
 }
@@ -570,7 +559,8 @@ watch(() => store.selectedMsgId, () => {
 
 .layout-canvas-wrap {
   flex: 1;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   display: flex;
   align-items: flex-start;
   justify-content: flex-start;
