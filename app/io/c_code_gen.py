@@ -30,17 +30,14 @@ _TEMPLATE_DIR = os.path.join(os.path.dirname(__file__), "templates", "c")
 # ── Helper functions ────────────────────────────────────────────────────────────
 
 def _sanitize_identifier(name: str) -> str:
-    """Convert arbitrary string to valid C identifier.
+    """Convert arbitrary string to valid C identifier component.
     
     - Replace non-alphanumeric characters with underscore
-    - Prefix with underscore if starts with digit
     - Use 'Unnamed' if empty
     """
     s = re.sub(r'[^a-zA-Z0-9_]', '_', name.strip() if name else '')
     if not s:
         s = 'Unnamed'
-    elif s[0].isdigit():
-        s = '_' + s
     return s
 
 
