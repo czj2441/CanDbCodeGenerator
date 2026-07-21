@@ -4,6 +4,7 @@
 在关键事件点（心跳超时销毁、WS 断开、进程退出、60s 定时器）自动将脏 db 数据
 写入 snapshots/ 目录，用户打开文件时通过 restore() 优先从快照恢复。
 """
+from __future__ import annotations
 
 import json
 import logging
