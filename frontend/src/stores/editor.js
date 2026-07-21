@@ -83,6 +83,10 @@ export const useEditorStore = defineStore('editor', {
       this.currentFileName = ''
       this.apiStatus = 'connecting'
       this.resetEditorState()
+      // 关闭所有模态框，避免残留弹出
+      const uiStore = useUiStore()
+      uiStore.closeCcodePreview()
+      uiStore.batchModalOpen = false
       window.dispatchEvent(new CustomEvent('navigate-browser'))
     },
 
