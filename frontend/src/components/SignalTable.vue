@@ -399,8 +399,7 @@ function onCellKeyDown(e) {
         if (e.key === 'ArrowRight' && el.selectionEnd < el.value.length) return
       }
     }
-    // select 元素：左右键不导航（无原生冲突，但也无意义）
-    if (el.tagName === 'SELECT') return
+    // select 元素：左右键同样导航（选项切换通过鼠标点击完成）
 
     const dir = e.key === 'ArrowLeft' ? -1 : 1
     const nextCol = findNavigableCol(colIdx, dir)
@@ -410,8 +409,7 @@ function onCellKeyDown(e) {
 
   // ── 垂直导航（上下） ──
   if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-    // select 元素：保留原生选项切换行为
-    if (el.tagName === 'SELECT') return
+    // select 元素：上下键同样导航（选项切换通过鼠标点击完成）
 
     const dir = e.key === 'ArrowUp' ? -1 : 1
     targetRow = rowIdx + dir
