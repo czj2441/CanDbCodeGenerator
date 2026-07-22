@@ -100,6 +100,7 @@ export const useEditorStore = defineStore('editor', {
       this.selectedMsgId = null
       this.messageCache = {}
       this.currentFileName = ''
+      this.busType = 'CAN'
       this.backendDirty = false
       this.lastSaveError = null
       this.saveStatus = 'idle'

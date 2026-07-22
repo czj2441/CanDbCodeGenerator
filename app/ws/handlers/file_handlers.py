@@ -53,7 +53,8 @@ class NewFileHandler:
         except FileNameExistsError:
             raise HandlerError("FILE_NAME_EXISTS", f"File '{file_name}' already exists")
         return HandlerResult(
-            data={"name": new_db.name, "file_name": file_name, "session_id": new_sid},
+            data={"name": new_db.name, "file_name": file_name,
+                  "session_id": new_sid, "bus_type": new_db.bus_type},
             new_version=0, session_id=sid, new_session_id=new_sid)
 
 

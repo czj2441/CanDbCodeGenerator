@@ -169,7 +169,7 @@ export const useFileOperationsStore = defineStore('fileOperations', {
         const sid = data.session_id
         setSessionId(sid)
         editor.currentFileName = data.file_name
-        editor.busType = 'CAN'  // 新建文件默认为 CAN
+        editor.busType = data.bus_type || 'CAN'
         editor.selectedMsgId = null
         editor.messageCache = {}
         editor.messages = []
