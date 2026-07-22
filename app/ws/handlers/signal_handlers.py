@@ -81,11 +81,20 @@ class EditSignalHandler:
                 raise HandlerError("SIGNAL_NOT_FOUND", f"信号 {sig_uuid} 不存在")
 
             old_val = getattr(sig, field)
-            _validate_signal_fields({field: value}, msg, sig_uuid)
+
+            try:
+                _validate_signal_fields({field: value}, msg, sig_uuid)
+            except HandlerError as e:
+                if e.details is not None:
+                    e.details[field] = old_val
+                raise
 
             test_sig = Signal.from_dict({**sig.to_dict(), field: value})
             ok, err, info = db.validate_signal(msg_id, test_sig, exclude_uuid=sig_uuid)
             if not ok:
+                if info is None:
+                    info = {}
+                info[field] = old_val
                 raise HandlerError("VALUE_INVALID", err, info)
 
             setattr(sig, field, value)

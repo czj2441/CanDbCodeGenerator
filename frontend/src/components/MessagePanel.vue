@@ -20,7 +20,7 @@
         </div>
         <div class="field">
           <label>{{ t('panel.signalByteOrder') }}</label>
-          <select :value="selectedSig.byte_order" @change="e => updateSignal('byte_order', e.target.value)">
+          <select :value="selectedSig.byte_order" @change="handleByteOrderChange">
             <option value="intel">{{ t('panel.intel') }}</option>
             <option value="motorola">{{ t('panel.motorola') }}</option>
           </select>
@@ -160,7 +160,7 @@ function modifyDisplayStartBit(displayValue) {
   if (!selectedSig.value) return
   const msbValue = toStorageStartBit(displayValue, selectedSig.value.length, selectedSig.value.byte_order, 63, selectedSig.value.start_bit)
   if (msbValue >= 0) {
-    signals.updateSignal(ui.selectedSignalUuid, 'start_bit', msbValue)
+    signals.updateSignal(ui.selectedSignalUuid, 'start_bit', msbValue).catch(() => {})
   } else {
     showToast(`起始位 ${displayValue} 对于 ${selectedSig.value.byte_order} length=${selectedSig.value.length} 不合法`, true)
   }
@@ -188,8 +188,15 @@ function toggleIsFd(newIsFd) {
 
 function updateSignal(field, value) {
   if (ui.selectedSignalUuid) {
-    signals.updateSignal(ui.selectedSignalUuid, field, value)
+    signals.updateSignal(ui.selectedSignalUuid, field, value).catch(() => {})
   }
+}
+
+function handleByteOrderChange(e) {
+  if (!ui.selectedSignalUuid) return
+  const oldOrder = selectedSig.value?.byte_order
+  signals.updateSignal(ui.selectedSignalUuid, 'byte_order', e.target.value)
+    .catch(() => { if (oldOrder != null) e.target.value = oldOrder })
 }
 
 function duplicate() {

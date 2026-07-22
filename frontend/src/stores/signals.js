@@ -13,21 +13,21 @@ export const useSignalsStore = defineStore('signals', {
     async autoFixSignal(sigUuid, newStartBit) {
       const editor = useEditorStore()
       if (editor.selectedMsgId == null) return
-      await this.updateSignal(sigUuid, 'start_bit', newStartBit)
+      await this.updateSignal(sigUuid, 'start_bit', newStartBit).catch(() => {})
     },
 
     /**
      * 通过布局视图移动信号位置
      */
     async moveSignalByLayout(sigUuid, newStartBit) {
-      await this.updateSignal(sigUuid, 'start_bit', newStartBit)
+      await this.updateSignal(sigUuid, 'start_bit', newStartBit).catch(() => {})
     },
 
     /**
      * 通过布局视图调整信号长度
      */
     async resizeSignalByLayout(sigUuid, newLength) {
-      await this.updateSignal(sigUuid, 'length', newLength)
+      await this.updateSignal(sigUuid, 'length', newLength).catch(() => {})
     },
 
     /**
@@ -91,9 +91,17 @@ export const useSignalsStore = defineStore('signals', {
           value: value
         })
       } catch (e) {
+        // 后端拒绝时，用后端返回的权威值覆盖缓存中的对应字段
+        if (e.details && field in e.details) {
+          sig[field] = e.details[field]
+        }
+        if (field === 'length') {
+          editor._defaultSignalLength = sig.length
+        }
         if (!e.message?.includes?.('Connection lost')) {
           useUiStore().showToast(translateError(e), true)
         }
+        throw e  // 重新抛出，让调用方也能处理错误
       }
     },
 

@@ -56,7 +56,7 @@
               <template v-else-if="col.key === 'start'"><input class="mono" type="number" v-lazy-value="displayStartBit(sig)" @blur="e => updateStartBit(sig, parseInt(e.target.value)||0)"></template>
               <template v-else-if="col.key === 'length'"><input class="mono" type="number" v-lazy-value="sig.length" @blur="e => update(sig.uuid, 'length', parseInt(e.target.value))"></template>
               <template v-else-if="col.key === 'order'">
-                <select :value="sig.byte_order" @change="e => update(sig.uuid, 'byte_order', e.target.value)">
+                <select :value="sig.byte_order" @change="e => updateByteOrder(sig, e)">
                   <option value="intel">Intel</option>
                   <option value="motorola">Motorola</option>
                 </select>
@@ -301,7 +301,13 @@ function addSignal() {
 }
 
 function update(idx, field, value) {
-  signals.updateSignal(idx, field, value)
+  signals.updateSignal(idx, field, value).catch(() => {})
+}
+
+function updateByteOrder(sig, e) {
+  const oldOrder = sig.byte_order
+  signals.updateSignal(sig.uuid, 'byte_order', e.target.value)
+    .catch(() => { e.target.value = oldOrder })
 }
 
 /**
@@ -317,7 +323,7 @@ function displayStartBit(sig) {
 function updateStartBit(sig, displayValue) {
   const msbValue = toStorageStartBit(displayValue, sig.length, sig.byte_order, 63, sig.start_bit)
   if (msbValue >= 0) {
-    signals.updateSignal(sig.uuid, 'start_bit', msbValue)
+    signals.updateSignal(sig.uuid, 'start_bit', msbValue).catch(() => {})
   } else {
     showToast(`起始位 ${displayValue} 对于 ${sig.byte_order} length=${sig.length} 不合法`, true)
   }
