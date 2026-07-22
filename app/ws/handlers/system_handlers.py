@@ -40,6 +40,7 @@ class UndoHandler:
             "data": {
                 "messages": messages_data,
                 "message_details": message_details,
+                "bus_type": db.bus_type,
                 "status": {"modified": db.modified,
                            "undo_count": len(session.undo_stack),
                            "redo_count": len(session.redo_stack)},
@@ -80,6 +81,7 @@ class RedoHandler:
             "data": {
                 "messages": messages_data,
                 "message_details": message_details,
+                "bus_type": db.bus_type,
                 "status": {"modified": db.modified,
                            "undo_count": len(session.undo_stack),
                            "redo_count": len(session.redo_stack)},
@@ -182,6 +184,57 @@ class GetStatusHandler:
             status_data["redo_count"] = len(session.redo_stack)
             status_data["save_error"] = session.save_error
         return HandlerResult(data=status_data, session_id=sid)
+
+
+class EditDatabaseHandler:
+    """修改数据库级属性（如 bus_type）。"""
+    def __init__(self, session_mgr):
+        self._sm = session_mgr
+
+    def __call__(self, data: dict) -> HandlerResult:
+        sid = data["session_id"]
+        session = self._sm.get(sid)
+        if not session:
+            raise HandlerError("SESSION_NOT_FOUND", "会话不存在")
+        fields = data.get("fields", {})
+        db = session.db
+        with db.with_lock():
+            old_values = {}
+            if "bus_type" in fields:
+                bt = fields["bus_type"]
+                if bt not in ("CAN", "CAN FD"):
+                    raise HandlerError("VALUE_INVALID", "bus_type must be 'CAN' or 'CAN FD'")
+                # CAN FD → CAN 时校验 DLC：经典 CAN 仅支持 DLC 1-8
+                if db.bus_type == "CAN FD" and bt == "CAN":
+                    oversized = [m for m in db.messages.values() if m.dlc > 8]
+                    if oversized:
+                        names = ", ".join(m.name for m in oversized[:3])
+                        raise HandlerError(
+                            "DLC_TOO_LARGE",
+                            f"经典 CAN 仅支持 DLC 1-8，请先减小以下报文的 DLC：{names}",
+                            {"bus_type": db.bus_type}  # 返回当前正确的值
+                        )
+                old_values["bus_type"] = db.bus_type
+                db.bus_type = bt
+                db.modified = True
+            if old_values:
+                self._sm.push_undo(sid, {
+                    "type": "database_update",
+                    "prev": old_values,
+                    "next": fields,
+                })
+            new_version = db._bump_version()
+        events = [
+            {"type": "database_updated", "data": {"bus_type": db.bus_type},
+             "data_version": new_version},
+            {"type": "status_changed",
+             "data": {"modified": True,
+                      "undo_count": len(session.undo_stack),
+                      "redo_count": len(session.redo_stack)},
+             "data_version": new_version},
+        ]
+        return HandlerResult(data={"bus_type": db.bus_type}, events=events,
+                             new_version=new_version, session_id=sid)
 
 
 class GetSnapshotDebugHandler:

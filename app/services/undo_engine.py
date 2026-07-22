@@ -158,6 +158,8 @@ class UndoEngine:
         elif snap_type == "batch_signal_add":
             for sig in snap["signals"]:
                 self._delete_signal(session, snap["msgId"], sig["uuid"])
+        elif snap_type == "database_update":
+            self._restore_database_update(session, snap["prev"])
         else:
             raise ValueError(f"Unknown undo type: {snap_type}")
 
@@ -180,6 +182,8 @@ class UndoEngine:
         elif snap_type == "batch_signal_add":
             for sig in snap["signals"]:
                 self._restore_signal(session, snap["msgId"], sig["data"])
+        elif snap_type == "database_update":
+            self._restore_database_update(session, snap["next"])
         else:
             raise ValueError(f"Unknown redo type: {snap_type}")
 
@@ -205,6 +209,7 @@ class UndoEngine:
             cycle_time=msg_data.get("cycle_time", 0),
             sender=msg_data.get("sender", ""),
             comment=msg_data.get("comment", ""),
+            is_fd=msg_data["is_fd"],
             signals=signals,
         )
 
@@ -269,6 +274,13 @@ class UndoEngine:
         for key, value in updates.items():
             if hasattr(sig, key):
                 setattr(sig, key, value)
+
+    def _restore_database_update(self, session, updates: dict):
+        """恢复数据库级属性更新。"""
+        db = session.db
+        for key, value in updates.items():
+            if hasattr(db, key):
+                setattr(db, key, value)
 
     def _delete_message(self, session, msg_id: int):
         """删除报文。"""

@@ -49,6 +49,7 @@ def import_dbc(filepath: str) -> CanDatabase:
             cycle_time=cycle_time,
             comment=str(comment),
             sender=sender,
+            is_fd=getattr(can_msg, 'is_fd', False),
         )
 
         for can_sig in can_msg.signals:
@@ -106,6 +107,29 @@ def export_dbc(database: CanDatabase, filepath: str) -> None:
     logger.info("Exporting DBC: %s (%d messages)", filepath, len(database.messages))
     # Build cantools database objects
     can_db = cantools.database.Database()
+    # 注册 VFrameFormat + BusType 属性定义
+    from cantools.database.can.formats.dbc import (
+        ATTRIBUTE_DEFINITION_VFRAMEFORMAT,
+        ATTRIBUTE_DEFINITION_BUS_TYPE,
+    )
+    from cantools.database.can.formats.dbc_specifics import DbcSpecifics
+    from cantools.database.can.attribute import Attribute
+    from copy import copy
+    vff = copy(ATTRIBUTE_DEFINITION_VFRAMEFORMAT)
+    vff.default_value = 'reserved'
+    # 使用用户显式配置的 bus_type，不做自动推断
+    can_db._dbc = DbcSpecifics(
+        attribute_definitions={
+            'VFrameFormat': vff,
+            'BusType': ATTRIBUTE_DEFINITION_BUS_TYPE,
+        },
+        attributes={
+            'BusType': Attribute(
+                definition=ATTRIBUTE_DEFINITION_BUS_TYPE,
+                value=database.bus_type,
+            ),
+        },
+    )
 
     for msg in sorted(database.messages.values(), key=lambda m: m.id):
         can_signals: list = []
@@ -148,6 +172,7 @@ def export_dbc(database: CanDatabase, filepath: str) -> None:
             comment=msg.comment,
             senders=[sender] if (sender := msg.sender) else [],
             cycle_time=cycle if (cycle := msg.cycle_time) > 0 else None,
+            is_fd=msg.is_fd,
         )
         can_db.messages.append(can_msg)
 

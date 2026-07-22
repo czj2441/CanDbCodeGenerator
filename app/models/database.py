@@ -72,6 +72,7 @@ class CanDatabase:
 
     def __init__(self, name: str = "Untitled") -> None:
         self.name: str = name
+        self.bus_type: str = "CAN"  # "CAN" 或 "CAN FD"，由用户显式配置
         self.messages: dict[int, Message] = {}
         self.modified: bool = False
         self.__lock = threading.RLock()
@@ -133,6 +134,9 @@ class CanDatabase:
                 self.modified = True
             return True
 
+    # 经典 CAN 允许的 DLC 值（1~8）
+    CLASSIC_CAN_DLC_VALUES = frozenset({1, 2, 3, 4, 5, 6, 7, 8})
+
     def validate_message_fields(self, msg_id: int, updates: dict) -> tuple[bool, str, dict]:
         """校验报文更新字段。返回 (ok, error_msg, details)。"""
         # #3: name 非空
@@ -142,6 +146,22 @@ class CanDatabase:
                 return False, "Message name cannot be empty", {
                     "error_code": "message_name_empty", "field": "name"
                 }
+
+        # is_fd 类型校验
+        if "is_fd" in updates:
+            if not isinstance(updates["is_fd"], bool):
+                return False, "is_fd must be a boolean", {
+                    "error_code": "is_fd_invalid", "field": "is_fd"
+                }
+            # is_fd 切换兼容性校验：切换为经典 CAN 时，当前 DLC 必须 ≤ 8
+            if not updates["is_fd"] and "dlc" not in updates:
+                msg = self.messages.get(msg_id)
+                if msg and msg.dlc not in self.CLASSIC_CAN_DLC_VALUES:
+                    return False, f"Classic CAN only supports DLC 1-8, current DLC is {msg.dlc}", {
+                        "error_code": "dlc_fd_only", "field": "is_fd",
+                        "valid_values": sorted(self.CLASSIC_CAN_DLC_VALUES),
+                        "is_fd": msg.is_fd  # 返回当前正确的值
+                    }
 
         # #4: DLC 范围
         if "dlc" in updates:
@@ -162,6 +182,16 @@ class CanDatabase:
                 return False, f"Invalid DLC value, valid: {sorted(self.VALID_DLC_VALUES)}", {
                     "error_code": "dlc_invalid", "field": "dlc",
                     "valid_values": sorted(self.VALID_DLC_VALUES)
+                }
+            # 根据 is_fd 限制 DLC 范围
+            is_fd = updates.get("is_fd")
+            if is_fd is None:
+                msg = self.messages.get(msg_id)
+                is_fd = msg.is_fd if msg else False
+            if not is_fd and dlc_int not in self.CLASSIC_CAN_DLC_VALUES:
+                return False, f"Classic CAN only supports DLC 1-8, got {dlc_int}", {
+                    "error_code": "dlc_fd_only", "field": "dlc",
+                    "valid_values": sorted(self.CLASSIC_CAN_DLC_VALUES)
                 }
             # DLC 缩小时检查现有信号是否越界
             msg = self.messages.get(msg_id)
@@ -410,6 +440,7 @@ class CanDatabase:
         with self.__lock:
             return {
                 "name": self.name,
+                "bus_type": self.bus_type,
                 "messages": {
                     f"0x{mid:X}": m.to_dict() for mid, m in sorted(self.messages.items())
                 },
@@ -419,6 +450,9 @@ class CanDatabase:
     def from_dict(cls, data: dict[str, Any]) -> CanDatabase:
         """从字典创建。"""
         db = cls(name=data.get("name", "Untitled"))
+        bt = data.get("bus_type", "CAN")
+        if bt in ("CAN", "CAN FD"):
+            db.bus_type = bt
         for mid_str, mdata in data.get("messages", {}).items():
             try:
                 mid = int(mid_str, 16) if mid_str.startswith("0x") else int(mid_str)
@@ -468,6 +502,8 @@ class CanDatabase:
         with self.__lock:
             props: dict[str, str] = {}
             props["database.name"] = self.name
+            if self.bus_type != "CAN":
+                props["database.bus_type"] = self.bus_type
 
             for mid in sorted(self.messages):
                 msg = self.messages[mid]
@@ -481,6 +517,8 @@ class CanDatabase:
                     props[f"{mp}.sender"] = msg.sender
                 if msg.comment:
                     props[f"{mp}.comment"] = msg.comment
+                if msg.is_fd:
+                    props[f"{mp}.is_fd"] = "true"
 
                 if msg.signals:
                     seen: set[str] = set()
@@ -531,6 +569,9 @@ class CanDatabase:
         props = javaproperties.loads(content)
         db_name = props.get("database.name", "Untitled")
         db = cls(name=db_name)
+        bt = props.get("database.bus_type", "CAN")
+        if bt in ("CAN", "CAN FD"):
+            db.bus_type = bt
 
         messages_data: dict[str, dict] = {}
 
@@ -572,6 +613,7 @@ class CanDatabase:
                 cycle_time=int(msg_d.get("cycle_time", 0)),
                 sender=msg_d.get("sender", ""),
                 comment=msg_d.get("comment", ""),
+                is_fd=msg_d.get("is_fd", "").lower() in ("true", "1", "yes"),
             )
 
             for _sig_key, sig_d in msg_d.get("signals", {}).items():
@@ -621,9 +663,32 @@ class CanDatabase:
         """导出为 DBC 格式字符串（使用 cantools 库）。"""
         import cantools.database
         from cantools.database.conversion import IdentityConversion, LinearConversion
+        from cantools.database.can.formats.dbc import (
+            ATTRIBUTE_DEFINITION_VFRAMEFORMAT,
+            ATTRIBUTE_DEFINITION_BUS_TYPE,
+        )
+        from cantools.database.can.formats.dbc_specifics import DbcSpecifics
+        from cantools.database.can.attribute import Attribute
+        from copy import copy
         
         with self.__lock:
             can_db = cantools.database.Database()
+            # 注册 VFrameFormat + BusType 属性定义
+            vff = copy(ATTRIBUTE_DEFINITION_VFRAMEFORMAT)
+            vff.default_value = 'reserved'
+            # 使用用户显式配置的 bus_type，不做自动推断
+            can_db._dbc = DbcSpecifics(
+                attribute_definitions={
+                    'VFrameFormat': vff,
+                    'BusType': ATTRIBUTE_DEFINITION_BUS_TYPE,
+                },
+                attributes={
+                    'BusType': Attribute(
+                        definition=ATTRIBUTE_DEFINITION_BUS_TYPE,
+                        value=self.bus_type,
+                    ),
+                },
+            )
             
             for msg in sorted(self.messages.values(), key=lambda m: m.id):
                 can_signals = []
@@ -663,6 +728,7 @@ class CanDatabase:
                     comment=msg.comment if msg.comment else None,
                     senders=[sender] if (sender := msg.sender) else [],
                     cycle_time=msg.cycle_time if msg.cycle_time > 0 else None,
+                    is_fd=msg.is_fd,
                 )
                 can_db.messages.append(can_msg)
             
@@ -709,6 +775,7 @@ class CanDatabase:
                 "cycle_time": cycle_time,
                 "comment": str(can_msg.comment) if can_msg.comment else "",
                 "sender": sender,
+                "is_fd": getattr(can_msg, 'is_fd', False),
             })
             
             for can_sig in can_msg.signals:

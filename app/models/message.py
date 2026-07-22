@@ -18,6 +18,7 @@ class Message:
     cycle_time: int = 0  # ms, 0 = event-triggered
     comment: str = ""
     sender: str = ""
+    is_fd: bool = False  # True = CAN FD, False = Classic CAN
     signals: list[Signal] = field(default_factory=list)
 
     def to_dict(self, signals_as_dict: bool = True) -> dict[str, Any]:
@@ -29,6 +30,7 @@ class Message:
             "cycle_time": self.cycle_time,
             "comment": self.comment,
             "sender": self.sender,
+            "is_fd": self.is_fd,
         }
         if signals_as_dict:
             d["signals"] = [sig.to_dict() for sig in self.signals]
@@ -46,5 +48,6 @@ class Message:
             cycle_time=int(data.get("cycle_time", 0)),
             comment=str(data.get("comment", "")),
             sender=str(data.get("sender", "")),
+            is_fd=bool(data.get("is_fd", False)),
             signals=[Signal.from_dict(sig_data) for sig_data in data.get("signals", [])],
         )

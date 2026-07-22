@@ -69,6 +69,7 @@ class EditMessageHandler:
                 "id": msg_id, "id_hex": f"0x{msg_id:X}", "name": updated_msg.name,
                 "dlc": updated_msg.dlc, "cycle_time": updated_msg.cycle_time,
                 "sender": updated_msg.sender, "comment": updated_msg.comment,
+                "is_fd": updated_msg.is_fd,
                 "signal_count": len(updated_msg.signals)}}
             if new_id != original_msg_id:
                 evt_data["old_id"] = original_msg_id
@@ -129,6 +130,7 @@ class AddMessageHandler:
             summary = {"id": msg_id, "id_hex": f"0x{msg_id:X}", "name": msg.name,
                        "dlc": msg.dlc, "cycle_time": msg.cycle_time,
                        "sender": msg.sender, "comment": msg.comment,
+                       "is_fd": msg.is_fd,
                        "signal_count": len(msg.signals)}
             events = [
                 {"type": "message_added", "data": {"message": summary}, "data_version": new_version},
@@ -203,6 +205,7 @@ class DuplicateMessageHandler:
             summary = {"id": new_id, "id_hex": f"0x{new_id:X}", "name": msg.name,
                        "dlc": msg.dlc, "cycle_time": msg.cycle_time,
                        "sender": msg.sender, "comment": msg.comment,
+                       "is_fd": msg.is_fd,
                        "signal_count": len(msg.signals)}
             events = [
                 {"type": "message_added", "data": {"message": summary}, "data_version": new_version},
@@ -246,7 +249,8 @@ class GetMessagesHandler:
         with db.with_lock():
             messages = [
                 {"id": mid, "id_hex": f"0x{mid:X}", "name": m.name,
-                 "dlc": m.dlc, "cycle_time": m.cycle_time, "signal_count": len(m.signals)}
+                 "dlc": m.dlc, "cycle_time": m.cycle_time, "is_fd": m.is_fd,
+                 "signal_count": len(m.signals)}
                 for mid, m in sorted(db.messages.items())
             ]
         return HandlerResult(data=messages, session_id=sid)

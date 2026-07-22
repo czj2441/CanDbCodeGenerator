@@ -102,6 +102,7 @@ class ImportFileHandler:
         return HandlerResult(
             data={"message_count": len(new_db.messages),
                   "session_id": new_sid,
+                  "bus_type": new_db.bus_type,
                   "file_name": file_name},
             new_version=0, session_id=sid,
             new_session_id=new_sid)
@@ -194,6 +195,7 @@ class LoadFileHandler:
             raise HandlerError("SESSION_NOT_FOUND", "File not found or corrupted")
         return HandlerResult(data={
             "session_id": s.id, "file_name": _pure_file_name(s),
+            "bus_type": s.db.bus_type,
             "message_count": len(s.db.messages), "signal_count": s.db.total_signals(),
         }, session_id=current_sid, new_session_id=s.id if s.id != current_sid else None)
 

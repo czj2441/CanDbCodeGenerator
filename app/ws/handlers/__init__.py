@@ -23,6 +23,7 @@ from .file_handlers import (
 from .system_handlers import (
     UndoHandler, RedoHandler, ReleaseLockHandler, StealLockHandler,
     GetSummaryHandler, GetSessionInfoHandler, GetStatusHandler,
+    EditDatabaseHandler,
     GetSnapshotDebugHandler,
 )
 
@@ -40,5 +41,6 @@ __all__ = [
     # System
     'UndoHandler', 'RedoHandler', 'ReleaseLockHandler', 'StealLockHandler',
     'GetSummaryHandler', 'GetSessionInfoHandler', 'GetStatusHandler',
+    'EditDatabaseHandler',
     'GetSnapshotDebugHandler',
 ]

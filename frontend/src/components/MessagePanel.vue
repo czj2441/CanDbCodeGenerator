@@ -76,12 +76,19 @@
         <div class="field-row">
           <div class="field">
             <label>{{ t('panel.dlc') }}</label>
-            <input class="mono" type="number" min="1" max="8" v-lazy-value="msg.dlc" @blur="e => update('dlc', parseInt(e.target.value))">
+            <input class="mono" type="number" min="1" :max="msg.is_fd ? 64 : 8" v-lazy-value="msg.dlc" @blur="e => updateDlc(parseInt(e.target.value))">
           </div>
           <div class="field">
             <label>{{ t('panel.cycle') }}</label>
             <input class="mono" type="number" min="0" v-lazy-value="msg.cycle_time" @blur="e => update('cycle_time', parseInt(e.target.value))">
           </div>
+        </div>
+        <div class="field">
+          <label>{{ t('panel.networkType') }}</label>
+          <select ref="isFdEl" v-model="localIsFd" @change="toggleIsFd($event.target.value === 'true')">
+            <option value="false">{{ t('panel.canClassic') }}</option>
+            <option value="true">{{ t('panel.canfd') }}</option>
+          </select>
         </div>
         <div class="field">
           <label>{{ t('panel.sender') }}</label>
@@ -105,7 +112,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useEditorStore } from '../stores/editor.js'
 import { useMessagesStore } from '../stores/messages.js'
 import { useSignalsStore } from '../stores/signals.js'
@@ -126,6 +133,13 @@ const signals = useSignalsStore()
 const clipboard = useClipboardStore()
 const ui = useUiStore()
 const msg = computed(() => store.selectedMessage)
+
+// 本地 is_fd 状态：从 msg.is_fd 同步，用于 v-model 双向绑定
+const localIsFd = ref(msg.value?.is_fd ? 'true' : 'false')
+const isFdEl = ref(null)
+watch(() => msg.value?.is_fd, (v) => {
+  localIsFd.value = v ? 'true' : 'false'
+}, { immediate: true })
 const selectedSig = computed(() => {
   if (!msg.value || !ui.selectedSignalUuid) return null
   return msg.value.signals.find(s => s.uuid === ui.selectedSignalUuid) || null
@@ -153,7 +167,23 @@ function modifyDisplayStartBit(displayValue) {
 }
 
 function update(field, value) {
-  messages.updateMessageField(field, value)
+  messages.updateMessageField(field, value).catch(() => {})
+}
+
+function updateDlc(value) {
+  update('dlc', value)
+}
+
+function toggleIsFd(newIsFd) {
+  messages.updateMessageField('is_fd', newIsFd)
+    .catch(e => {
+      // 后端拒绝时，updateMessageField 已将缓存恢复为后端值
+      // 同步本地 ref 并强制 DOM 恢复
+      localIsFd.value = msg.value?.is_fd ? 'true' : 'false'
+      if (isFdEl.value) {
+        isFdEl.value.value = localIsFd.value
+      }
+    })
 }
 
 function updateSignal(field, value) {

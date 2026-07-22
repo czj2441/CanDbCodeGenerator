@@ -57,7 +57,7 @@ export const useMessagesStore = defineStore('messages', {
 
       try {
         const result = await editor._wsRequest('add_message', {
-          message: { id, name, dlc: 8, cycle_time: 0, sender: '', signals: [] }
+          message: { id, name, dlc: 8, cycle_time: 0, sender: '', is_fd: false, signals: [] }
         })
         if (result?.id != null) {
           editor.messageCache[result.id] = result
@@ -104,9 +104,17 @@ export const useMessagesStore = defineStore('messages', {
           editor.messageCache[editor.selectedMsgId] = result
         }
       } catch (e) {
+        // 后端拒绝时，用后端返回的权威值覆盖缓存中的对应字段
+        if (e.details && field in e.details) {
+          const cache = editor.messageCache[editor.selectedMsgId]
+          if (cache) {
+            cache[field] = e.details[field]
+          }
+        }
         if (!e.message?.includes?.('Connection lost')) {
           useUiStore().showToast(translateError(e), true)
         }
+        throw e  // 重新抛出，让调用方（如 toggleIsFd）也能处理错误
       }
     },
   },

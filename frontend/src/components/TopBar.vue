@@ -3,6 +3,10 @@
     <button class="btn btn-icon btn-back" @click="$emit('back')" :title="t('topbar.back')">←</button>
     <div class="topbar-logo">Can<span>Matrix</span></div>
     <span class="topbar-filename">{{ store.currentFileName }}</span>
+    <select class="topbar-bus-type" v-model="store.busType" @change="setBusType($event.target.value)">
+      <option value="CAN">CAN</option>
+      <option value="CAN FD">CAN FD</option>
+    </select>
     <span v-if="store.backendDirty" class="topbar-dirty-badge" :title="t('status.unsaved')">● {{ t('status.unsaved') }}</span>
     <span class="topbar-spacer"></span>
     <span class="topbar-divider"></span>
@@ -88,6 +92,17 @@ const fileOps = useFileOperationsStore()
 const ui = useUiStore()
 const exportDropdownOpen = ref(false)
 const exportWrapper = ref(null)
+
+function setBusType(value) {
+  store._wsRequest('edit_database', { fields: { bus_type: value } })
+    .catch(e => {
+      // 后端拒绝时，用后端返回的权威值覆盖 store
+      if (e.details?.bus_type) {
+        store.busType = e.details.bus_type
+      }
+      ui.showToast(e.message, true)
+    })
+}
 
 // 直接使用 store.currentFileName，避免本地 ref 与 store 状态不一致
 function handleKeydown(event) {
@@ -507,4 +522,17 @@ async function save() {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
 }
+
+.topbar-bus-type {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 2px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  outline: none;
+}
+.topbar-bus-type:focus { border-color: var(--accent-dim); }
 </style>

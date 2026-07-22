@@ -17,6 +17,7 @@ export const useEditorStore = defineStore('editor', {
 
     // ── 会话与文件 ──
     currentFileName: '',
+    busType: 'CAN',  // 全局总线类型，用户显式配置
 
     // ── 运行时状态 ──
     isLoading: false,
@@ -353,6 +354,9 @@ export const useEditorStore = defineStore('editor', {
         case 'undo_applied':
         case 'redo_applied': {
           this._syncBackendStatus(msg.data.status)
+          if (msg.data.bus_type) {
+            this.busType = msg.data.bus_type
+          }
           if (msg.data.messages) {
             this.messages = msg.data.messages
           }
@@ -377,6 +381,13 @@ export const useEditorStore = defineStore('editor', {
           this._syncBackendStatus(msg.data)
           if (msg.data.save_error) {
             useUiStore().showToast(t('toast.autoSaveFailed', { error: msg.data.save_error }), true)
+          }
+          break
+        }
+
+        case 'database_updated': {
+          if (msg.data.bus_type) {
+            this.busType = msg.data.bus_type
           }
           break
         }

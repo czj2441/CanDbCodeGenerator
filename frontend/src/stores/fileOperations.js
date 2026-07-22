@@ -60,6 +60,7 @@ export const useFileOperationsStore = defineStore('fileOperations', {
         setSessionId(sid)
         editor._dataVersion = 0
         editor.currentFileName = data.file_name || ''
+        editor.busType = data.bus_type || 'CAN'
         useUiStore().showToast(t('toast.sessionLoaded'))
       } catch (e) {
         editor._resetOnSessionFailure()
@@ -139,6 +140,7 @@ export const useFileOperationsStore = defineStore('fileOperations', {
         const sid = data.session_id
         setSessionId(sid)
         editor.currentFileName = data.file_name || filename
+        editor.busType = data.bus_type || 'CAN'
         editor._dataVersion = 0
 
         return data
@@ -167,6 +169,7 @@ export const useFileOperationsStore = defineStore('fileOperations', {
         const sid = data.session_id
         setSessionId(sid)
         editor.currentFileName = data.file_name
+        editor.busType = 'CAN'  // 新建文件默认为 CAN
         editor.selectedMsgId = null
         editor.messageCache = {}
         editor.messages = []
