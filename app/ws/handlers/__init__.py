@@ -3,7 +3,7 @@
 # Signal handlers
 from .signal_handlers import (
     EditSignalHandler, AddSignalHandler, DeleteSignalHandler,
-    BatchAddSignalsHandler, GetSignalErrorsHandler,
+    BatchAddSignalsHandler, GetDataErrorsHandler,
 )
 
 # Message handlers
@@ -30,7 +30,7 @@ from .system_handlers import (
 __all__ = [
     # Signal
     'EditSignalHandler', 'AddSignalHandler', 'DeleteSignalHandler',
-    'BatchAddSignalsHandler', 'GetSignalErrorsHandler',
+    'BatchAddSignalsHandler', 'GetDataErrorsHandler',
     # Message
     'EditMessageHandler', 'AddMessageHandler', 'DeleteMessageHandler',
     'DuplicateMessageHandler', 'GetMessageHandler', 'GetMessagesHandler',

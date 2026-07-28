@@ -34,6 +34,7 @@ class UndoHandler:
             ]
             message_details = {str(mid): m.to_dict() for mid, m in db.messages.items()}
             new_version = db._bump_version()
+            integrity_errors = db.validate_data_integrity()  # 锁内调用
 
         events = [{
             "type": "undo_applied",
@@ -45,6 +46,10 @@ class UndoHandler:
                            "undo_count": len(session.undo_stack),
                            "redo_count": len(session.redo_stack)},
             },
+            "data_version": new_version,
+        }, {
+            "type": "data_errors_changed",
+            "data": {"errors": integrity_errors},
             "data_version": new_version,
         }]
         return HandlerResult(data={"undo_count": len(session.undo_stack),
@@ -75,6 +80,7 @@ class RedoHandler:
             ]
             message_details = {str(mid): m.to_dict() for mid, m in db.messages.items()}
             new_version = db._bump_version()
+            integrity_errors = db.validate_data_integrity()  # 锁内调用
 
         events = [{
             "type": "redo_applied",
@@ -86,6 +92,10 @@ class RedoHandler:
                            "undo_count": len(session.undo_stack),
                            "redo_count": len(session.redo_stack)},
             },
+            "data_version": new_version,
+        }, {
+            "type": "data_errors_changed",
+            "data": {"errors": integrity_errors},
             "data_version": new_version,
         }]
         return HandlerResult(data={"undo_count": len(session.undo_stack),

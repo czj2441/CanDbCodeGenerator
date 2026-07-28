@@ -32,3 +32,13 @@ def validate_file_name(file_name: str) -> str:
     if not clean or clean != file_name:
         raise ValueError("Invalid file name")
     return clean
+
+
+def push_data_errors(events: list, db, new_version: int) -> None:
+    """追加 data_errors_changed 事件到事件列表（全局数据完整性校验）。"""
+    errors = db.validate_data_integrity()
+    events.append({
+        "type": "data_errors_changed",
+        "data": {"errors": errors},
+        "data_version": new_version,
+    })

@@ -8,6 +8,7 @@ from __future__ import annotations
 from app.models import Message
 from app.services import FileNameExistsError
 from app.ws.router import HandlerResult, HandlerError
+from ._common import push_data_errors
 
 
 def _parse_id(s) -> int | None:
@@ -80,12 +81,8 @@ class EditMessageHandler:
                  "undo_count": len(session.undo_stack), "redo_count": len(session.redo_stack)},
                  "data_version": new_version},
             ]
-            # 仅 DLC 变更会影响信号位布局（越界/重叠），其他字段(name/sender/comment/cycle_time)无影响
-            if 'dlc' in fields:
-                errs = db.validate_all_signals(msg_id)
-                events.append({"type": "signal_errors_changed",
-                               "data": {"msg_id": msg_id, "errors": errs},
-                               "data_version": new_version})
+            # 无条件推送全局数据完整性错误（覆盖 message_name_empty 等）
+            push_data_errors(events, db, new_version)
             return HandlerResult(data=updated_msg.to_dict(), events=events,
                                  new_version=new_version, session_id=sid)
 
@@ -138,6 +135,7 @@ class AddMessageHandler:
                  "undo_count": len(session.undo_stack), "redo_count": len(session.redo_stack)},
                  "data_version": new_version},
             ]
+            push_data_errors(events, db, new_version)
             return HandlerResult(data=msg.to_dict(), events=events,
                                  new_version=new_version, session_id=sid)
 
@@ -168,6 +166,7 @@ class DeleteMessageHandler:
                  "undo_count": len(session.undo_stack), "redo_count": len(session.redo_stack)},
                  "data_version": new_version},
             ]
+            push_data_errors(events, db, new_version)
             return HandlerResult(data={"deleted": f"0x{msg_id:X}"}, events=events,
                                  new_version=new_version, session_id=sid)
 
@@ -213,6 +212,7 @@ class DuplicateMessageHandler:
                  "undo_count": len(session.undo_stack), "redo_count": len(session.redo_stack)},
                  "data_version": new_version},
             ]
+            push_data_errors(events, db, new_version)
             return HandlerResult(data=msg.to_dict(), events=events,
                                  new_version=new_version, session_id=sid)
 

@@ -1,7 +1,7 @@
 """
 signal_handlers.py — 信号相关 WS Handler
 
-EditSignal / AddSignal / DeleteSignal / BatchAddSignals / GetSignalErrors
+EditSignal / AddSignal / DeleteSignal / BatchAddSignals
 """
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ import math
 
 from app.models import Signal
 from app.ws.router import HandlerResult, HandlerError, EDITABLE_SIGNAL_FIELDS
+from ._common import push_data_errors
 
 
 def _validate_signal_fields(body: dict, msg, sig_uuid: str = None):
@@ -36,21 +37,8 @@ def _validate_signal_fields(body: dict, msg, sig_uuid: str = None):
             if isinstance(val, float) and (math.isnan(val) or math.isinf(val)):
                 raise HandlerError("VALUE_INVALID", f"{num_field} cannot be NaN or Infinity",
                                    {"error_code": "invalid_number", "field": num_field})
-    if "factor" in body and body["factor"] == 0:
-        raise HandlerError("VALUE_INVALID", "Factor cannot be zero",
-                           {"error_code": "factor_zero", "field": "factor"})
+    # A2 已延后：factor==0 由 validate_data_integrity() 检测
 
-
-def _parse_id(s) -> int | None:
-    """解析报文 ID。仅接受 int 或十进制整数字符串。"""
-    if isinstance(s, int):
-        return s
-    if isinstance(s, str):
-        try:
-            return int(s.strip())
-        except ValueError:
-            return None
-    return None
 
 
 class EditSignalHandler:
@@ -111,6 +99,7 @@ class EditSignalHandler:
                  "undo_count": len(session.undo_stack), "redo_count": len(session.redo_stack)},
                  "data_version": new_version},
             ]
+            push_data_errors(events, db, new_version)
             return HandlerResult(data=sig.to_dict(), events=events,
                                  new_version=new_version, session_id=sid)
 
@@ -149,9 +138,7 @@ class AddSignalHandler:
                  "undo_count": len(session.undo_stack), "redo_count": len(session.redo_stack)},
                  "data_version": new_version},
             ]
-            errors = db.validate_all_signals(msg_id)
-            events.append({"type": "signal_errors_changed", "data": {"msg_id": msg_id, "errors": errors},
-                           "data_version": new_version})
+            push_data_errors(events, db, new_version)
             return HandlerResult(data=sig.to_dict(), events=events,
                                  new_version=new_version, session_id=sid)
 
@@ -188,9 +175,7 @@ class DeleteSignalHandler:
                  "undo_count": len(session.undo_stack), "redo_count": len(session.redo_stack)},
                  "data_version": new_version},
             ]
-            errors = db.validate_all_signals(msg_id)
-            events.append({"type": "signal_errors_changed", "data": {"msg_id": msg_id, "errors": errors},
-                           "data_version": new_version})
+            push_data_errors(events, db, new_version)
             return HandlerResult(data={"deleted": sig_uuid}, events=events,
                                  new_version=new_version, session_id=sid)
 
@@ -238,15 +223,13 @@ class BatchAddSignalsHandler:
             events.append({"type": "status_changed", "data": {"modified": True,
                            "undo_count": len(session.undo_stack), "redo_count": len(session.redo_stack)},
                            "data_version": new_version})
-            errs = db.validate_all_signals(msg_id)
-            events.append({"type": "signal_errors_changed", "data": {"msg_id": msg_id, "errors": errs},
-                           "data_version": new_version})
+            push_data_errors(events, db, new_version)
             return HandlerResult(
                 data={"created": [s.to_dict() for s in created], "errors": errors, "count": len(created)},
                 events=events, new_version=new_version, session_id=sid)
 
 
-class GetSignalErrorsHandler:
+class GetDataErrorsHandler:
     def __init__(self, session_mgr):
         self._sm = session_mgr
 
@@ -256,9 +239,6 @@ class GetSignalErrorsHandler:
         db = session.db if session else None
         if not db:
             raise HandlerError("SESSION_NOT_FOUND", "会话不存在")
-        msg_id = _parse_id(data.get("msg_id", ""))
-        if msg_id is None:
-            raise HandlerError("VALUE_INVALID", "Invalid message ID")
         with db.with_lock():
-            errors = db.validate_all_signals(msg_id)
+            errors = db.validate_data_integrity()
         return HandlerResult(data=errors, session_id=sid)

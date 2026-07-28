@@ -77,7 +77,7 @@ def _register_all_handlers(ws_router, session_mgr, ws_transport=None):
         DownloadFileHandler, CreateFileHandler, LoadFileHandler,
         SaveAsHandler, DeleteFileHandler, GetSessionsHandler, ReleaseLockHandler,
         StealLockHandler, GetSummaryHandler, GetSessionInfoHandler, GetMessageHandler,
-        GetSignalErrorsHandler, GetStatusHandler, GetMessagesHandler,
+        GetDataErrorsHandler, GetStatusHandler, GetMessagesHandler,
         EditDatabaseHandler,
         GetSnapshotDebugHandler,
     )
@@ -106,7 +106,7 @@ def _register_all_handlers(ws_router, session_mgr, ws_transport=None):
     ws_router.register("get_summary", GetSummaryHandler(session_mgr))
     ws_router.register("get_session_info", GetSessionInfoHandler(session_mgr))
     ws_router.register("get_message", GetMessageHandler(session_mgr))
-    ws_router.register("get_signal_errors", GetSignalErrorsHandler(session_mgr))
+    ws_router.register("get_data_errors", GetDataErrorsHandler(session_mgr))
     ws_router.register("get_status", GetStatusHandler(session_mgr))
     ws_router.register("get_messages", GetMessagesHandler(session_mgr))
     ws_router.register("edit_database", EditDatabaseHandler(session_mgr))
