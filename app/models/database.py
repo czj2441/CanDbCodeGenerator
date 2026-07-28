@@ -193,19 +193,7 @@ class CanDatabase:
                     "error_code": "dlc_fd_only", "field": "dlc",
                     "valid_values": sorted(self.CLASSIC_CAN_DLC_VALUES)
                 }
-            # DLC 缩小时检查现有信号是否越界
-            msg = self.messages.get(msg_id)
-            if msg and dlc_int < msg.dlc:
-                max_bits = dlc_int * 8
-                for sig in msg.signals:
-                    sig_bits = self._get_signal_bits(sig.start_bit, sig.length, sig.byte_order)
-                    oob = [b for b in sig_bits if b >= max_bits]
-                    if oob:
-                        return False, f"DLC reduction would make signal '{sig.name}' out of bounds", {
-                            "error_code": "dlc_reduce_conflict", "field": "dlc",
-                            "name": sig.name, "new_max_bit": max_bits - 1
-                        }
-
+            # A1 已延后：DLC 缩小导致的信号越界由 validate_data_integrity() 检测
         return True, "", {"error_code": "ok"}
 
     def move_message(self, old_id: int, new_id: int) -> bool:
@@ -347,50 +335,17 @@ class CanDatabase:
             return False, "Signal length must be at least 1", {
                 "type": "invalid_param", "field": "length", "value": sig.length,
             }
-        occupied = self._get_signal_bits(sig.start_bit, sig.length, sig.byte_order)
-        oob = [b for b in occupied if b < 0 or b >= max_bits]
-        if oob:
-            suggestion = self._find_next_available_start_bit(
-                msg, sig.length, sig.byte_order, exclude_uuid
-            )
-            return False, f"Signal out of bounds (DLC={msg.dlc}, max bit={max_bits - 1})", {
-                "type": "out_of_bounds",
-                "error_code": "signal_out_of_bounds",
-                "signal_name": sig.name,
-                "start_bit": sig.start_bit,
-                "length": sig.length,
-                "byte_order": sig.byte_order,
-                "dlc": msg.dlc,
-                "max_bit": max_bits - 1,
-                "out_of_bounds_bits": sorted(oob)[:10],
-                "suggestion": suggestion,
-            }
-        for existing in msg.signals:
-            if exclude_uuid and existing.uuid == exclude_uuid:
-                continue
-            existing_bits = self._get_signal_bits(
-                existing.start_bit, existing.length, existing.byte_order
-            )
-            overlap = occupied & existing_bits
-            if overlap:
-                suggestion = self._find_next_available_start_bit(
-                    msg, sig.length, sig.byte_order, exclude_uuid
-                )
-                return False, f"Signal overlaps with '{existing.name}'", {
-                    "type": "overlap",
-                    "error_code": "signal_overlap",
-                    "name": sig.name,
-                    "other": existing.name,
-                    "signal_name": sig.name,
-                    "conflicts_with": existing.name,
-                    "conflicts_uuid": existing.uuid,
-                    "overlapping_bits": sorted(overlap),
-                    "suggestion": suggestion,
-                }
+        # A3/A4 已延后：越界和重叠由 validate_all_signals() 非阻断检测
         return True, "", {"type": "ok"}
 
-    def validate_all_signals(self, msg_id: int) -> list[dict]:
-        """验证报文中所有信号，返回全部错误列表。"""
+    def validate_all_signals(self, msg_id: int, include_suggestion: bool = True) -> list[dict]:
+        """验证报文中所有信号，返回全部错误列表。
+
+        Args:
+            msg_id: 报文 ID。
+            include_suggestion: 是否计算修复建议（_find_next_available_start_bit）。
+                全局校验时传 False 可显著减少大报文的计算开销。
+        """
         msg = self.messages.get(msg_id)
         if not msg:
             return []
@@ -404,7 +359,7 @@ class CanDatabase:
             if oob:
                 suggestion = self._find_next_available_start_bit(
                     msg, sig.length, sig.byte_order, sig.uuid
-                )
+                ) if include_suggestion else None
                 errors.append({
                     "type": "out_of_bounds",
                     "signal_uuid": sig.uuid,
@@ -421,7 +376,7 @@ class CanDatabase:
                 if overlap:
                     suggestion = self._find_next_available_start_bit(
                         msg, sig.length, sig.byte_order, sig.uuid
-                    )
+                    ) if include_suggestion else None
                     errors.append({
                         "type": "overlap",
                         "signal_uuid": sig.uuid,
@@ -432,6 +387,80 @@ class CanDatabase:
                         "suggestion": suggestion,
                     })
         return errors
+
+    def validate_data_integrity(self) -> list[dict]:
+        """全局数据完整性校验。返回所有报文的合规性错误列表。
+
+        覆盖 7 种错误类型：out_of_bounds、overlap、factor_zero、
+        signal_name_empty、signal_name_duplicate、signal_length_zero、
+        message_name_empty。
+        """
+        errors: list[dict] = []
+        for msg_id, msg in sorted(self.messages.items()):
+            # ── 报文级 ──
+            if not msg.name or not msg.name.strip():
+                errors.append({
+                    "type": "message_name_empty",
+                    "msg_id": msg_id,
+                    "message": f"Message 0x{msg_id:X} name is empty",
+                })
+
+            # ── 信号位布局（复用 validate_all_signals，跳过 suggestion 计算）──
+            sig_errors = self.validate_all_signals(msg_id, include_suggestion=False)
+            for err in sig_errors:
+                err["msg_id"] = msg_id
+                # 补充 max_bit 供前端显示 "最大 {max}"
+                if err["type"] == "out_of_bounds":
+                    err["max_bit"] = msg.dlc * 8 - 1
+            errors.extend(sig_errors)
+
+            # ── 信号字段级 ──
+            seen_names: set[str] = set()
+            for sig in msg.signals:
+                if sig.factor == 0:
+                    errors.append({
+                        "type": "factor_zero",
+                        "msg_id": msg_id,
+                        "signal_uuid": sig.uuid,
+                        "signal_name": sig.name,
+                        "message": f"Signal '{sig.name}' factor is 0",
+                    })
+                if not sig.name or not sig.name.strip():
+                    errors.append({
+                        "type": "signal_name_empty",
+                        "msg_id": msg_id,
+                        "signal_uuid": sig.uuid,
+                        "signal_name": "(empty)",
+                        "message": f"Signal in message 0x{msg_id:X} has empty name",
+                    })
+                else:
+                    if sig.name in seen_names:
+                        errors.append({
+                            "type": "signal_name_duplicate",
+                            "msg_id": msg_id,
+                            "signal_uuid": sig.uuid,
+                            "signal_name": sig.name,
+                            "message": f"Signal name '{sig.name}' duplicated in message 0x{msg_id:X}",
+                        })
+                    seen_names.add(sig.name)
+                if sig.length < 1:
+                    errors.append({
+                        "type": "signal_length_zero",
+                        "msg_id": msg_id,
+                        "signal_uuid": sig.uuid,
+                        "signal_name": sig.name,
+                        "message": f"Signal '{sig.name}' length must be ≥ 1",
+                    })
+        return errors
+
+    def validate_for_dbc_export(self) -> list[dict]:
+        """DBC 导出前校验。返回阻断性错误列表，空列表表示可导出。
+
+        覆盖 7 种 DBC 阻断性错误：out_of_bounds、overlap、factor_zero、
+        signal_name_empty、signal_name_duplicate、signal_length_zero、
+        message_name_empty。直接委托 validate_data_integrity()。
+        """
+        return self.validate_data_integrity()
 
     # ── 序列化 ─────────────────────────────────────────────────────────
 
