@@ -170,18 +170,5 @@ export const useSignalsStore = defineStore('signals', {
       }
     },
 
-    /**
-     * 加载当前报文的信号错误列表
-     */
-    async loadSignalErrors() {
-      const editor = useEditorStore()
-      if (editor.selectedMsgId == null) return
-      try {
-        const errors = await editor._wsRequest('get_signal_errors', { msg_id: editor.selectedMsgId })
-        editor.signalErrors = errors || []
-      } catch (_) {
-        editor.signalErrors = []
-      }
-    },
   },
 })

@@ -2,7 +2,6 @@ import { defineStore } from 'pinia'
 import { t } from '../i18n.js'
 import { useUiStore } from './uiStore.js'
 import { useEditorStore } from './editor.js'
-import { useSignalsStore } from './signals.js'
 import { translateError, generateMessageId } from '../utils/storeHelpers.js'
 
 export const useMessagesStore = defineStore('messages', {
@@ -37,11 +36,9 @@ export const useMessagesStore = defineStore('messages', {
      */
     async loadSelectedMessage() {
       const editor = useEditorStore()
-      const signals = useSignalsStore()
       if (editor.selectedMsgId == null) return
       try {
         editor.messageCache[editor.selectedMsgId] = await editor._wsRequest('get_message', { msg_id: editor.selectedMsgId })
-        signals.loadSignalErrors()
       } catch (e) {
         useUiStore().showToast(e.message, true)
       }

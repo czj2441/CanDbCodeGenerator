@@ -35,6 +35,8 @@ export const useUiStore = defineStore('ui', {
     theme: localStorage.getItem('canmatrix_theme') || 'dark',
     // 日志面板
     showLogPanel: false,
+    // 导出拦截时自动展开 DataErrorList
+    expandDataErrors: false,
     // 列可见性 + 列宽
     hiddenColumns: JSON.parse(localStorage.getItem('canmatrix_hidden_cols') || '[]'),
     columnWidths: JSON.parse(localStorage.getItem('canmatrix_col_widths') || '{}'),

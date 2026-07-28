@@ -39,7 +39,6 @@ export const useFileOperationsStore = defineStore('fileOperations', {
       editor.messageCache = {}
       editor.messages = []
       resetMessageIdGenerator()
-      editor.signalErrors = []
       editor._defaultSignalLength = 8
       editor._healthFailCount = 0
       undoRedo.clearUndoStack()
@@ -90,7 +89,6 @@ export const useFileOperationsStore = defineStore('fileOperations', {
         editor.messageCache = {}
         editor.messages = []
         resetMessageIdGenerator()
-        editor.signalErrors = []
         editor._dataVersion = 0
         undoRedo.clearUndoStack()
         useUiStore().showToast(t('toast.saveAs', { name: data.file_name }))
@@ -122,7 +120,6 @@ export const useFileOperationsStore = defineStore('fileOperations', {
       editor.messageCache = {}
       editor.messages = []
       resetMessageIdGenerator()
-      editor.signalErrors = []
       editor._defaultSignalLength = 8
       editor._dataVersion = 0
       undoRedo.clearUndoStack()
@@ -174,7 +171,6 @@ export const useFileOperationsStore = defineStore('fileOperations', {
         editor.messageCache = {}
         editor.messages = []
         resetMessageIdGenerator()
-        editor.signalErrors = []
         editor._defaultSignalLength = 8
         editor._dataVersion = 0
         undoRedo.clearUndoStack()

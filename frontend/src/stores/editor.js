@@ -26,7 +26,7 @@ export const useEditorStore = defineStore('editor', {
     lastSaveError: null,
     saveStatus: 'idle',   // 'idle' | 'saving' | 'saved' | 'modified'
     _saveStatusTimer: null,
-    signalErrors: [],
+    dataErrors: [],
     _healthFailCount: 0,
     _hasBeenConnected: false,
     _defaultSignalLength: 8,
@@ -49,6 +49,10 @@ export const useEditorStore = defineStore('editor', {
     },
     signalCount(state) {
       return state.messages.reduce((sum, m) => sum + (m.signal_count || 0), 0)
+    },
+    signalErrors(state) {
+      if (state.selectedMsgId == null) return []
+      return (state.dataErrors || []).filter(e => e.msg_id === state.selectedMsgId)
     },
   },
 
@@ -105,7 +109,7 @@ export const useEditorStore = defineStore('editor', {
       this.lastSaveError = null
       this.saveStatus = 'idle'
       if (this._saveStatusTimer) { clearTimeout(this._saveStatusTimer); this._saveStatusTimer = null }
-      this.signalErrors = []
+      this.dataErrors = []
       this.logEntries = []
       this._dataVersion = 0
       this._hasBeenConnected = false
@@ -257,8 +261,11 @@ export const useEditorStore = defineStore('editor', {
               !this.messages.some(m => m.id === this.selectedMsgId)) {
             this.selectedMsgId = null
             this.messageCache = {}
-            this.signalErrors = []
           }
+          // full_sync 完成后自动拉取全局错误列表
+          this._wsRequest('get_data_errors').then(errors => {
+            this.dataErrors = errors || []
+          }).catch(() => {})
           break
         }
 
@@ -346,7 +353,6 @@ export const useEditorStore = defineStore('editor', {
           this.messages = this.messages.filter(m => m.id !== deletedId)
           if (this.selectedMsgId === deletedId) {
             this.selectedMsgId = null
-            this.signalErrors = []
           }
           delete this.messageCache[deletedId]
           break
@@ -373,7 +379,6 @@ export const useEditorStore = defineStore('editor', {
           if (this.selectedMsgId != null &&
               !this.messages.some(m => m.id === this.selectedMsgId)) {
             this.selectedMsgId = null
-            this.signalErrors = []
           }
           break
         }
@@ -393,8 +398,8 @@ export const useEditorStore = defineStore('editor', {
           break
         }
 
-        case 'signal_errors_changed': {
-          this.signalErrors = msg.data.errors || []
+        case 'data_errors_changed': {
+          this.dataErrors = msg.data.errors || []
           break
         }
 
