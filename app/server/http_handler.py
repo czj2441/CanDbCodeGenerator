@@ -232,7 +232,8 @@ class ApiHandler(BaseHTTPRequestHandler):
 
         # DBC 导出前校验：存在数据完整性错误时拒绝导出
         if fmt == "dbc":
-            export_errors = session.db.validate_for_dbc_export()
+            with session.db.with_lock():
+                export_errors = session.db.validate_for_dbc_export()
             if export_errors:
                 self._send_json(422, _resp(False,
                     error=f"存在 {len(export_errors)} 个数据错误，无法导出 DBC",

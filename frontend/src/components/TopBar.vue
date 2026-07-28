@@ -199,7 +199,9 @@ async function exportFile(fmt, options = {}) {
       const resp = await fetch(url)
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({ error: resp.statusText }))
-        throw new Error(err.error || `HTTP ${resp.status}`)
+        const error = new Error(err.error || `HTTP ${resp.status}`)
+        if (err.details) error.details = err.details
+        throw error
       }
       const blob = await resp.blob()
       const disposition = resp.headers.get('Content-Disposition') || ''
