@@ -34,9 +34,13 @@ def validate_file_name(file_name: str) -> str:
     return clean
 
 
-def push_data_errors(events: list, db, new_version: int) -> None:
-    """追加 data_errors_changed 事件到事件列表（全局数据完整性校验）。"""
-    errors = db.validate_data_integrity()
+def push_data_errors(events: list, db, new_version: int, affected_msg_ids: set[int]) -> None:
+    """追加 data_errors_changed 事件到事件列表（增量数据完整性校验）。
+
+    Args:
+        affected_msg_ids: 受影响的报文 ID 集合，传给 validate_data_integrity()。
+    """
+    errors = db.validate_data_integrity(affected_msg_ids)
     events.append({
         "type": "data_errors_changed",
         "data": {"errors": errors},

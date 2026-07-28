@@ -82,7 +82,7 @@ class EditMessageHandler:
                  "data_version": new_version},
             ]
             # 无条件推送全局数据完整性错误（覆盖 message_name_empty 等）
-            push_data_errors(events, db, new_version)
+            push_data_errors(events, db, new_version, {original_msg_id, msg_id})
             return HandlerResult(data=updated_msg.to_dict(), events=events,
                                  new_version=new_version, session_id=sid)
 
@@ -135,7 +135,7 @@ class AddMessageHandler:
                  "undo_count": len(session.undo_stack), "redo_count": len(session.redo_stack)},
                  "data_version": new_version},
             ]
-            push_data_errors(events, db, new_version)
+            push_data_errors(events, db, new_version, {msg_id})
             return HandlerResult(data=msg.to_dict(), events=events,
                                  new_version=new_version, session_id=sid)
 
@@ -166,7 +166,11 @@ class DeleteMessageHandler:
                  "undo_count": len(session.undo_stack), "redo_count": len(session.redo_stack)},
                  "data_version": new_version},
             ]
-            push_data_errors(events, db, new_version)
+            # 报文已从 dict 消失，必须全量扫描
+            integrity_errors = db.full_validate()
+            events.append({"type": "data_errors_changed",
+                           "data": {"errors": integrity_errors},
+                           "data_version": new_version})
             return HandlerResult(data={"deleted": f"0x{msg_id:X}"}, events=events,
                                  new_version=new_version, session_id=sid)
 
@@ -212,7 +216,7 @@ class DuplicateMessageHandler:
                  "undo_count": len(session.undo_stack), "redo_count": len(session.redo_stack)},
                  "data_version": new_version},
             ]
-            push_data_errors(events, db, new_version)
+            push_data_errors(events, db, new_version, {new_id})
             return HandlerResult(data=msg.to_dict(), events=events,
                                  new_version=new_version, session_id=sid)
 

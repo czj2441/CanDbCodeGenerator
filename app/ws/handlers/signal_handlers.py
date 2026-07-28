@@ -99,7 +99,7 @@ class EditSignalHandler:
                  "undo_count": len(session.undo_stack), "redo_count": len(session.redo_stack)},
                  "data_version": new_version},
             ]
-            push_data_errors(events, db, new_version)
+            push_data_errors(events, db, new_version, {msg_id})
             return HandlerResult(data=sig.to_dict(), events=events,
                                  new_version=new_version, session_id=sid)
 
@@ -138,7 +138,7 @@ class AddSignalHandler:
                  "undo_count": len(session.undo_stack), "redo_count": len(session.redo_stack)},
                  "data_version": new_version},
             ]
-            push_data_errors(events, db, new_version)
+            push_data_errors(events, db, new_version, {msg_id})
             return HandlerResult(data=sig.to_dict(), events=events,
                                  new_version=new_version, session_id=sid)
 
@@ -175,7 +175,7 @@ class DeleteSignalHandler:
                  "undo_count": len(session.undo_stack), "redo_count": len(session.redo_stack)},
                  "data_version": new_version},
             ]
-            push_data_errors(events, db, new_version)
+            push_data_errors(events, db, new_version, {msg_id})
             return HandlerResult(data={"deleted": sig_uuid}, events=events,
                                  new_version=new_version, session_id=sid)
 
@@ -223,7 +223,7 @@ class BatchAddSignalsHandler:
             events.append({"type": "status_changed", "data": {"modified": True,
                            "undo_count": len(session.undo_stack), "redo_count": len(session.redo_stack)},
                            "data_version": new_version})
-            push_data_errors(events, db, new_version)
+            push_data_errors(events, db, new_version, {msg_id})
             return HandlerResult(
                 data={"created": [s.to_dict() for s in created], "errors": errors, "count": len(created)},
                 events=events, new_version=new_version, session_id=sid)
@@ -240,5 +240,5 @@ class GetDataErrorsHandler:
         if not db:
             raise HandlerError("SESSION_NOT_FOUND", "会话不存在")
         with db.with_lock():
-            errors = db.validate_data_integrity()
+            errors = db.full_validate()
         return HandlerResult(data=errors, session_id=sid)

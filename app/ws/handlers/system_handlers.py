@@ -34,7 +34,7 @@ class UndoHandler:
             ]
             message_details = {str(mid): m.to_dict() for mid, m in db.messages.items()}
             new_version = db._bump_version()
-            integrity_errors = db.validate_data_integrity()  # 锁内调用
+            integrity_errors = db.full_validate()  # 全量扫描，锁内调用
 
         events = [{
             "type": "undo_applied",
@@ -80,7 +80,7 @@ class RedoHandler:
             ]
             message_details = {str(mid): m.to_dict() for mid, m in db.messages.items()}
             new_version = db._bump_version()
-            integrity_errors = db.validate_data_integrity()  # 锁内调用
+            integrity_errors = db.full_validate()  # 全量扫描，锁内调用
 
         events = [{
             "type": "redo_applied",
