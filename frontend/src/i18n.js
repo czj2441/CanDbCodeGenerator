@@ -231,9 +231,6 @@ const dict = {
     'toast.signalOverlap': '信号 "{name}" 与 "{other}" 在位 {bits} 重叠',
     'toast.signalAutoFixed': '已自动调整 "{name}" 的起始位为 {start}',
     // Signal validation errors
-    'signal.errorsTitle': '信号布局错误',
-    'signal.errorOutOfBounds': '{name}：超出范围（位 {bits} > {max}）',
-    'signal.errorOverlap': '{name} 与 {other}：重叠（位 {bits}）',
     'signal.fixBtn': '自动修复',
     'signal.noErrors': '无布局错误',
 

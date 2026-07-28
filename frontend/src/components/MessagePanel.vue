@@ -123,10 +123,6 @@ import { t } from '../i18n.js'
 import { toDisplayStartBit, toStorageStartBit } from '../utils/signalLayout.js'
 import { vLazyValue } from '../directives/lazyValue.js'
 
-function showToast(msg, isError = false) {
-  useUiStore().showToast(msg, isError)
-}
-
 const store = useEditorStore()
 const messages = useMessagesStore()
 const signals = useSignalsStore()
@@ -160,7 +156,7 @@ function showDisplayStartBit() {
 function modifyDisplayStartBit(displayValue) {
   if (!selectedSig.value) return
   const msbValue = toStorageStartBit(displayValue, selectedSig.value.length, selectedSig.value.byte_order, 63, selectedSig.value.start_bit)
-  const valueToSend = msbValue >= 0 ? msbValue : displayValue
+  const valueToSend = msbValue >= 0 ? msbValue : -1
   signals.updateSignal(ui.selectedSignalUuid, 'start_bit', valueToSend).catch(() => {})
 }
 

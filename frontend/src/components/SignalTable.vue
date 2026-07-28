@@ -304,7 +304,7 @@ function displayStartBit(sig) {
  */
 function updateStartBit(sig, displayValue) {
   const msbValue = toStorageStartBit(displayValue, sig.length, sig.byte_order, 63, sig.start_bit)
-  const valueToSend = msbValue >= 0 ? msbValue : displayValue
+  const valueToSend = msbValue >= 0 ? msbValue : -1
   signals.updateSignal(sig.uuid, 'start_bit', valueToSend).catch(() => {})
 }
 

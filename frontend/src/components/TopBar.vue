@@ -242,7 +242,7 @@ async function exportFile(fmt, options = {}) {
   } catch (e) {
     // DBC 导出被数据错误拦截时，自动展开错误面板
     if (e.details?.errors?.length > 0) {
-      ui.showToast(`存在 ${e.details.total || e.details.errors.length} 个数据错误，无法导出 DBC`, true)
+      ui.showToast(t('toast.validation.dbc_export_errors', { total: e.details.total || e.details.errors.length }), true)
       ui.expandDataErrors = true
     } else if (e.message?.includes('数据错误') || e.message?.includes('DBC_EXPORT')) {
       ui.showToast(e.message, true)
