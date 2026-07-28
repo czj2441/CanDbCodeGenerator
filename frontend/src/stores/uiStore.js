@@ -181,10 +181,6 @@ export const useUiStore = defineStore('ui', {
       this.selectedSignalUuid = null
     },
 
-    selectLayoutSignal(uuid) {
-      this.selectedSignalUuid = this.selectedSignalUuid === uuid ? null : uuid
-    },
-
     // ── 列可见性 ──
     toggleColumnVisibility(key) {
       const idx = this.hiddenColumns.indexOf(key)

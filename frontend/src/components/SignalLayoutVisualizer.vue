@@ -14,7 +14,7 @@
 
     <div class="layout-canvas-wrap" ref="canvasWrap">
       <template v-if="msg">
-        <v-stage ref="stageRef" :config="stageConfig" @mouseup="onStageMouseUp">
+        <v-stage ref="stageRef" :config="stageConfig" @mouseup="onStageMouseUp" @click="onStageClick">
           <!-- 网格背景层：表头背景、DLC 遮罩、bit 编号 -->
           <v-layer ref="gridBgLayer">
             <!-- 列头背景 -->
@@ -35,7 +35,7 @@
             />
             <!-- 行头背景 -->
             <v-rect :config="{
-              x: 0, y: headerH, width: labelWidth, height: rows * cellSize,
+              x: 0, y: headerH, width: labelWidth, height: totalRows * cellSize,
               fill: gridHeaderFill, stroke: gridStroke, strokeWidth: 1, listening: false,
             }" />
             <!-- 行头标签：byte 0..N -->
@@ -47,6 +47,7 @@
                 text: String(r),
                 align: 'right', verticalAlign: 'middle',
                 fill: textDim, fontSize: 11, listening: false,
+                opacity: r >= rows ? 0.4 : 1,
               }"
             />
             <!-- 单元格 bit 编号 -->
@@ -59,8 +60,36 @@
                   text: String(r * 8 + (7 - c)),
                   fontSize: Math.max(6, Math.min(9, cellSize - 10)), fill: textDim, fontStyle: 'bold',
                   align: 'left', verticalAlign: 'bottom', listening: false,
+                  opacity: r >= rows ? 0.35 : 1,
                 }"
               />
+            </template>
+            <!-- 溢出区域背景斜线 -->
+            <template v-if="overflowRows > 0">
+              <v-group
+                v-for="r in rowIndices.filter(r => r >= rows)" :key="'ofbg-' + r"
+                :config="{ listening: false }"
+              >
+                <v-group
+                  v-for="c in colIndices" :key="c"
+                  :config="{
+                    x: labelWidth + c * cellSize,
+                    y: headerH + r * cellSize,
+                    listening: false,
+                  }"
+                >
+                  <v-line
+                    v-for="(seg, si) in reverseHatchSegments" :key="si"
+                    :config="{
+                      points: [seg.x1, seg.y1, seg.x2, seg.y2],
+                      stroke: 'oklch(0.45 0.02 260)',
+                      strokeWidth: 1,
+                      opacity: 0.35,
+                      listening: false,
+                    }"
+                  />
+                </v-group>
+              </v-group>
             </template>
           </v-layer>
 
@@ -68,20 +97,43 @@
           <v-layer ref="signalLayer">
             <!-- 着色方格 -->
             <v-rect
-              v-for="cell in coloredCells" :key="'c-' + cell.bit"
+              v-for="cell in coloredCells" :key="'c-' + cell.uuid + '-' + cell.bit"
               :config="{
                 x: labelWidth + cell.col * cellSize,
                 y: headerH + cell.row * cellSize,
                 width: cellSize, height: cellSize,
                 fill: cell.color,
-                stroke: cell.hasError ? 'oklch(0.60 0.20 25)' : cell.color,
-                strokeWidth: cell.hasError ? 2 : 1,
+                stroke: cell.color,
+                strokeWidth: 1,
                 cornerRadius: 2,
                 opacity: cell.isPreview ? 0.4 : 1,
               }"
               @mousedown="(e) => onCellMouseDown(cell, e)"
               @click="() => onCellClick(cell)"
             />
+            <!-- 重叠斜线 -->
+            <v-group
+              v-for="cell in overlapCells" :key="'ov-' + cell.bit"
+              :config="{
+                x: labelWidth + cell.col * cellSize,
+                y: headerH + cell.row * cellSize,
+                listening: false,
+              }"
+            >
+              <v-rect :config="{
+                x: 0, y: 0, width: cellSize, height: cellSize,
+                fill: 'oklch(0.45 0.12 25)', opacity: 0.2, cornerRadius: 2,
+              }" />
+              <v-line
+                v-for="(seg, si) in hatchSegments" :key="si"
+                :config="{
+                  points: [seg.x1, seg.y1, seg.x2, seg.y2],
+                  stroke: 'oklch(0.55 0.18 25)',
+                  strokeWidth: 1.5,
+                  listening: false,
+                }"
+              />
+            </v-group>
             <!-- 信号名标签 -->
             <v-text
               v-for="lbl in signalLabels" :key="'lbl-' + lbl.uuid"
@@ -132,12 +184,20 @@
               :config="{
                 points: [labelWidth, headerH + r * cellSize, labelWidth + cols * cellSize, headerH + r * cellSize],
                 stroke: gridLineStroke, strokeWidth: 1, listening: false,
+                dash: r > rows ? [4, 3] : [],
+                opacity: r > rows ? 0.4 : 1,
               }"
             />
+            <v-line v-if="overflowRows > 0" :config="{
+              points: [labelWidth, headerH + rows * cellSize, labelWidth + cols * cellSize, headerH + rows * cellSize],
+              stroke: 'oklch(0.60 0.18 25)',
+              strokeWidth: 2,
+              listening: false,
+            }" />
             <v-line
               v-for="c in gridLineColIndices" :key="'v-' + c"
               :config="{
-                points: [labelWidth + c * cellSize, headerH, labelWidth + c * cellSize, headerH + rows * cellSize],
+                points: [labelWidth + c * cellSize, headerH, labelWidth + c * cellSize, headerH + totalRows * cellSize],
                 stroke: gridLineStroke, strokeWidth: 1, listening: false,
               }"
             />
@@ -147,26 +207,6 @@
       <div v-else class="placeholder">{{ t('signal.selectMessage') }}</div>
     </div>
 
-    <!-- Error panel -->
-    <div v-if="msg && store.signalErrors.length > 0" class="error-panel">
-      <div class="error-header">{{ t('signal.errorsTitle') }}</div>
-      <div
-        v-for="err in store.signalErrors" :key="err.signal_uuid + (err.conflicts_uuid || '')"
-        class="error-item"
-      >
-        <template v-if="err.type === 'out_of_bounds'">
-          {{ t('signal.errorOutOfBounds', { name: err.signal_name, bits: err.out_of_bounds_bits?.join(',') || '', max: msg.dlc * 8 - 1 }) }}
-        </template>
-        <template v-else-if="err.type === 'overlap'">
-          {{ t('signal.errorOverlap', { name: err.signal_name, other: err.conflicts_name, bits: err.overlapping_bits?.join(',') || '' }) }}
-        </template>
-        <button
-          v-if="err.suggestion?.action === 'move_start_bit'"
-          class="btn btn-xs"
-          @click="signals.autoFixSignal(err.signal_uuid, err.suggestion.recommended_start_bit)"
-        >{{ t('signal.fixBtn') }}</button>
-      </div>
-    </div>
   </div>
 </template>
 
@@ -176,7 +216,7 @@ import { useEditorStore } from '../stores/editor.js'
 import { useSignalsStore } from '../stores/signals.js'
 import { useUiStore } from '../stores/uiStore.js'
 import { t } from '../i18n.js'
-import { getSignalBits, bitToGridCell, gridCellToBit, pixelToGridCell, clampStartBit, getSignalColor, motorolaBitAtPosition, motorolaFindMsbByPosition } from '../utils/signalLayout.js'
+import { getSignalBits, bitToGridCell, gridCellToBit, pixelToGridCell, getSignalColor, motorolaBitAtPosition, motorolaFindMsbByPosition } from '../utils/signalLayout.js'
 import { toHex } from '../utils/format.js'
 
 const store = useEditorStore()
@@ -198,6 +238,28 @@ const containerWidth = ref(600)
 
 const rows = computed(() => dlcBytes.value || 1)
 
+const maxUsedRow = computed(() => {
+  const cells = allCells.value
+  if (cells.length === 0) return rows.value - 1
+  let maxR = 0
+  for (const cell of cells) {
+    if (cell.row > maxR) maxR = cell.row
+  }
+  return maxR
+})
+
+const overflowRows = computed(() => {
+  const dlcLastRow = rows.value - 1
+  const overflow = maxUsedRow.value - dlcLastRow
+  return overflow > 0 ? overflow + 1 : 0
+})
+
+const dragExtraRows = ref(0)
+
+const totalRows = computed(() =>
+  rows.value + Math.max(overflowRows.value, dragExtraRows.value)
+)
+
 const cellSize = computed(() => {
   const cw = containerWidth.value
   if (cw <= 0) return 36
@@ -206,12 +268,12 @@ const cellSize = computed(() => {
 })
 
 const baseW = computed(() => labelWidth + cols * cellSize.value + 1)
-const baseH = computed(() => headerH + rows.value * cellSize.value + 1)
+const baseH = computed(() => headerH + totalRows.value * cellSize.value + 1)
 
 // 0-based 索引数组
 const colIndices = Array.from({ length: cols }, (_, i) => i)
-const rowIndices = computed(() => Array.from({ length: rows.value }, (_, i) => i))
-const gridLineRowIndices = computed(() => Array.from({ length: rows.value + 1 }, (_, i) => i))
+const rowIndices = computed(() => Array.from({ length: totalRows.value }, (_, i) => i))
+const gridLineRowIndices = computed(() => Array.from({ length: totalRows.value + 1 }, (_, i) => i))
 const gridLineColIndices = Array.from({ length: cols + 1 }, (_, i) => i)
 
 // ── Theme colors from CSS vars ──
@@ -256,57 +318,87 @@ const stageConfig = computed(() => ({
 const dragState = ref(null)
 const previewStartBit = ref(null)  // 拖拽预览用的临时 start_bit
 
-// ── cellMap: bit → { uuid, name, color, hasError, row, col, byteOrder, isStartBit, startBit, length, isPreview } ──
+// ── cellMap: 所有信号格子 + 重叠 bit 位置集合 ──
 const cellMap = computed(() => {
-  const map = {}
-  if (!msg.value) return map
-  const dlc = dlcBytes.value
-  const maxBit = dlc * 8 - 1
-  const errUuids = new Set(
-    store.signalErrors.flatMap(e => [e.signal_uuid, e.conflicts_uuid].filter(Boolean))
-  )
+  const allCellsArr = []
+  const bitOwner = {}  // bit → uuid of first signal at this bit
+  const overlapBitSet = new Set()
+  if (!msg.value) return { all: allCellsArr, overlapBits: overlapBitSet }
+  const maxRenderBit = 511
 
   msg.value.signals.forEach((sig, idx) => {
     const color = getSignalColor(idx)
-    const hasError = errUuids.has(sig.uuid)
-    // 拖拽预览：用预览的 start_bit 计算占位
     const effectiveStartBit = (dragState.value?.uuid === sig.uuid && previewStartBit.value != null)
       ? previewStartBit.value
       : sig.start_bit
     const bits = getSignalBits(effectiveStartBit, sig.length, sig.byte_order)
-
     const isPreview = dragState.value?.uuid === sig.uuid && previewStartBit.value != null
 
     for (const bit of bits) {
-      if (bit < 0 || bit > maxBit) continue
+      if (bit < 0 || bit > maxRenderBit) continue
       const { row, col } = bitToGridCell(bit)
-      map[bit] = {
+      allCellsArr.push({
         bit, row, col,
         uuid: sig.uuid,
         name: sig.name,
         color,
-        hasError,
         isPreview,
         isStartBit: bit === effectiveStartBit,
         byteOrder: sig.byte_order,
         startBit: effectiveStartBit,
         length: sig.length,
+      })
+      if (bit in bitOwner) {
+        overlapBitSet.add(bit)
+      } else {
+        bitOwner[bit] = sig.uuid
       }
     }
   })
-  return map
+  return { all: allCellsArr, overlapBits: overlapBitSet }
 })
 
-const coloredCells = computed(() => Object.values(cellMap.value))
+const coloredCells = computed(() => cellMap.value.all)
+const overlapCells = computed(() => {
+  const bits = cellMap.value.overlapBits
+  const result = []
+  for (const bit of bits) {
+    const { row, col } = bitToGridCell(bit)
+    result.push({ bit, row, col })
+  }
+  return result
+})
+const allCells = coloredCells
+
+function computeHatchSegments(size, gap) {
+  const segs = []
+  for (let off = -size; off <= size * 2; off += gap) {
+    const x1 = Math.max(0, off)
+    const y1 = Math.max(0, -off)
+    const x2 = Math.min(size, size + off)
+    const y2 = Math.min(size, size - off)
+    if (x1 <= size && y1 <= size && x2 >= 0 && y2 >= 0 && (x1 !== x2 || y1 !== y2)) {
+      segs.push({ x1, y1, x2, y2 })
+    }
+  }
+  return segs
+}
+
+const hatchGap = computed(() => Math.max(4, Math.round(cellSize.value / 5)))
+const hatchSegments = computed(() => computeHatchSegments(cellSize.value, hatchGap.value))
+const reverseHatchSegments = computed(() => {
+  const s = cellSize.value
+  return hatchSegments.value.map(seg => ({ x1: s - seg.x1, y1: seg.y1, x2: s - seg.x2, y2: seg.y2 }))
+})
+
 
 // signalLabels: 每个信号一个标签，放在 start_bit 方格上
 const signalLabels = computed(() => {
-  const map = cellMap.value
-  const keys = Object.keys(map)
-  if (keys.length === 0) return []
+  const cells = coloredCells.value
+  if (cells.length === 0) return []
 
   const byUuid = {}
-  for (const cell of Object.values(map)) {
+  for (const cell of cells) {
     if (!byUuid[cell.uuid]) byUuid[cell.uuid] = []
     byUuid[cell.uuid].push(cell)
   }
@@ -334,16 +426,16 @@ const signalLabels = computed(() => {
   return labels
 })
 
-// selectedCells: 选中信号的所有方格
+// selectedCells: 选中信号的所有方格（含重叠层）
 const selectedCells = computed(() => {
   if (!ui.selectedSignalUuid) return []
-  return coloredCells.value.filter(c => c.uuid === ui.selectedSignalUuid)
+  return allCells.value.filter(c => c.uuid === ui.selectedSignalUuid)
 })
 
-// previewCells: 拖拽预览的虚线边框方格
+// previewCells: 拖拽预览的虚线边框方格（含重叠层）
 const previewCells = computed(() => {
   if (!dragState.value || previewStartBit.value == null) return []
-  return coloredCells.value.filter(c => c.isPreview)
+  return allCells.value.filter(c => c.isPreview)
 })
 
 // ── 拖拽交互 ──
@@ -370,7 +462,7 @@ function clientToGrid(clientX, clientY) {
   const stageX = clientX - rect.left
   const stageY = clientY - rect.top
   const raw = pixelToGridCell(stageX, stageY, { labelWidth, headerH, cellSize: cellSize.value })
-  const r = Math.max(0, Math.min(rows.value - 1, raw.row))
+  const r = Math.max(0, Math.min(totalRows.value - 1, raw.row))
   const c = Math.max(0, Math.min(cols - 1, raw.col))
   return { row: r, col: c, bit: gridCellToBit(r, c) }
 }
@@ -403,16 +495,16 @@ function onCellMouseDown(cell, konvaEvent) {
     grabBit: cell.bit,
     grabPos,
   }
+  dragExtraRows.value = 0
   previewStartBit.value = null
   hasMoved.value = false
 
   store.addLogEntry('drag', `${cell.name}: mousedown bit=${cell.bit} (row=${grabRow},col=${grabCol}) offset=(${offsetRow},${offsetCol})`)
-  ui.selectLayoutSignal(cell.uuid)
 }
 
 function onCellClick(cell) {
   if (hasMoved.value) return
-  ui.selectLayoutSignal(cell.uuid)
+  ui.selectedSignalUuid = cell.uuid
 }
 
 function handleGlobalMouseMove(e) {
@@ -421,20 +513,30 @@ function handleGlobalMouseMove(e) {
   const grid = clientToGrid(e.clientX, e.clientY)
   if (!grid) return
 
-  const maxBit = dlcBytes.value * 8 - 1
+  const stage = stageRef.value?.getStage()
+  if (stage) {
+    const rect = stage.container().getBoundingClientRect()
+    const stageY = e.clientY - rect.top
+    const rawRow = Math.floor((stageY - headerH) / cellSize.value)
+    if (rawRow >= totalRows.value) {
+      dragExtraRows.value = Math.max(dragExtraRows.value, rawRow - rows.value + 2)
+    }
+  }
+
+  const dragMaxBit = Math.max(totalRows.value * 8 - 1, ds.sigStartBit + ds.sigLength, 511)
   let newStartBit
 
   if (ds.sigByteOrder === 'intel') {
     newStartBit = ds.sigStartBit + (grid.bit - ds.grabBit)
   } else {
-    newStartBit = motorolaFindMsbByPosition(ds.grabPos, ds.sigLength, grid.bit, maxBit, ds.sigStartBit)
+    newStartBit = motorolaFindMsbByPosition(ds.grabPos, ds.sigLength, grid.bit, dragMaxBit, ds.sigStartBit)
   }
 
   if (newStartBit >= 0) {
-    const clamped = clampStartBit(newStartBit, ds.sigLength, ds.sigByteOrder, dlcBytes.value)
-    if (clamped >= 0 && clamped <= maxBit) {
-      if (clamped !== ds.sigStartBit) hasMoved.value = true
-      previewStartBit.value = clamped
+    const totalMaxBit = totalRows.value * 8 - 1
+    if (newStartBit <= totalMaxBit) {
+      if (newStartBit !== ds.sigStartBit) hasMoved.value = true
+      previewStartBit.value = newStartBit
     }
   }
 }
@@ -451,7 +553,8 @@ function processDrop(clientX, clientY) {
     const grid = clientToGrid(clientX, clientY)
     if (!grid) return
 
-    const maxBit = dlcBytes.value * 8 - 1
+    // 使用扩展范围：覆盖 DLC + 额外行 + Motorola MSB 可能的高位
+    const dragMaxBit = Math.max(totalRows.value * 8 - 1, ds.sigStartBit + ds.sigLength, 511)
     let newStartBit
     let calcDetail = ''
 
@@ -459,32 +562,37 @@ function processDrop(clientX, clientY) {
       newStartBit = ds.sigStartBit + (grid.bit - ds.grabBit)
       calcDetail = `drop=${grid.bit} − grab=${ds.grabBit} + msb=${ds.sigStartBit}`
     } else {
-      newStartBit = motorolaFindMsbByPosition(ds.grabPos, ds.sigLength, grid.bit, maxBit, ds.sigStartBit)
+      newStartBit = motorolaFindMsbByPosition(ds.grabPos, ds.sigLength, grid.bit, dragMaxBit, ds.sigStartBit)
       calcDetail = `grabPos=${ds.grabPos} drop=${grid.bit} → MSB=${newStartBit}`
     }
 
     if (newStartBit == null || newStartBit < 0) {
-      store.addLogEntry('drag', `松开(${grid.row},${grid.col}) bit=${grid.bit} 超出范围`)
+      store.addLogEntry('drag', `松开(${grid.row},${grid.col}) bit=${grid.bit} 无法计算新位置`)
       return
     }
 
-    const clamped = clampStartBit(newStartBit, ds.sigLength, ds.sigByteOrder, maxBit)
+    const totalMaxBit = totalRows.value * 8 - 1
+    if (newStartBit > totalMaxBit) {
+      store.addLogEntry('drag', `松开(${grid.row},${grid.col}) bit=${grid.bit} 超出网格范围`)
+      return
+    }
+
     const sig = store.selectedMessage?.signals?.find(s => s.uuid === ds.uuid)
     const sigName = sig?.name || ds.uuid.slice(0, 8)
 
-    if (clamped < 0 || clamped > maxBit || clamped === ds.sigStartBit) {
+    if (newStartBit === ds.sigStartBit) {
       store.addLogEntry('drag', `${sigName}: 松开(${grid.row},${grid.col}) bit=${grid.bit} → ${ds.sigStartBit} 未变 (${calcDetail})`)
       return
     }
 
     store.addLogEntry('layout', [
-      `${sigName}: startBit ${ds.sigStartBit} → ${clamped}`,
+      `${sigName}: startBit ${ds.sigStartBit} → ${newStartBit}`,
       `  松开(${grid.row},${grid.col}) bit=${grid.bit}  ${calcDetail}`,
-      `  clamp(${ds.sigByteOrder}, len=${ds.sigLength}) → ${clamped}`,
     ].join('\n'))
-    signals.moveSignalByLayout(ds.uuid, clamped)
+    signals.moveSignalByLayout(ds.uuid, newStartBit)
   } finally {
     isProcessingDrop.value = false
+    dragExtraRows.value = 0
   }
 }
 
@@ -501,6 +609,13 @@ function onStageMouseUp(konvaEvent) {
   if (!evt) return
   if (evt.button !== 0) return
   processDrop(evt.clientX, evt.clientY)
+}
+
+function onStageClick(konvaEvent) {
+  const target = konvaEvent?.target
+  if (target && target === stageRef.value?.getStage()) {
+    ui.selectedSignalUuid = null
+  }
 }
 
 // ── Watch selectedMsgId → clear selection ──
@@ -580,41 +695,4 @@ watch(() => store.selectedMsgId, () => {
   line-height: 1.8;
 }
 
-/* ── Error panel ── */
-.error-panel {
-  border-top: 1px solid var(--border);
-  background: oklch(0.22 0.05 25 / 0.15);
-  padding: 8px 12px;
-  max-height: 140px;
-  overflow-y: auto;
-  flex-shrink: 0;
-  font-size: 12px;
-}
-
-[data-theme="light"] .error-panel {
-  background: oklch(0.92 0.05 25 / 0.3);
-}
-
-.error-header {
-  font-weight: 600;
-  color: var(--danger);
-  margin-bottom: 4px;
-}
-
-.error-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--danger);
-  padding: 2px 0;
-  font-size: 11px;
-}
-
-.btn-xs {
-  padding: 1px 6px;
-  font-size: 10px;
-  border-color: var(--danger);
-  color: var(--danger);
-  flex-shrink: 0;
-}
 </style>
