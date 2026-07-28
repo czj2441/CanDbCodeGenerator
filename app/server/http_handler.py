@@ -230,6 +230,15 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._send_json(404, _resp(False, error="Session not found"))
             return
 
+        # DBC 导出前校验：存在数据完整性错误时拒绝导出
+        if fmt == "dbc":
+            export_errors = session.db.validate_for_dbc_export()
+            if export_errors:
+                self._send_json(422, _resp(False,
+                    error=f"存在 {len(export_errors)} 个数据错误，无法导出 DBC",
+                    details={"errors": export_errors[:10], "total": len(export_errors)}))
+                return
+
         try:
             if fmt == "dbc":
                 content = session.db.to_dbc_str()

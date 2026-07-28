@@ -121,6 +121,16 @@ class DownloadFileHandler:
         if not db:
             raise HandlerError("SESSION_NOT_FOUND", "会话不存在")
         fmt = data.get("format", "dbc")
+
+        # DBC 导出前校验：存在数据完整性错误时拒绝导出
+        if fmt == "dbc":
+            with db.with_lock():
+                export_errors = db.validate_for_dbc_export()
+            if export_errors:
+                raise HandlerError("DBC_EXPORT_ERRORS",
+                    f"存在 {len(export_errors)} 个数据错误，无法导出 DBC",
+                    {"errors": export_errors[:10], "total": len(export_errors)})
+
         try:
             if fmt == "dbc":
                 content = db.to_dbc_str()

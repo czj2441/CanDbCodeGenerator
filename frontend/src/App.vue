@@ -10,6 +10,7 @@
         <div class="center">
           <SignalLayoutVisualizer v-if="ui.layoutViewMode" />
           <SignalTable v-else />
+          <DataErrorList />
           <LogPanel />
         </div>
         <MessagePanel />
@@ -105,6 +106,7 @@ import LoadingOverlay from './components/LoadingOverlay.vue'
 import Toast from './components/Toast.vue'
 import ContextMenu from './components/ContextMenu.vue'
 import LogPanel from './components/LogPanel.vue'
+import DataErrorList from './components/DataErrorList.vue'
 import { versionMismatch } from './utils/version-check.js'
 
 const store = useEditorStore()
