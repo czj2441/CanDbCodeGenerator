@@ -155,15 +155,13 @@ function showDisplayStartBit() {
 
 /**
  * 编辑起始位：Motorola 信号将用户输入的 display start bit 转换为 storage start bit (MSB) 存储
+ * 转换失败时仍发送请求，由后端校验，错误在 DataErrorList 展示
  */
 function modifyDisplayStartBit(displayValue) {
   if (!selectedSig.value) return
   const msbValue = toStorageStartBit(displayValue, selectedSig.value.length, selectedSig.value.byte_order, 63, selectedSig.value.start_bit)
-  if (msbValue >= 0) {
-    signals.updateSignal(ui.selectedSignalUuid, 'start_bit', msbValue).catch(() => {})
-  } else {
-    showToast(`起始位 ${displayValue} 对于 ${selectedSig.value.byte_order} length=${selectedSig.value.length} 不合法`, true)
-  }
+  const valueToSend = msbValue >= 0 ? msbValue : displayValue
+  signals.updateSignal(ui.selectedSignalUuid, 'start_bit', valueToSend).catch(() => {})
 }
 
 function update(field, value) {

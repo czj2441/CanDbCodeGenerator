@@ -249,6 +249,7 @@ const dict = {
     'toast.validation.factor_zero': '缩放因子不能为零',
     'toast.validation.signal_overlap': '信号 "{name}" 与 "{other}" 位重叠',
     'toast.validation.signal_out_of_bounds': '信号超出报文范围',
+    'toast.validation.dbc_export_errors': '存在 {total} 个数据错误，无法导出 DBC。请先修复错误面板中的问题。',
 
     // Layout view
     'layout.backToTable': '返回表格',
@@ -279,6 +280,16 @@ const dict = {
     'ccode_preview.headerTab': 'Header (.h)',
     'ccode_preview.sourceTab': 'Source (.c)',
     'ccode_preview.toastDownloadedBoth': '已导出: {h}, {c}',
+
+    // 数据完整性错误
+    'dataErrors.title': '数据错误',
+    'dataErrors.type.out_of_bounds': '信号 \'{name}\' 位越界 (bit {bits}, 最大 {max})',
+    'dataErrors.type.overlap': '信号 \'{name}\' 与 \'{other}\' 位重叠 (bit {bits})',
+    'dataErrors.type.factor_zero': '信号 \'{name}\' 的系数 (factor) 为 0',
+    'dataErrors.type.signal_name_empty': '信号名称为空',
+    'dataErrors.type.signal_name_duplicate': '信号 \'{name}\' 名称重复',
+    'dataErrors.type.signal_length_zero': '信号 \'{name}\' 长度必须 ≥ 1',
+    'dataErrors.type.message_name_empty': '报文名称为空',
 }
 
 export function t(key, vars = {}) {

@@ -74,21 +74,6 @@
       </table>
     </div>
 
-    <!-- 信号布局错误提示区 -->
-    <div v-if="msg && store.signalErrors.length > 0" class="error-panel">
-      <div class="error-title">{{ t('signal.errorsTitle') }}</div>
-      <div v-for="err in store.signalErrors" :key="err.signal_uuid + err.type" class="error-item">
-        <span v-if="err.type === 'out_of_bounds'">
-          {{ t('signal.errorOutOfBounds', { name: err.signal_name, bits: err.out_of_bounds_bits.join(','), max: msg.dlc * 8 - 1 }) }}
-        </span>
-        <span v-if="err.type === 'overlap'">
-          {{ t('signal.errorOverlap', { name: err.signal_name, other: err.conflicts_name, bits: err.overlapping_bits.join(',') }) }}
-        </span>
-        <button v-if="err.suggestion" class="btn-fix" @click="fixSignal(err.signal_uuid, err.suggestion.recommended_start_bit)">
-          {{ t('signal.fixBtn') }}
-        </button>
-      </div>
-    </div>
   </div>
 </template>
 
@@ -120,10 +105,6 @@ const COLUMNS = [
   { key: 'actions', i18n: null,                toggleable: false, defaultPct: 3   },
 ]
 
-function showToast(msg, isError = false) {
-  useUiStore().showToast(msg, isError)
-}
-
 const store = useEditorStore()
 const signals = useSignalsStore()
 const messages = useMessagesStore()
@@ -146,7 +127,7 @@ watch(msg, () => {
 const errorUuids = computed(() => {
   const set = new Set()
   for (const err of store.signalErrors) {
-    set.add(err.signal_uuid)
+    if (err.signal_uuid) set.add(err.signal_uuid)
     if (err.conflicts_uuid) set.add(err.conflicts_uuid)
   }
   return set
@@ -319,23 +300,17 @@ function displayStartBit(sig) {
 
 /**
  * 编辑起始位：Motorola 信号将用户输入的 display start bit 转换为 storage start bit (MSB)
+ * 转换失败时仍发送请求，由后端校验，错误在 DataErrorList 展示
  */
 function updateStartBit(sig, displayValue) {
   const msbValue = toStorageStartBit(displayValue, sig.length, sig.byte_order, 63, sig.start_bit)
-  if (msbValue >= 0) {
-    signals.updateSignal(sig.uuid, 'start_bit', msbValue).catch(() => {})
-  } else {
-    showToast(`起始位 ${displayValue} 对于 ${sig.byte_order} length=${sig.length} 不合法`, true)
-  }
+  const valueToSend = msbValue >= 0 ? msbValue : displayValue
+  signals.updateSignal(sig.uuid, 'start_bit', valueToSend).catch(() => {})
 }
 
 function deleteMsg() {
   if (store.selectedMsgId == null) return
   messages.deleteMessage(store.selectedMsgId)
-}
-
-function fixSignal(uuid, newStartBit) {
-  signals.autoFixSignal(uuid, newStartBit)
 }
 
 // ── 方向键单元格导航 ──
@@ -635,42 +610,6 @@ function onCellKeyDown(e) {
 }
 .col-dropdown-reset:hover { background: var(--bg-hover); }
 
-/* 错误提示区 */
-.error-panel {
-  background: oklch(0.18 0.06 25);
-  border: 1px solid oklch(0.4 0.1 25);
-  border-radius: var(--radius-sm);
-  margin: 8px;
-  padding: 8px 12px;
-  font-size: 12px;
-  flex-shrink: 0;
-  max-height: 140px;
-  overflow-y: auto;
-}
-.error-title {
-  color: oklch(0.75 0.15 25);
-  font-weight: 600;
-  margin-bottom: 4px;
-}
-.error-item {
-  color: oklch(0.8 0.08 25);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 2px 0;
-  flex-wrap: wrap;
-}
-.btn-fix {
-  background: var(--bg-raised);
-  border: 1px solid var(--border);
-  color: var(--text);
-  padding: 2px 8px;
-  border-radius: var(--radius-sm);
-  font-size: 11px;
-  cursor: pointer;
-}
-.btn-fix:hover { background: var(--accent); }
-
 /* 选中行高亮 */
 .signal-table tr.selected {
   background: color-mix(in oklch, var(--accent) 15%, transparent) !important;
@@ -697,5 +636,14 @@ function onCellKeyDown(e) {
 }
 .signal-table tr.selected.has-error .col-idx {
   border-left: 3px solid var(--danger);
+}
+
+/* 错误跳转高亮闪烁 */
+@keyframes highlight-flash-anim {
+  0%, 100% { background: inherit; }
+  50% { background: color-mix(in oklch, var(--accent) 30%, transparent); }
+}
+.signal-table tr.highlight-flash {
+  animation: highlight-flash-anim 0.6s ease-in-out 3;
 }
 </style>
