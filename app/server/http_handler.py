@@ -16,7 +16,8 @@ from app.version import VERSION
 
 logger = logging.getLogger(__name__)
 
-# SESSION_MGR 由 lifecycle 模块在导入时注入
+# SESSION_MGR 由 lifecycle 模块在导入时注入。
+# ⚠️ 必须在 HTTP server 启动前赋值（见 lifecycle.py 顺序约束注释）。
 SESSION_MGR = None
 
 
@@ -201,9 +202,6 @@ class ApiHandler(BaseHTTPRequestHandler):
         self._send_json(200, _resp(True, VERSION))
 
     def _post_release(self) -> None:
-        if SESSION_MGR is None:
-            self._send_json(503, _resp(False, error="Server initializing"))
-            return
         parsed = urllib.parse.urlparse(self.path)
         params = urllib.parse.parse_qs(parsed.query)
         sid = params.get("sid", [""])[0]
@@ -213,9 +211,6 @@ class ApiHandler(BaseHTTPRequestHandler):
         self._send_json(200, _resp(True))
 
     def _get_export(self) -> None:
-        if SESSION_MGR is None:
-            self._send_json(503, _resp(False, error="Server initializing"))
-            return
         parsed = urllib.parse.urlparse(self.path)
         params = urllib.parse.parse_qs(parsed.query)
         sid = params.get("sid", [""])[0]

@@ -63,7 +63,8 @@ logger = logging.getLogger(__name__)
 SESSION_MGR = init_session_manager()
 SESSION_MGR.set_model_factory(CanDatabase)
 
-# 同步到 http_handler 模块
+# ⚠️ 顺序约束：SESSION_MGR 必须在 HTTP server 启动前赋值。
+# http_handler._post_release / _get_export 已移除 None 守卫，依赖此赋值先于 serve_forever()。
 import app.server.http_handler as _http_mod
 _http_mod.SESSION_MGR = SESSION_MGR
 

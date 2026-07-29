@@ -23,7 +23,7 @@ class UndoHandler:
 
         db = session.db
         with db.with_lock():
-            result = self._sm.undo(sid)
+            result = self._sm.undo(session)
             if not result["success"]:
                 raise HandlerError("UNDO_FAILED", result.get("message", "撤销失败"))
 
@@ -69,7 +69,7 @@ class RedoHandler:
 
         db = session.db
         with db.with_lock():
-            result = self._sm.redo(sid)
+            result = self._sm.redo(session)
             if not result["success"]:
                 raise HandlerError("REDO_FAILED", result.get("message", "重做失败"))
 
@@ -140,9 +140,9 @@ class GetSummaryHandler:
     def __call__(self, data: dict) -> HandlerResult:
         sid = data["session_id"]
         session = self._sm.get(sid)
-        db = session.db if session else None
-        if not db:
+        if not session:
             raise HandlerError("SESSION_NOT_FOUND", "会话不存在")
+        db = session.db
         with db.with_lock():
             msgs = list(db.messages.values())
             data = {
@@ -180,19 +180,18 @@ class GetStatusHandler:
     def __call__(self, data: dict) -> HandlerResult:
         sid = data["session_id"]
         session = self._sm.get(sid)
-        db = session.db if session else None
-        if not db:
+        if not session:
             raise HandlerError("SESSION_NOT_FOUND", "会话不存在")
+        db = session.db
         with db.with_lock():
             status_data = {
                 "message_count": len(db.messages), "signal_count": db.total_signals(),
                 "modified": db.modified, "session_id": sid,
-                "file_name": _pure_file_name(session) if session else None,
+                "file_name": _pure_file_name(session),
             }
-        if session:
-            status_data["undo_count"] = len(session.undo_stack)
-            status_data["redo_count"] = len(session.redo_stack)
-            status_data["save_error"] = session.save_error
+        status_data["undo_count"] = len(session.undo_stack)
+        status_data["redo_count"] = len(session.redo_stack)
+        status_data["save_error"] = session.save_error
         return HandlerResult(data=status_data, session_id=sid)
 
 
@@ -228,7 +227,7 @@ class EditDatabaseHandler:
                 db.bus_type = bt
                 db.modified = True
             if old_values:
-                self._sm.push_undo(sid, {
+                self._sm.push_undo(session, {
                     "type": "database_update",
                     "prev": old_values,
                     "next": fields,

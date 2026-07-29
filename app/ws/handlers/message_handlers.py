@@ -62,7 +62,7 @@ class EditMessageHandler:
                 if new_id != original_msg_id:
                     prev["id"] = original_msg_id
                     nxt["id"] = new_id
-                self._sm.push_undo(sid, {"type": "message_update", "msgId": msg_id,
+                self._sm.push_undo(session, {"type": "message_update", "msgId": msg_id,
                                          "prev": prev, "next": nxt})
             new_version = db._bump_version()
             updated_msg = db.get_message(msg_id)
@@ -122,7 +122,7 @@ class AddMessageHandler:
             msg.id = msg_id
             if not db.add_message(msg):
                 raise HandlerError("CONFLICT", f"报文 0x{msg_id:X} 已存在")
-            self._sm.push_undo(sid, {"type": "message_add", "msgId": msg_id, "data": msg.to_dict()})
+            self._sm.push_undo(session, {"type": "message_add", "msgId": msg_id, "data": msg.to_dict()})
             new_version = db._bump_version()
             summary = {"id": msg_id, "id_hex": f"0x{msg_id:X}", "name": msg.name,
                        "dlc": msg.dlc, "cycle_time": msg.cycle_time,
@@ -158,7 +158,7 @@ class DeleteMessageHandler:
                 raise HandlerError("MESSAGE_NOT_FOUND", f"报文 {msg_id} 不存在")
             msg_data = msg.to_dict()
             db.remove_message(msg_id)
-            self._sm.push_undo(sid, {"type": "message_delete", "data": msg_data})
+            self._sm.push_undo(session, {"type": "message_delete", "data": msg_data})
             new_version = db._bump_version()
             events = [
                 {"type": "message_deleted", "data": {"msg_id": msg_id}, "data_version": new_version},
@@ -203,7 +203,7 @@ class DuplicateMessageHandler:
             msg.id = new_id
             if not db.add_message(msg):
                 raise HandlerError("CONFLICT", f"报文 0x{new_id:X} 已存在")
-            self._sm.push_undo(sid, {"type": "message_add", "msgId": new_id, "data": msg.to_dict()})
+            self._sm.push_undo(session, {"type": "message_add", "msgId": new_id, "data": msg.to_dict()})
             new_version = db._bump_version()
             summary = {"id": new_id, "id_hex": f"0x{new_id:X}", "name": msg.name,
                        "dlc": msg.dlc, "cycle_time": msg.cycle_time,
@@ -228,15 +228,14 @@ class GetMessageHandler:
     def __call__(self, data: dict) -> HandlerResult:
         sid = data["session_id"]
         session = self._sm.get(sid)
-        db = session.db if session else None
-        if not db:
+        if not session:
             raise HandlerError("SESSION_NOT_FOUND", "会话不存在")
+        db = session.db
         msg_id = _parse_id(data.get("msg_id", ""))
-        if msg_id is None:
-            raise HandlerError("VALUE_INVALID", "Invalid message ID")
-        msg = db.get_message(msg_id)
+        msg = db.get_message(msg_id) if msg_id is not None else None
         if not msg:
-            raise HandlerError("MESSAGE_NOT_FOUND", f"报文 0x{msg_id:X} 不存在")
+            label = f"0x{msg_id:X}" if msg_id is not None else str(data.get("msg_id", ""))
+            raise HandlerError("MESSAGE_NOT_FOUND", f"报文 {label} 不存在")
         return HandlerResult(data=msg.to_dict(), session_id=sid)
 
 
@@ -247,9 +246,9 @@ class GetMessagesHandler:
     def __call__(self, data: dict) -> HandlerResult:
         sid = data["session_id"]
         session = self._sm.get(sid)
-        db = session.db if session else None
-        if not db:
+        if not session:
             raise HandlerError("SESSION_NOT_FOUND", "会话不存在")
+        db = session.db
         with db.with_lock():
             messages = [
                 {"id": mid, "id_hex": f"0x{mid:X}", "name": m.name,

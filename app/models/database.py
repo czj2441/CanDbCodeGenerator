@@ -89,12 +89,6 @@ class CanDatabase:
         self.data_version += 1
         return self.data_version
 
-    def _bump_version_safe(self) -> int:
-        """带锁的安全版本，供锁外调用方使用。"""
-        with self.__lock:
-            self.data_version += 1
-            return self.data_version
-
     # ── 报文操作 ─────────────────────────────────────────────────────────
 
     def add_message(self, msg: Message) -> bool:
@@ -297,15 +291,9 @@ class CanDatabase:
         return bits
 
     def validate_signal(
-        self, msg_id: int, sig: Signal, exclude_uuid: str | None = None
+        self, msg: Message, sig: Signal, exclude_uuid: str | None = None
     ) -> tuple[bool, str, dict]:
         """验证信号是否可以加入/更新到报文中。返回 (is_valid, error_message, details)。"""
-        msg = self.messages.get(msg_id)
-        if not msg:
-            return False, "Message not found", {"type": "invalid_param"}
-        max_bits = msg.dlc * 8
-        if max_bits < 1:
-            return False, "Invalid message DLC", {"type": "invalid_param"}
         if sig.start_bit < 0:
             return False, "Start bit must be non-negative", {
                 "type": "invalid_param", "field": "start_bit", "value": sig.start_bit,
@@ -495,27 +483,6 @@ class CanDatabase:
         """JSON 反序列化。"""
         return cls.from_dict(data)
 
-    def to_flat_dict(self) -> dict[str, Any]:
-        """扁平字典结构（供 XML 等格式复用）。"""
-        with self.__lock:
-            return {
-                "database": {"name": self.name},
-                "messages": [
-                    msg.to_dict()
-                    for msg in sorted(self.messages.values(), key=lambda m: m.id)
-                ],
-            }
-
-    @classmethod
-    def from_flat_dict(cls, data: dict[str, Any]) -> CanDatabase:
-        """从扁平字典创建。"""
-        db_info = data.get("database", {})
-        db = cls(name=str(db_info.get("name", "Untitled")))
-        for msg_data in data.get("messages", []):
-            msg = Message.from_dict(msg_data)
-            db.messages[msg.id] = msg
-        return db
-
     def to_properties_str(self) -> str:
         """序列化为 Java Properties 字符串（O(n) 线性性能）。"""
         import json as _json
@@ -669,15 +636,6 @@ class CanDatabase:
 
             db.messages[mid] = msg
         return db
-
-    def to_xml_dict(self) -> dict[str, Any]:
-        """XML 友好的字典结构。"""
-        return self.to_flat_dict()
-
-    @classmethod
-    def from_xml_dict(cls, data: dict[str, Any]) -> CanDatabase:
-        """从 XML 字典创建。"""
-        return cls.from_flat_dict(data)
 
     # ── DBC 序列化 ─────────────────────────────────────────────────────
 
@@ -835,9 +793,3 @@ class CanDatabase:
             db.messages[msg.id] = msg
         
         return db
-
-    def _escape_dbc_string(self, s: str) -> str:
-        """转义 DBC 字符串中的特殊字符。"""
-        if not s:
-            return ""
-        return s.replace("\\", "\\\\").replace("\"", "\\\"")

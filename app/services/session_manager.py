@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 from .session import Session
 from .file_persistence import (
-    DATA_DIR, HEARTBEAT_TIMEOUT, HEARTBEAT_CHECK_INTERVAL, MAX_ORPHAN_STACKS,
+    DATA_DIR, HEARTBEAT_TIMEOUT, HEARTBEAT_CHECK_INTERVAL,
     write_session_file, load_session_file, resolve_duplicate,
 )
 from .file_lock import FileLockManager
@@ -352,60 +352,6 @@ class SessionManager:
         remove_snapshot(session_id)
         return True
 
-    def save_all_dirty(self) -> int:
-        """遍历所有活跃会话，保存所有已修改的。
-
-        用于进程退出时保存（atexit）。（线程安全，不长期持锁）
-
-        Returns:
-            成功保存的会话数量
-        """
-        with self._lock:
-            sids = list(self._sessions.keys())
-
-        # 预检：统计脏会话数，无脏会话时静默返回
-        dirty_sids = [sid for sid in sids
-                      if self.get(sid) and self.get(sid).db.modified]
-        if not dirty_sids:
-            return 0
-        logger.info("save_all_dirty: saving %d dirty session(s) out of %d total",
-                    len(dirty_sids), len(sids))
-
-        saved = 0
-        failed = 0
-        for sid in sids:
-            session = self.get(sid)
-            if not session:
-                continue
-            saved_ok = False
-            try:
-                saved_ok = self.save(sid)
-            except Exception as e:
-                session.save_error = str(e)    # 异常：记录错误
-                logger.warning("save_all_dirty: failed to save %s: %s", sid[:8], e)
-
-            if saved_ok:
-                saved += 1
-                session.save_error = None  # 成功：清除旧错误
-            else:
-                failed += 1
-                if not session.save_error:
-                    session.save_error = "Session disappeared during save"
-                    logger.warning("save_all_dirty: save returned False for %s", sid[:8])
-                # 紧急备份：save 失败时写入独立备份文件，与心跳超时路径保护级别一致
-                try:
-                    os.makedirs(self._data_dir, exist_ok=True)
-                    content = session.db.to_properties_str()
-                    emergency_path = os.path.join(
-                        self._data_dir, f"{sid}_EMERGENCY.properties")
-                    with open(emergency_path, "w", encoding="utf-8") as f:
-                        f.write(content)
-                    logger.info("emergency backup written: %s", emergency_path)
-                except Exception as e2:
-                    logger.critical("emergency backup also failed for %s: %s", sid[:8], e2)
-        logger.info("save_all_dirty: complete — %d succeeded, %d failed", saved, failed)
-        return saved
-
     def snapshot_all_dirty(self) -> int:
         """遍历所有活跃会话，为脏会话写快照（atexit / 定时器调用）。"""
         from .snapshot import write_snapshot
@@ -430,11 +376,6 @@ class SessionManager:
         if result:
             logger.info("Session destroyed: sid=%s", session_id[:8])
         return result
-
-    def list_sessions(self) -> list[dict]:
-        """列出所有活跃会话信息。"""
-        with self._lock:
-            return [s.to_info() for s in self._sessions.values()]
 
     def list_history(self, exclude_session: str = '') -> list[dict]:
         """扫描 data 目录，返回所有历史文件记录。
@@ -630,35 +571,19 @@ class SessionManager:
         """将心跳前推至即将超时。"""
         self._file_lock.mark_stale(session_id)
 
-    # ── 撤销/重做委托（保持原有 API 签名） ──
+    # ── 撤销/重做委托 ──
 
-    def push_undo(self, session_id: str, snapshot: dict) -> bool:
+    def push_undo(self, session, snapshot: dict) -> bool:
         """推入撤销快照。"""
-        session = self.get(session_id)
-        if not session:
-            return False
         return self._undo.push_undo(session, snapshot)
 
-    def undo(self, session_id: str) -> dict:
+    def undo(self, session) -> dict:
         """执行撤销操作。"""
-        session = self.get(session_id)
-        if not session:
-            return {"success": False, "message": "Session not found"}
         return self._undo.undo(session)
 
-    def redo(self, session_id: str) -> dict:
+    def redo(self, session) -> dict:
         """执行重做操作。"""
-        session = self.get(session_id)
-        if not session:
-            return {"success": False, "message": "Session not found"}
         return self._undo.redo(session)
-
-    def clear_undo_stacks(self, session_id: str) -> bool:
-        """清空撤销/重做栈。"""
-        session = self.get(session_id)
-        if not session:
-            return False
-        return self._undo.clear_stacks(session)
 
     # ── 心跳机制 ──
 

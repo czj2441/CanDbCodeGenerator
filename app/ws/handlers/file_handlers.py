@@ -117,9 +117,9 @@ class DownloadFileHandler:
     def __call__(self, data: dict) -> HandlerResult:
         sid = data["session_id"]
         session = self._sm.get(sid)
-        db = session.db if session else None
-        if not db:
+        if not session:
             raise HandlerError("SESSION_NOT_FOUND", "会话不存在")
+        db = session.db
         fmt = data.get("format", "dbc")
 
         # DBC 导出前校验：存在数据完整性错误时拒绝导出

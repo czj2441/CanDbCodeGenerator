@@ -104,13 +104,6 @@ class UndoEngine:
                 }
             }
 
-    def clear_stacks(self, session) -> bool:
-        """清空撤销/重做栈。"""
-        with session._undo_lock:
-            session.undo_stack.clear()
-            session.redo_stack.clear()
-            return True
-
     # ── 孤儿栈管理 ──
 
     def save_orphan(self, file_name: str, session):
