@@ -24,11 +24,6 @@
           >
             <span class="error-icon">{{ errorIcon(err.type) }}</span>
             <span class="error-desc">{{ errorDescription(err) }}</span>
-            <button
-              v-if="(err.type === 'out_of_bounds' || err.type === 'overlap') && err.msg_id === editor.selectedMsgId"
-              class="btn-fix-inline"
-              @click.stop="fixError(err)"
-            >{{ t('signal.fixBtn') }}</button>
             <span class="error-arrow">→</span>
           </div>
         </template>
@@ -41,14 +36,11 @@
 import { ref, computed, nextTick, watch } from 'vue'
 import { useEditorStore } from '../stores/editor.js'
 import { useMessagesStore } from '../stores/messages.js'
-import { useSignalsStore } from '../stores/signals.js'
 import { useUiStore } from '../stores/uiStore.js'
-import { findNextAvailableStartBit } from '../utils/storeHelpers.js'
 import { t } from '../i18n.js'
 
 const editor = useEditorStore()
 const messages = useMessagesStore()
-const signals = useSignalsStore()
 const ui = useUiStore()
 
 const isCollapsed = ref(true)  // 默认折叠
@@ -135,18 +127,6 @@ async function navigateToError(err) {
     row?.classList.add('highlight-flash')
     setTimeout(() => row?.classList.remove('highlight-flash'), 2000)
   }
-}
-// ── 自动修复 ──
-async function fixError(err) {
-  if (err.type !== 'out_of_bounds' && err.type !== 'overlap') return
-  const msg = editor.messageCache[err.msg_id]
-  if (!msg) return
-  const sig = msg.signals.find(s => s.uuid === err.signal_uuid)
-  if (!sig) return
-  const others = msg.signals.filter(s => s.uuid !== err.signal_uuid)
-  const newStartBit = findNextAvailableStartBit(others, msg.dlc, sig.length, sig.byte_order)
-  if (newStartBit == null) return
-  await signals.autoFixSignal(err.signal_uuid, newStartBit)
 }
 </script>
 
@@ -262,20 +242,5 @@ async function fixError(err) {
   flex-shrink: 0;
   color: var(--text-muted);
   font-size: 11px;
-}
-.btn-fix-inline {
-  padding: 1px 6px;
-  font-size: 10px;
-  border: 1px solid var(--accent);
-  border-radius: var(--radius-sm);
-  background: var(--bg-raised);
-  color: var(--accent);
-  cursor: pointer;
-  flex-shrink: 0;
-  margin-left: auto;
-}
-.btn-fix-inline:hover {
-  background: var(--accent);
-  color: var(--bg);
 }
 </style>

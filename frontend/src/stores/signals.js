@@ -8,15 +8,6 @@ import { getSignalBits } from '../utils/signalLayout.js'
 export const useSignalsStore = defineStore('signals', {
   actions: {
     /**
-     * 自动修复信号位置（布局视图调用）
-     */
-    async autoFixSignal(sigUuid, newStartBit) {
-      const editor = useEditorStore()
-      if (editor.selectedMsgId == null) return
-      await this.updateSignal(sigUuid, 'start_bit', newStartBit).catch(() => {})
-    },
-
-    /**
      * 通过布局视图移动信号位置
      */
     async moveSignalByLayout(sigUuid, newStartBit) {

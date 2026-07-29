@@ -633,7 +633,7 @@ frontend/
 | **editor** | 核心数据 + WS 连接管理 + 广播消息分发 + 健康检查 + 日志 | 422 |
 | **ui** | Toast、上下文菜单、模态框、主题、布局视图、日志面板 | 76 |
 | **messages** | 报文 CRUD（加载、选中、添加、删除、属性编辑） | 112 |
-| **signals** | 信号 CRUD（添加、编辑、删除、批量创建、自动修复） | 180 |
+| **signals** | 信号 CRUD（添加、编辑、删除、批量创建） | 180 |
 | **clipboard** | 信号/报文剪贴板（复制、剪切、粘贴、复制报文） | 98 |
 | **fileOperations** | 文件操作（保存、加载、另存为、新建、导入、释放锁） | 205 |
 | **undoRedo** | 撤销/重做计数器 + WS 请求 | 67 |
@@ -653,7 +653,6 @@ frontend/
 - 列：Name, Start Bit, Length, Byte Order, Factor, Offset, Min, Max, Unit, Comment
 - 行内编辑，blur 触发 API 保存
 - 红色边框高亮有重叠/越界错误的信号
-- 自动修复建议按钮
 - 行选择支持剪贴板操作
 
 ### 8.5 构建与部署

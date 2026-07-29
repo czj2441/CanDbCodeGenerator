@@ -229,9 +229,7 @@ const dict = {
     'toast.batchFailed': '批量创建在第 #{idx} 个失败：{msg}',
     'toast.signalOutOfBounds': '信号 "{name}" 超出范围（DLC={dlc}，最大位 {max}）',
     'toast.signalOverlap': '信号 "{name}" 与 "{other}" 在位 {bits} 重叠',
-    'toast.signalAutoFixed': '已自动调整 "{name}" 的起始位为 {start}',
     // Signal validation errors
-    'signal.fixBtn': '自动修复',
     'signal.noErrors': '无布局错误',
 
     // Backend validation toasts

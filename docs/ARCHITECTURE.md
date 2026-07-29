@@ -39,7 +39,7 @@
 | **editor** | 核心数据（messages/cache）、WS 连接管理、消息分发、健康检查、日志 | `stores/editor.js` | 422 |
 | **ui** | UI 状态（Toast、上下文菜单、模态框、主题、布局视图、日志面板） | `stores/uiStore.js` | 76 |
 | **messages** | 报文 CRUD（加载、选中、添加、删除、属性编辑） | `stores/messages.js` | 112 |
-| **signals** | 信号 CRUD（添加、编辑、删除、批量创建、自动修复、错误加载） | `stores/signals.js` | 180 |
+| **signals** | 信号 CRUD（添加、编辑、删除、批量创建、错误加载） | `stores/signals.js` | 180 |
 | **clipboard** | 信号/报文剪贴板（复制、剪切、粘贴、复制报文） | `stores/clipboard.js` | 98 |
 | **fileOperations** | 文件操作（保存、加载、另存为、新建、导入、释放锁） | `stores/fileOperations.js` | 205 |
 | **undoRedo** | 撤销/重做计数器 + WS 请求（undo/redo/clearUndoStack/syncCounts） | `stores/undoRedo.js` | 67 |
@@ -78,7 +78,7 @@
 
 - `addSignal(signalData)`、`updateSignal(sigUuid, field, value)`、`deleteSignal(sigUuid)`
 - `batchAddSignals(params)` — 批量创建，含边界检查
-- `autoFixSignal()`、`moveSignalByLayout()`、`resizeSignalByLayout()`
+- `moveSignalByLayout()`、`resizeSignalByLayout()`
 - `loadSignalErrors()`
 
 #### clipboard（剪贴板）
@@ -273,7 +273,7 @@ showToast(text, isError = false) {
 
 - 后端 `app/models/database.py` 的 `validate_signal()` 方法
 - 前端通过 `get_signal_errors` WS 请求获取验证结果
-- 信号表格显示错误高亮 + 自动修复按钮
+- 信号表格显示错误高亮
 
 ---
 
@@ -286,7 +286,7 @@ showToast(text, isError = false) {
 | `stores/editor.js` | 核心数据 + WS 连接 + 消息分发 + 健康检查 + 日志 |
 | `stores/uiStore.js` | UI 状态管理（Toast、模态框、主题、上下文菜单） |
 | `stores/messages.js` | 报文 CRUD |
-| `stores/signals.js` | 信号 CRUD + 批量创建 + 自动修复 |
+| `stores/signals.js` | 信号 CRUD + 批量创建 |
 | `stores/clipboard.js` | 信号/报文剪贴板 |
 | `stores/fileOperations.js` | 文件操作（保存、加载、新建、导入、释放锁） |
 | `stores/undoRedo.js` | 撤销/重做计数器 + WS 请求 |
@@ -298,7 +298,7 @@ showToast(text, isError = false) {
 | `api/client.js` | Session ID 管理（`sessionStorage` 持久化） |
 | `directives/lazyValue.js` | Vue 自定义指令（延迟值更新） |
 | `components/FileBrowser.vue` | 文件浏览器（创建/加载/删除/导入文件） |
-| `components/SignalTable.vue` | 信号表格（内联编辑、错误高亮、自动修复） |
+| `components/SignalTable.vue` | 信号表格（内联编辑、错误高亮） |
 | `components/SignalLayoutVisualizer.vue` | 信号布局可视化 |
 | `components/LogPanel.vue` | 操作日志面板 |
 
