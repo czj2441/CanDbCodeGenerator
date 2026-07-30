@@ -58,6 +58,7 @@ const ERROR_ICONS = {
   out_of_bounds: '⚠', overlap: '⚠', factor_zero: '⚠',
   signal_name_empty: '❌', signal_name_duplicate: '⚠',
   signal_length_zero: '❌', message_name_empty: '❌',
+  canfd_in_can_bus: '⚠',
 }
 function errorIcon(type) { return ERROR_ICONS[type] || '⚠' }
 

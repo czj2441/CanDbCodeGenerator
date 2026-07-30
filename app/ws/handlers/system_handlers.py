@@ -213,15 +213,22 @@ class EditDatabaseHandler:
                 bt = fields["bus_type"]
                 if bt not in ("CAN", "CAN FD"):
                     raise HandlerError("VALUE_INVALID", "bus_type must be 'CAN' or 'CAN FD'")
-                # CAN FD → CAN 时校验 DLC：经典 CAN 仅支持 DLC 1-8
+                # CAN FD → CAN 时校验 DLC 和 is_fd：经典 CAN 仅支持 DLC 1-8 且不允许 CAN FD 报文
                 if db.bus_type == "CAN FD" and bt == "CAN":
                     oversized = [m for m in db.messages.values() if m.dlc > 8]
-                    if oversized:
-                        names = ", ".join(m.name for m in oversized[:3])
+                    fd_msgs = [m for m in db.messages.values() if m.is_fd]
+                    if oversized or fd_msgs:
+                        issues = []
+                        if oversized:
+                            names = ", ".join(m.name for m in oversized[:3])
+                            issues.append(f"DLC > 8 的报文: {names}")
+                        if fd_msgs:
+                            fd_names = ", ".join(m.name for m in fd_msgs[:3])
+                            issues.append(f"CAN FD 报文: {fd_names}")
                         raise HandlerError(
-                            "DLC_TOO_LARGE",
-                            f"经典 CAN 仅支持 DLC 1-8，请先减小以下报文的 DLC：{names}",
-                            {"bus_type": db.bus_type}  # 返回当前正确的值
+                            "CANFD_INCOMPATIBLE",
+                            f"经典 CAN 不支持以下报文，请先修改：{'; '.join(issues)}",
+                            {"bus_type": db.bus_type}
                         )
                 old_values["bus_type"] = db.bus_type
                 db.bus_type = bt
@@ -233,6 +240,8 @@ class EditDatabaseHandler:
                     "next": fields,
                 })
             new_version = db._bump_version()
+            # bus_type 变更影响所有报文的 is_fd 兼容性，必须全量重验
+            integrity_errors = db.full_validate()
         events = [
             {"type": "database_updated", "data": {"bus_type": db.bus_type},
              "data_version": new_version},
@@ -240,6 +249,8 @@ class EditDatabaseHandler:
              "data": {"modified": True,
                       "undo_count": len(session.undo_stack),
                       "redo_count": len(session.redo_stack)},
+             "data_version": new_version},
+            {"type": "data_errors_changed", "data": {"errors": integrity_errors},
              "data_version": new_version},
         ]
         return HandlerResult(data={"bus_type": db.bus_type}, events=events,

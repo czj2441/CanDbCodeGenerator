@@ -346,7 +346,7 @@ class CanDatabase:
     def _validate_single_message_integrity(self, msg_id: int) -> list[dict]:
         """验证单个报文的全部完整性错误。必须在 __lock 持有下调用。
 
-        覆盖 7 种错误类型：message_name_empty、out_of_bounds、overlap、
+        覆盖 8 种错误类型：message_name_empty、canfd_in_can_bus、out_of_bounds、overlap、
         factor_zero、signal_name_empty、signal_name_duplicate、signal_length_zero。
         """
         msg = self.messages.get(msg_id)
@@ -360,6 +360,14 @@ class CanDatabase:
                 "type": "message_name_empty",
                 "msg_id": msg_id,
                 "message": f"Message 0x{msg_id:X} name is empty",
+            })
+
+        # ── CAN FD 兼容性 ──
+        if msg.is_fd and self.bus_type == "CAN":
+            errors.append({
+                "type": "canfd_in_can_bus",
+                "msg_id": msg_id,
+                "message": f"Message 0x{msg_id:X} is marked as CAN FD but bus type is CAN",
             })
 
         # ── 信号位布局 ──

@@ -94,6 +94,37 @@ class TestFullValidateBaseline:
         errors = db.full_validate()
         assert any(e["type"] == "overlap" for e in errors)
 
+    def test_canfd_in_can_bus_detected(self):
+        """bus_type=CAN 时 is_fd=True 应报 canfd_in_can_bus。"""
+        db = CanDatabase()
+        db.bus_type = "CAN"
+        msg = _make_msg(0x100, "FdMsg", 8, [_make_sig("S", 0, 8)])
+        msg.is_fd = True
+        db.add_message(msg)
+        errors = db.full_validate()
+        assert any(e["type"] == "canfd_in_can_bus" for e in errors)
+        assert errors[0]["msg_id"] == 0x100
+
+    def test_canfd_in_canfd_bus_no_error(self):
+        """bus_type=CAN FD 时 is_fd=True 不应报 canfd_in_can_bus。"""
+        db = CanDatabase()
+        db.bus_type = "CAN FD"
+        msg = _make_msg(0x100, "FdMsg", 8, [_make_sig("S", 0, 8)])
+        msg.is_fd = True
+        db.add_message(msg)
+        errors = db.full_validate()
+        assert not any(e["type"] == "canfd_in_can_bus" for e in errors)
+
+    def test_can_message_in_can_bus_no_error(self):
+        """bus_type=CAN 时 is_fd=False 不应报 canfd_in_can_bus。"""
+        db = CanDatabase()
+        db.bus_type = "CAN"
+        msg = _make_msg(0x100, "CanMsg", 8, [_make_sig("S", 0, 8)])
+        msg.is_fd = False
+        db.add_message(msg)
+        errors = db.full_validate()
+        assert not any(e["type"] == "canfd_in_can_bus" for e in errors)
+
     def test_cache_rebuilt_on_full_validate(self):
         """full_validate() 后缓存应完全重建。"""
         db = CanDatabase()

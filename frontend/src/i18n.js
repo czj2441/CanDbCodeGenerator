@@ -285,6 +285,7 @@ const dict = {
     'dataErrors.type.signal_name_duplicate': '信号 \'{name}\' 名称重复',
     'dataErrors.type.signal_length_zero': '信号 \'{name}\' 长度必须 ≥ 1',
     'dataErrors.type.message_name_empty': '报文名称为空',
+    'dataErrors.type.canfd_in_can_bus': '报文标记为 CAN FD，但当前总线类型为 CAN',
 }
 
 export function t(key, vars = {}) {
