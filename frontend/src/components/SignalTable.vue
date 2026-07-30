@@ -67,6 +67,10 @@
               <template v-else-if="col.key === 'max'"><input class="mono" type="number" step="any" v-lazy-value="sig.max_val" @blur="e => update(sig.uuid, 'max_val', parseFloat(e.target.value))"></template>
               <template v-else-if="col.key === 'unit'"><input v-lazy-value="sig.unit" @blur="e => update(sig.uuid, 'unit', e.target.value)"></template>
               <template v-else-if="col.key === 'comment'"><input v-lazy-value="sig.comment" @blur="e => update(sig.uuid, 'comment', e.target.value)"></template>
+              <template v-else-if="col.key === 'valTable'">
+                <span v-if="sig.value_table_name" class="vt-tag" @click.stop="ui.valueTableFocusName = sig.value_table_name; ui.switchCenterTab('valtables')">{{ sig.value_table_name }}</span>
+                <span v-else class="vt-none">-</span>
+              </template>
               <template v-else-if="col.key === 'actions'"><button class="action-delete" @click.stop="signals.deleteSignal(sig.uuid)" title="删除">×</button></template>
             </td>
           </tr>
@@ -102,6 +106,7 @@ const COLUMNS = [
   { key: 'max',     i18n: 'signal.thMax',      toggleable: true,  defaultPct: 7   },
   { key: 'unit',    i18n: 'signal.thUnit',      toggleable: true,  defaultPct: 6   },
   { key: 'comment', i18n: 'signal.thComment',  toggleable: true,  defaultPct: 26  },
+  { key: 'valTable', i18n: 'signal.thValTable', toggleable: true,  defaultPct: 8   },
   { key: 'actions', i18n: null,                toggleable: false, defaultPct: 3   },
 ]
 
@@ -646,4 +651,21 @@ function onCellKeyDown(e) {
 .signal-table tr.highlight-flash {
   animation: highlight-flash-anim 0.6s ease-in-out 3;
 }
+
+/* ── 值描述表标签 ── */
+.vt-tag {
+  display: inline-block;
+  background: color-mix(in oklch, var(--accent) 15%, transparent);
+  color: var(--accent);
+  border-radius: 3px;
+  padding: 1px 6px;
+  font-size: 11px;
+  cursor: pointer;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vt-tag:hover { background: color-mix(in oklch, var(--accent) 25%, transparent); }
+.vt-none { color: var(--text-muted); }
 </style>

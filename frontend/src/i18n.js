@@ -129,6 +129,27 @@ const dict = {
     'signal.thComment': '注释',
     'signal.columnSettings': '列设置',
     'signal.resetColumns': '重置全部',
+    'signal.thValTable': '值描述表',
+
+    // Tab 导航
+    'tab.signals': '信号',
+    'tab.messages': '报文',
+    'tab.valtables': '值描述表',
+
+    // MessageTable
+    'msgtable.allMessages': '所有报文',
+    'msgtable.unit': '条',
+    'msgtable.add': '+ 报文',
+    'msgtable.thIdx': '#',
+    'msgtable.thId': 'ID',
+    'msgtable.thName': '名称',
+    'msgtable.thDlc': 'DLC',
+    'msgtable.thCycle': '周期(ms)',
+    'msgtable.thFd': 'CAN FD',
+    'msgtable.thComment': '注释',
+    'msgtable.columnSettings': '列设置',
+    'msgtable.resetColumns': '重置全部',
+    'msgtable.empty': '暂无报文。',
 
     // MessagePanel
     'panel.empty': '未选择报文。<br>点击左侧报文以编辑其属性。',
@@ -160,6 +181,19 @@ const dict = {
     'panel.duplicate': '复制报文',
     'panel.copySignal': '复制信号',
     'panel.deleteSignal': '删除信号',
+    'panel.signalChoices': '值描述',
+    'panel.choicesValue': '原始值',
+    'panel.choicesDesc': '描述',
+    'panel.addChoice': '添加值描述',
+    'panel.valueTableRef': '值描述表',
+    'panel.noValueTable': '无',
+    'panel.valueTablePreview': '值描述预览',
+    'panel.editValueTable': '编辑值描述表',
+    'panel.bitUsage': '位使用率',
+    'panel.valTableStats': '值描述统计',
+    'panel.statsRefCount': '{count} 个引用全局表',
+    'panel.statsNoneCount': '{count} 个无',
+    'panel.statsNoSignals': '无信号',
 
     // BatchModal
     'batch.title': '批量添加信号',
@@ -286,6 +320,31 @@ const dict = {
     'dataErrors.type.signal_length_zero': '信号 \'{name}\' 长度必须 ≥ 1',
     'dataErrors.type.message_name_empty': '报文名称为空',
     'dataErrors.type.canfd_in_can_bus': '报文标记为 CAN FD，但当前总线类型为 CAN',
+
+    // 值描述表管理
+    'valtable.title': '全局值描述表管理',
+    'valtable.thIdx': '#',
+    'valtable.thName': '表名',
+    'valtable.thEntries': '条目数',
+    'valtable.thRefs': '引用数',
+    'valtable.allTables': '全局值描述表',
+    'valtable.unit': '个',
+    'valtable.add': '新增表',
+    'valtable.rename': '重命名',
+    'valtable.delete': '删除表',
+    'valtable.refCount': '引用数',
+    'valtable.search': '搜索表名…',
+    'valtable.emptyName': '表名不能为空',
+    'valtable.duplicateName': '表名已存在',
+    'valtable.confirmDelete': '确定删除此值描述表？',
+    'valtable.hasReferences': '此表被 {count} 个信号引用，无法删除',
+    'valtable.columnSettings': '列设置',
+    'valtable.resetColumns': '重置列',
+    'valtable.empty': '暂无值描述表。',
+    'valtable.noResults': '无匹配结果',
+    'toast.valueTableAdded': '值描述表 {name} 已添加',
+    'toast.valueTableDeleted': '值描述表 {name} 已删除',
+    'toast.valueTableRenamed': '值描述表 {old} 已重命名为 {new}',
 }
 
 export function t(key, vars = {}) {

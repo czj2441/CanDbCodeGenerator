@@ -54,6 +54,35 @@
           <textarea rows="3" v-lazy-value="selectedSig.comment" @blur="e => updateSignal('comment', e.target.value)"></textarea>
         </div>
       </div>
+
+      <!-- 值描述区域 -->
+      <div class="panel-section">
+        <div class="panel-section-title">{{ t('panel.signalChoices') }}</div>
+
+        <!-- 引用选择器 -->
+        <div class="field">
+          <label>{{ t('panel.valueTableRef') }}</label>
+          <select v-model="localValueTableName" @change="onValueTableRefChange">
+            <option value="">{{ t('panel.noValueTable') }}</option>
+            <option v-for="name in valueTableNames" :key="name" :value="name">{{ name }}</option>
+          </select>
+        </div>
+
+        <!-- 全局表只读预览 -->
+        <template v-if="localValueTableName && valueTablePreview">
+          <div class="vt-preview-header">
+            <span>{{ t('panel.valueTablePreview') }}: {{ localValueTableName }}</span>
+            <button class="btn btn-sm" @click="openValueTableManager">{{ t('panel.editValueTable') }}</button>
+          </div>
+          <div class="vt-preview">
+            <div v-for="(desc, val) in valueTablePreview" :key="val" class="vt-preview-row">
+              <span class="vt-preview-val mono">{{ val }}</span>
+              <span class="vt-preview-desc">{{ desc }}</span>
+            </div>
+          </div>
+        </template>
+      </div>
+
       <div class="panel-section">
         <div class="panel-section-title">{{ t('panel.signalActions') }}</div>
         <button class="btn" @click="copySig" style="width:100%;margin-bottom:6px">{{ t('panel.copySignal') }}</button>
@@ -99,6 +128,23 @@
           <textarea rows="2" v-lazy-value="msg.comment" @blur="e => update('comment', e.target.value)"></textarea>
         </div>
       </div>
+
+      <!-- 位使用率 -->
+      <div class="panel-section">
+        <div class="panel-section-title">{{ t('panel.bitUsage') }}</div>
+        <div class="bit-usage-bar">
+          <div class="bit-usage-fill" :class="bitUsageClass" :style="{ width: bitUsagePct + '%' }"></div>
+        </div>
+        <div class="bit-usage-text">{{ totalBits }} / {{ maxBits }} bit</div>
+      </div>
+
+
+      <!-- 值描述统计 -->
+      <div class="panel-section" v-if="msg.signals.length > 0">
+        <div class="panel-section-title">{{ t('panel.valTableStats') }}</div>
+        <div class="vt-stats">{{ valTableStatsText }}</div>
+      </div>
+
       <div class="panel-section">
         <div class="panel-section-title">{{ t('panel.actions') }}</div>
         <button class="btn" @click="duplicate" style="width:100%">{{ t('panel.duplicate') }}</button>
@@ -129,6 +175,59 @@ const signals = useSignalsStore()
 const clipboard = useClipboardStore()
 const ui = useUiStore()
 const msg = computed(() => store.selectedMessage)
+
+// ── 报文位使用率 ──
+const totalBits = computed(() => {
+  if (!msg.value) return 0
+  return msg.value.signals.reduce((sum, s) => sum + (s.length || 0), 0)
+})
+const maxBits = computed(() => (msg.value?.dlc || 0) * 8)
+const bitUsagePct = computed(() => maxBits.value > 0 ? Math.min(100, (totalBits.value / maxBits.value) * 100) : 0)
+const bitUsageClass = computed(() => {
+  const pct = bitUsagePct.value
+  if (pct >= 100) return 'danger'
+  if (pct >= 75) return 'warn'
+  return 'ok'
+})
+
+// ── 报文值描述统计 ──
+const valTableStatsText = computed(() => {
+  if (!msg.value?.signals) return ''
+  let refCount = 0, noneCount = 0
+  for (const sig of msg.value.signals) {
+    if (sig.value_table_name) refCount++
+    else noneCount++
+  }
+  const parts = []
+  if (refCount) parts.push(t('panel.statsRefCount', { count: refCount }))
+  if (noneCount) parts.push(t('panel.statsNoneCount', { count: noneCount }))
+  return parts.join(' · ') || t('panel.statsNoSignals')
+})
+
+// ── 值描述表引用 ──
+const localValueTableName = ref('')
+const valueTableNames = computed(() => Object.keys(store.valueTables).sort())
+const valueTablePreview = computed(() => {
+  const name = localValueTableName.value
+  if (!name || !store.valueTables[name]) return null
+  return store.valueTables[name]
+})
+
+function onValueTableRefChange() {
+  if (!ui.selectedSignalUuid) return
+  signals.updateSignal(ui.selectedSignalUuid, 'value_table_name', localValueTableName.value).catch(() => {})
+}
+
+function openValueTableManager() {
+  ui.valueTableFocusName = localValueTableName.value
+  ui.switchCenterTab('valtables')
+}
+
+// 从 selectedSig.value_table_name 同步
+watch(() => selectedSig.value?.value_table_name, (v) => {
+  localValueTableName.value = v || ''
+}, { immediate: true })
+
 
 // 本地 is_fd 状态：从 msg.is_fd 同步，用于 v-model 双向绑定
 const localIsFd = ref(msg.value?.is_fd ? 'true' : 'false')
@@ -277,4 +376,56 @@ function deleteSig() {
   cursor: pointer;
 }
 .btn:hover { background: var(--bg-hover); }
+
+/* ── 值描述表预览 ── */
+.vt-preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.btn-sm {
+  padding: 2px 8px;
+  font-size: 10px;
+}
+.vt-preview {
+  max-height: 150px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+}
+.vt-preview-row {
+  display: flex;
+  gap: 8px;
+  padding: 3px 8px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.vt-preview-row:last-child { border-bottom: none; }
+.vt-preview-val { width: 50px; color: var(--text-dim); text-align: right; }
+.vt-preview-desc { flex: 1; }
+
+/* ── 位使用率 ── */
+.bit-usage-bar {
+  height: 8px;
+  background: var(--bg-raised);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 4px;
+}
+.bit-usage-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width var(--transition);
+}
+.bit-usage-fill.ok { background: var(--accent); }
+.bit-usage-fill.warn { background: var(--warn); }
+.bit-usage-fill.danger { background: var(--danger); }
+.bit-usage-text { font-size: 11px; color: var(--text-muted); }
+
+/* ── 值描述统计 ── */
+.vt-stats { font-size: 11px; color: var(--text-muted); line-height: 1.6; }
 </style>

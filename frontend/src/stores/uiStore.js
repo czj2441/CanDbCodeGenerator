@@ -37,9 +37,20 @@ export const useUiStore = defineStore('ui', {
     showLogPanel: false,
     // 导出拦截时自动展开 DataErrorList
     expandDataErrors: false,
-    // 列可见性 + 列宽
+    // 列可见性 + 列宽（SignalTable）
     hiddenColumns: JSON.parse(localStorage.getItem('canmatrix_hidden_cols') || '[]'),
     columnWidths: JSON.parse(localStorage.getItem('canmatrix_col_widths') || '{}'),
+    // 中间区域 Tab 状态
+    centerTab: 'signals',  // 'signals' | 'messages' | 'valtables'
+    // 列可见性 + 列宽（MessageTable，独立 key 前缀 msg_）
+    msgHiddenColumns: JSON.parse(localStorage.getItem('canmatrix_msg_hidden_cols') || '[]'),
+    msgColumnWidths: JSON.parse(localStorage.getItem('canmatrix_msg_col_widths') || '{}'),
+    // 列可见性 + 列宽（ValueTableList，独立 key 前缀 vt_）
+    vtHiddenColumns: JSON.parse(localStorage.getItem('canmatrix_vt_hidden_cols') || '[]'),
+    vtColumnWidths: JSON.parse(localStorage.getItem('canmatrix_vt_col_widths') || '{}'),
+    // 值描述表选中状态 + 外部跳转焦点
+    selectedVtName: null,
+    valueTableFocusName: '',
   }),
 
   getters: {
@@ -183,7 +194,12 @@ export const useUiStore = defineStore('ui', {
       this.selectedSignalUuid = null
     },
 
-    // ── 列可见性 ──
+    // ── Tab 切换 ──
+    switchCenterTab(tab) {
+      this.centerTab = tab
+    },
+
+    // ── 列可见性（SignalTable） ──
     toggleColumnVisibility(key) {
       const idx = this.hiddenColumns.indexOf(key)
       if (idx >= 0) this.hiddenColumns.splice(idx, 1)
@@ -208,6 +224,60 @@ export const useUiStore = defineStore('ui', {
     resetColumnWidths() {
       this.columnWidths = {}
       localStorage.setItem('canmatrix_col_widths', '{}')
+    },
+
+    // ── 列可见性（MessageTable） ──
+    toggleMsgColumnVisibility(key) {
+      const idx = this.msgHiddenColumns.indexOf(key)
+      if (idx >= 0) this.msgHiddenColumns.splice(idx, 1)
+      else this.msgHiddenColumns.push(key)
+      localStorage.setItem('canmatrix_msg_hidden_cols', JSON.stringify(this.msgHiddenColumns))
+    },
+    isMsgColumnVisible(key) {
+      return !this.msgHiddenColumns.includes(key)
+    },
+    resetMsgColumnVisibility() {
+      this.msgHiddenColumns = []
+      localStorage.setItem('canmatrix_msg_hidden_cols', '[]')
+    },
+    // ── 列宽（MessageTable） ──
+    setMsgColumnWidths(widths) {
+      this.msgColumnWidths = widths
+      localStorage.setItem('canmatrix_msg_col_widths', JSON.stringify(widths))
+    },
+    getMsgColumnWidth(key, defaultPct) {
+      return this.msgColumnWidths[key] ?? defaultPct
+    },
+    resetMsgColumnWidths() {
+      this.msgColumnWidths = {}
+      localStorage.setItem('canmatrix_msg_col_widths', '{}')
+    },
+
+    // ── 列可见性（ValueTableList） ──
+    toggleVtColumnVisibility(key) {
+      const idx = this.vtHiddenColumns.indexOf(key)
+      if (idx >= 0) this.vtHiddenColumns.splice(idx, 1)
+      else this.vtHiddenColumns.push(key)
+      localStorage.setItem('canmatrix_vt_hidden_cols', JSON.stringify(this.vtHiddenColumns))
+    },
+    isVtColumnVisible(key) {
+      return !this.vtHiddenColumns.includes(key)
+    },
+    resetVtColumnVisibility() {
+      this.vtHiddenColumns = []
+      localStorage.setItem('canmatrix_vt_hidden_cols', '[]')
+    },
+    // ── 列宽（ValueTableList） ──
+    setVtColumnWidths(widths) {
+      this.vtColumnWidths = widths
+      localStorage.setItem('canmatrix_vt_col_widths', JSON.stringify(widths))
+    },
+    getVtColumnWidth(key, defaultPct) {
+      return this.vtColumnWidths[key] ?? defaultPct
+    },
+    resetVtColumnWidths() {
+      this.vtColumnWidths = {}
+      localStorage.setItem('canmatrix_vt_col_widths', '{}')
     },
 
     setLoading(val) {

@@ -19,6 +19,9 @@ export const useEditorStore = defineStore('editor', {
     currentFileName: '',
     busType: 'CAN',  // 全局总线类型，用户显式配置
 
+    // ── 全局值描述表 ──
+    valueTables: {},
+
     // ── 运行时状态 ──
     isLoading: false,
     apiStatus: 'connecting',
@@ -111,6 +114,7 @@ export const useEditorStore = defineStore('editor', {
       if (this._saveStatusTimer) { clearTimeout(this._saveStatusTimer); this._saveStatusTimer = null }
       this.dataErrors = []
       this.logEntries = []
+      this.valueTables = {}
       this._dataVersion = 0
       this._hasBeenConnected = false
       // 通过拆分 store 清理
@@ -253,6 +257,7 @@ export const useEditorStore = defineStore('editor', {
           }
 
           this.messages = d.messages || []
+          this.valueTables = d.value_tables || {}
           resetMessageIdGenerator()
           if (d.status) {
             this._syncBackendStatus(d.status)
@@ -394,6 +399,30 @@ export const useEditorStore = defineStore('editor', {
         case 'database_updated': {
           if (msg.data.bus_type) {
             this.busType = msg.data.bus_type
+          }
+          break
+        }
+
+        case 'value_table_added': {
+          const { name, entries } = msg.data
+          this.valueTables[name] = entries
+          break
+        }
+        case 'value_table_updated': {
+          const { name, entries } = msg.data
+          this.valueTables[name] = entries
+          break
+        }
+        case 'value_table_deleted': {
+          const { name } = msg.data
+          delete this.valueTables[name]
+          break
+        }
+        case 'value_table_renamed': {
+          const { old_name, new_name } = msg.data
+          if (this.valueTables[old_name]) {
+            this.valueTables[new_name] = this.valueTables[old_name]
+            delete this.valueTables[old_name]
           }
           break
         }

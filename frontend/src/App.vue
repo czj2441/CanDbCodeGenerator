@@ -5,15 +5,30 @@
     <!-- 编辑器模式 -->
     <template v-else>
       <TopBar @back="goBack" />
+      <!-- Tab 导航栏：全宽，优先级高于报文列表和属性面板 -->
+      <div class="nav-tabs">
+        <button class="nav-tab" :class="{ active: ui.centerTab === 'messages' }"
+                @click="ui.switchCenterTab('messages')">
+          {{ t('tab.messages') }}
+        </button>
+        <button class="nav-tab" :class="{ active: ui.centerTab === 'signals' }"
+                @click="ui.switchCenterTab('signals')">{{ t('tab.signals') }}</button>
+        <button class="nav-tab" :class="{ active: ui.centerTab === 'valtables' }"
+                @click="ui.switchCenterTab('valtables')">{{ t('tab.valtables') }}</button>
+      </div>
       <div class="main">
-        <MessageList />
+        <MessageList v-if="ui.centerTab === 'signals'" />
         <div class="center">
-          <SignalLayoutVisualizer v-if="ui.layoutViewMode" />
-          <SignalTable v-else />
+          <template v-if="ui.centerTab === 'signals'">
+            <SignalLayoutVisualizer v-if="ui.layoutViewMode" />
+            <SignalTable v-else />
+          </template>
+          <MessageTable v-else-if="ui.centerTab === 'messages'" />
+          <ValueTableList v-else-if="ui.centerTab === 'valtables'" />
           <DataErrorList />
           <LogPanel />
         </div>
-        <MessagePanel />
+        <MessagePanel v-if="ui.centerTab !== 'valtables'" />
       </div>
       <StatusBar />
       <!-- 离线编辑遮罩：覆盖编辑区域，不遮挡 TopBar -->
@@ -25,6 +40,7 @@
         </div>
       </div>
       <BatchModal v-model:visible="ui.batchModalOpen" />
+
       <LoadingOverlay />
       <ContextMenu :items="contextMenuItems" />
     </template>
@@ -98,6 +114,7 @@ import FileBrowser from './components/FileBrowser.vue'
 import TopBar from './components/TopBar.vue'
 import MessageList from './components/MessageList.vue'
 import SignalTable from './components/SignalTable.vue'
+import MessageTable from './components/MessageTable.vue'
 import SignalLayoutVisualizer from './components/SignalLayoutVisualizer.vue'
 import MessagePanel from './components/MessagePanel.vue'
 import StatusBar from './components/StatusBar.vue'
@@ -107,6 +124,7 @@ import Toast from './components/Toast.vue'
 import ContextMenu from './components/ContextMenu.vue'
 import LogPanel from './components/LogPanel.vue'
 import DataErrorList from './components/DataErrorList.vue'
+import ValueTableList from './components/ValueTableList.vue'
 import { versionMismatch } from './utils/version-check.js'
 
 const store = useEditorStore()
@@ -414,6 +432,34 @@ body {
   min-width: 0;
   border-left: 1px solid var(--border);
   border-right: 1px solid var(--border);
+}
+
+/* ── Tab 导航栏（全宽，高于报文列表和属性面板） ── */
+.nav-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+  flex-shrink: 0;
+}
+.nav-tab {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 16px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-dim);
+  font-size: 12px;
+  cursor: pointer;
+  transition: color 150ms, border-color 150ms;
+}
+.nav-tab:hover { color: var(--text); background: var(--bg-hover); }
+.nav-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
 }
 
 /* ── 连接中断遮罩 ── */
