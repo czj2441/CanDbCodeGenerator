@@ -12,6 +12,15 @@ from app.ws.router import HandlerResult, HandlerError, EDITABLE_SIGNAL_FIELDS
 from ._common import push_data_errors
 
 
+def _validate_value_table_ref(db, value_table_name: str):
+    """校验 value_table_name 引用是否存在。在 db.with_lock() 内调用。"""
+    if value_table_name and value_table_name not in db.value_tables:
+        raise HandlerError("VALUE_INVALID",
+            f"值描述表 '{value_table_name}' 不存在",
+            {"error_code": "value_table_not_found",
+             "field": "value_table_name", "value": value_table_name})
+
+
 def _validate_signal_fields(body: dict, msg, sig_uuid: str = None):
     """统一信号字段校验，供 add/edit/batch 复用。sig_uuid 非空时为编辑模式。"""
     if "name" in body:
@@ -77,6 +86,10 @@ class EditSignalHandler:
                     e.details[field] = old_val
                 raise
 
+            # value_table_name 引用校验
+            if field == 'value_table_name':
+                _validate_value_table_ref(db, value)
+
             test_sig = Signal.from_dict({**sig.to_dict(), field: value})
             ok, err, info = db.validate_signal(msg, test_sig, exclude_uuid=sig_uuid)
             if not ok:
@@ -122,6 +135,7 @@ class AddSignalHandler:
             if not msg:
                 raise HandlerError("MESSAGE_NOT_FOUND", f"报文 {msg_id} 不存在")
             _validate_signal_fields(sig_data, msg)
+            _validate_value_table_ref(db, sig_data.get("value_table_name", ""))
             sig = Signal.from_dict(sig_data)
             ok, err, info = db.validate_signal(msg, sig)
             if not ok:
@@ -202,6 +216,13 @@ class BatchAddSignalsHandler:
             created = []
             errors = []
             for i, sd in enumerate(signals_data):
+                vtn = sd.get("value_table_name", "")
+                try:
+                    _validate_value_table_ref(db, vtn)
+                except HandlerError as e:
+                    errors.append({"index": i, "name": sd.get("name", ""),
+                                   "error": e.message})
+                    continue
                 sig = Signal.from_dict(sd)
                 ok, err, _ = db.validate_signal(msg, sig)
                 if not ok:

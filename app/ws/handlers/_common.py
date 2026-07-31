@@ -7,6 +7,47 @@ def pure_file_name(session) -> str:
     return os.path.basename(session.file_path)
 
 
+def build_messages_summary(db) -> list[dict]:
+    """构建报文摘要列表，供 full_sync / undo / redo / get_messages 复用。"""
+    return [
+        {"id": mid, "id_hex": f"0x{mid:X}", "name": m.name,
+         "dlc": m.dlc, "cycle_time": m.cycle_time,
+         "is_fd": m.is_fd, "sender": m.sender, "comment": m.comment,
+         "signal_count": len(m.signals)}
+        for mid, m in sorted(db.messages.items())
+    ]
+
+
+def build_undo_redo_events(session, db, action_type: str) -> tuple[list, int, list]:
+    """构建 undo/redo 事件的公共逻辑。在 db.with_lock() 内调用。
+
+    Returns: (events, new_version, integrity_errors)
+    """
+    messages_data = build_messages_summary(db)
+    message_details = {str(mid): m.to_dict() for mid, m in db.messages.items()}
+    new_version = db._bump_version()
+    integrity_errors = db.full_validate()
+
+    events = [{
+        "type": action_type,
+        "data": {
+            "messages": messages_data,
+            "message_details": message_details,
+            "bus_type": db.bus_type,
+            "value_tables": dict(db.value_tables),
+            "status": {"modified": db.modified,
+                       "undo_count": len(session.undo_stack),
+                       "redo_count": len(session.redo_stack)},
+        },
+        "data_version": new_version,
+    }, {
+        "type": "data_errors_changed",
+        "data": {"errors": integrity_errors},
+        "data_version": new_version,
+    }]
+    return events, new_version, integrity_errors
+
+
 def validate_file_name(file_name: str) -> str:
     """校验文件名安全性，防止路径穿越和头注入。返回清洗后的文件名。
 

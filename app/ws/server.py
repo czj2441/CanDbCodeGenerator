@@ -17,6 +17,7 @@ from app.services import get_session_manager
 from .transport import WsTransport
 from .router import MessageRouter
 from app.version import VERSION
+from app.ws.handlers._common import build_messages_summary
 
 logger = logging.getLogger(__name__)
 
@@ -143,12 +144,8 @@ class WsServer:
 
         db = session.db
         with db.with_lock():
-            messages_data = [
-                {"id": mid, "id_hex": f"0x{mid:X}", "name": m.name,
-                 "dlc": m.dlc, "cycle_time": m.cycle_time,
-                 "signal_count": len(m.signals)}
-                for mid, m in sorted(db.messages.items())
-            ]
+            messages_data = build_messages_summary(db)
+            value_tables_snapshot = {k: dict(v) for k, v in db.value_tables.items()}
             status = {
                 "modified": db.modified,
                 "undo_count": len(session.undo_stack),
@@ -164,6 +161,8 @@ class WsServer:
             "data_version": version,
             "data": {
                 "messages": messages_data,
+                "value_tables": value_tables_snapshot,
+                "bus_type": db.bus_type,
                 "status": status,
                 "lock_status": "held" if lock_held else "lost"
             }

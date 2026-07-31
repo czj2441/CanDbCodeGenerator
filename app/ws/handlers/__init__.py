@@ -27,6 +27,12 @@ from .system_handlers import (
     GetSnapshotDebugHandler,
 )
 
+# Value table handlers
+from .value_table_handlers import (
+    AddValueTableHandler, UpdateValueTableHandler, DeleteValueTableHandler,
+    RenameValueTableHandler, GetValueTablesHandler,
+)
+
 __all__ = [
     # Signal
     'EditSignalHandler', 'AddSignalHandler', 'DeleteSignalHandler',
@@ -43,4 +49,7 @@ __all__ = [
     'GetSummaryHandler', 'GetSessionInfoHandler', 'GetStatusHandler',
     'EditDatabaseHandler',
     'GetSnapshotDebugHandler',
+    # Value table
+    'AddValueTableHandler', 'UpdateValueTableHandler', 'DeleteValueTableHandler',
+    'RenameValueTableHandler', 'GetValueTablesHandler',
 ]

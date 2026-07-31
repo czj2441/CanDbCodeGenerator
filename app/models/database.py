@@ -37,6 +37,7 @@ _SIGNAL_DEFAULTS = {
     "receivers": [],
     "multiplexer_mode": "none",
     "multiplexer_value": 0,
+    "value_table_name": "",
 }
 
 
@@ -78,6 +79,7 @@ class CanDatabase:
         self.__lock = threading.RLock()
         self.data_version: int = 0  # WS 版本号，每次变更 +1
         self._validation_cache: dict[int, list[dict]] = {}  # msg_id -> 校验错误列表
+        self.value_tables: dict[str, dict[str, str]] = {}  # 全局值描述表
 
     def with_lock(self):
         """返回锁上下文管理器，供外部需要原子操作时使用。"""
@@ -88,6 +90,61 @@ class CanDatabase:
         返回新版本号，调用方应使用返回值而非再次读取 data_version。"""
         self.data_version += 1
         return self.data_version
+
+    # ── 值描述表操作 ─────────────────────────────────────────────────
+
+    def add_value_table(self, name: str, entries: dict[str, str]) -> bool:
+        """新增全局值描述表。name 已存在返回 False。"""
+        with self.__lock:
+            if name in self.value_tables:
+                return False
+            self.value_tables[name] = dict(entries)
+            self.modified = True
+            return True
+
+    def remove_value_table(self, name: str) -> tuple[bool, int]:
+        """删除值描述表。有引用时拒绝。返回 (success, ref_count)。"""
+        with self.__lock:
+            if name not in self.value_tables:
+                return False, 0
+            ref_count = self._count_value_table_refs(name)
+            if ref_count > 0:
+                return False, ref_count
+            del self.value_tables[name]
+            self.modified = True
+            return True, 0
+
+    def update_value_table(self, name: str, entries: dict[str, str]) -> bool:
+        """更新值描述表内容。name 不存在返回 False。"""
+        with self.__lock:
+            if name not in self.value_tables:
+                return False
+            self.value_tables[name] = dict(entries)
+            self.modified = True
+            return True
+
+    def rename_value_table(self, old_name: str, new_name: str) -> bool:
+        """重命名 + 级联更新引用信号。O(n) 全量扫描。"""
+        with self.__lock:
+            if old_name not in self.value_tables or new_name in self.value_tables:
+                return False
+            self.value_tables[new_name] = self.value_tables.pop(old_name)
+            for m in self.messages.values():
+                for s in m.signals:
+                    if s.value_table_name == old_name:
+                        s.value_table_name = new_name
+            self.modified = True
+            return True
+
+    def get_value_tables(self) -> dict[str, dict[str, str]]:
+        """返回全局值描述表的深拷贝。"""
+        with self.__lock:
+            return {k: dict(v) for k, v in self.value_tables.items()}
+
+    def _count_value_table_refs(self, table_name: str) -> int:
+        """统计引用计数。**不加锁**，必须在已有 __lock 内调用。"""
+        return sum(1 for m in self.messages.values()
+                   for s in m.signals if s.value_table_name == table_name)
 
     # ── 报文操作 ─────────────────────────────────────────────────────────
 
@@ -189,6 +246,31 @@ class CanDatabase:
                     "valid_values": sorted(self.CLASSIC_CAN_DLC_VALUES)
                 }
             # A1 已延后：DLC 缩小导致的信号越界由 validate_data_integrity() 检测
+
+        # sender 校验
+        if "sender" in updates:
+            sender = updates["sender"]
+            if not isinstance(sender, str):
+                return False, "sender must be a string", {
+                    "error_code": "sender_invalid", "field": "sender"
+                }
+            if len(sender) > 128:
+                return False, "sender must be at most 128 characters", {
+                    "error_code": "sender_too_long", "field": "sender"
+                }
+
+        # comment 校验
+        if "comment" in updates:
+            comment = updates["comment"]
+            if not isinstance(comment, str):
+                return False, "comment must be a string", {
+                    "error_code": "comment_invalid", "field": "comment"
+                }
+            if len(comment) > 1024:
+                return False, "comment must be at most 1024 characters", {
+                    "error_code": "comment_too_long", "field": "comment"
+                }
+
         return True, "", {"error_code": "ok"}
 
     def move_message(self, old_id: int, new_id: int) -> bool:
@@ -459,6 +541,7 @@ class CanDatabase:
             return {
                 "name": self.name,
                 "bus_type": self.bus_type,
+                "value_tables": dict(self.value_tables),
                 "messages": {
                     f"0x{mid:X}": m.to_dict() for mid, m in sorted(self.messages.items())
                 },
@@ -480,6 +563,8 @@ class CanDatabase:
             mdata["id"] = mid
             msg = Message.from_dict(mdata)
             db.messages[mid] = msg
+        db.value_tables = {str(k): {str(ek): str(ev) for ek, ev in v.items()}
+                           for k, v in data.get("value_tables", {}).items()}
         return db
 
     def to_json_dict(self) -> dict[str, Any]:
@@ -549,6 +634,12 @@ class CanDatabase:
                             props[f"{sp}.multiplexer_mode"] = sig.multiplexer_mode
                             if sig.multiplexer_mode == "multiplexed":
                                 props[f"{sp}.multiplexer_value"] = str(sig.multiplexer_value)
+                        if sig.value_table_name:
+                            props[f"{sp}.value_table_name"] = sig.value_table_name
+
+            for vt_name in sorted(self.value_tables):
+                props[f"value_tables.{vt_name}"] = _json.dumps(
+                    self.value_tables[vt_name], ensure_ascii=False)
 
             return javaproperties.dumps(
                 props,
@@ -573,6 +664,13 @@ class CanDatabase:
         messages_data: dict[str, dict] = {}
 
         for key, value in props.items():
+            if key.startswith("value_tables."):
+                vt_name = key[len("value_tables."):]
+                try:
+                    db.value_tables[vt_name] = _json.loads(value)
+                except (ValueError, TypeError):
+                    db.value_tables[vt_name] = {}
+                continue
             if not key.startswith("messages."):
                 continue
             rest = key[len("messages."):]
@@ -640,6 +738,7 @@ class CanDatabase:
                     "receivers": receivers,
                     "multiplexer_mode": sig_d.get("multiplexer_mode", "none"),
                     "multiplexer_value": int(sig_d.get("multiplexer_value", 0)),
+                    "value_table_name": sig_d.get("value_table_name", ""),
                 }))
 
             db.messages[mid] = msg
@@ -650,7 +749,8 @@ class CanDatabase:
     def to_dbc_str(self) -> str:
         """导出为 DBC 格式字符串（使用 cantools 库）。"""
         import cantools.database
-        from cantools.database.conversion import IdentityConversion, LinearConversion
+        from cantools.database.conversion import BaseConversion
+        from collections import OrderedDict
         from cantools.database.can.formats.dbc import (
             ATTRIBUTE_DEFINITION_VFRAMEFORMAT,
             ATTRIBUTE_DEFINITION_BUS_TYPE,
@@ -665,6 +765,15 @@ class CanDatabase:
             vff = copy(ATTRIBUTE_DEFINITION_VFRAMEFORMAT)
             vff.default_value = 'reserved'
             # 使用用户显式配置的 bus_type，不做自动推断
+            ct_value_tables = {}
+            for vt_name, vt_entries in self.value_tables.items():
+                converted = {}
+                for k, v in vt_entries.items():
+                    try:
+                        converted[int(k)] = str(v)
+                    except (ValueError, TypeError):
+                        logger.warning("Value table '%s': skipping non-numeric key '%s'", vt_name, k)
+                ct_value_tables[vt_name] = converted
             can_db._dbc = DbcSpecifics(
                 attribute_definitions={
                     'VFrameFormat': vff,
@@ -676,20 +785,26 @@ class CanDatabase:
                         value=self.bus_type,
                     ),
                 },
+                value_tables=ct_value_tables,
             )
             
             for msg in sorted(self.messages.values(), key=lambda m: m.id):
                 can_signals = []
                 
                 for sig in msg.signals:
-                    if sig.factor == 1.0 and sig.offset == 0.0:
-                        conversion = IdentityConversion(is_float=False)
-                    else:
-                        conversion = LinearConversion(
-                            scale=sig.factor,
-                            offset=sig.offset,
-                            is_float=False,
-                        )
+                    choices = None
+                    if sig.value_table_name and sig.value_table_name in self.value_tables:
+                        vt = self.value_tables[sig.value_table_name]
+                        choices = OrderedDict()
+                        for k, v in vt.items():
+                            try:
+                                choices[int(k)] = str(v)
+                            except (ValueError, TypeError):
+                                logger.warning("Signal '%s' value table: skipping non-numeric key '%s'", sig.name, k)
+                    conversion = BaseConversion.factory(
+                        scale=sig.factor, offset=sig.offset,
+                        choices=choices, is_float=False,
+                    )
                     
                     can_sig = cantools.database.Signal(
                         name=sig.name,
@@ -739,7 +854,15 @@ class CanDatabase:
         
         can_db = cantools.database.load_string(content, database_format='dbc')
         db = cls(name="Imported from DBC")
-        
+
+        # 先提取全局值描述表 (VAL_TABLE_)，确保信号级 VAL_ 去重时能匹配
+        dbc_specs = getattr(can_db, 'dbc', None) or getattr(can_db, '_dbc', None)
+        if dbc_specs and getattr(dbc_specs, 'value_tables', None):
+            for vt_name, vt_choices in dbc_specs.value_tables.items():
+                db.value_tables[str(vt_name)] = {
+                    str(k): str(v) for k, v in vt_choices.items()
+                }
+
         for can_msg in can_db.messages:
             cycle_time = 0
             try:
@@ -780,6 +903,30 @@ class CanDatabase:
                 elif can_sig.multiplexer_ids:
                     mux_mode = "multiplexed"
                     mux_value = can_sig.multiplexer_ids[0]
+
+                # 提升信号内联 VAL_ choices 到全局值描述表
+                sig_vt_name = ""
+                if getattr(can_sig, 'choices', None):
+                    choices_dict = {str(k): str(v) for k, v in can_sig.choices.items()}
+                    auto_name = f"{can_sig.name}_Values"
+                    existing_name = None
+                    for en, ev in db.value_tables.items():
+                        if ev == choices_dict:
+                            existing_name = en
+                            break
+                    if existing_name:
+                        sig_vt_name = existing_name
+                    elif auto_name not in db.value_tables:
+                        db.value_tables[auto_name] = choices_dict
+                        sig_vt_name = auto_name
+                    else:
+                        counter = 2
+                        while f"{auto_name}_{counter}" in db.value_tables:
+                            counter += 1
+                        auto_name = f"{auto_name}_{counter}"
+                        db.value_tables[auto_name] = choices_dict
+                        sig_vt_name = auto_name
+
                 sig = Signal.from_dict({
                     "name": can_sig.name,
                     "start_bit": can_sig.start,
@@ -788,16 +935,17 @@ class CanDatabase:
                     "is_signed": can_sig.is_signed,
                     "factor": float(can_sig.scale) if hasattr(can_sig, 'scale') else 1.0,
                     "offset": float(can_sig.offset) if hasattr(can_sig, 'offset') else 0.0,
-                    "min_val": can_sig.minimum or 0.0,
-                    "max_val": can_sig.maximum or 0.0,
+                    "min_val": can_sig.minimum if can_sig.minimum is not None else 0.0,
+                    "max_val": can_sig.maximum if can_sig.maximum is not None else 0.0,
                     "unit": str(can_sig.unit) if can_sig.unit else "",
                     "comment": str(can_sig.comment) if can_sig.comment else "",
                     "receivers": list(can_sig.receivers) if can_sig.receivers else [],
                     "multiplexer_mode": mux_mode,
                     "multiplexer_value": mux_value,
+                    "value_table_name": sig_vt_name,
                 })
                 msg.signals.append(sig)
             
             db.messages[msg.id] = msg
-        
+
         return db

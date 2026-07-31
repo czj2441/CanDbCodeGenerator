@@ -258,6 +258,7 @@ export const useEditorStore = defineStore('editor', {
 
           this.messages = d.messages || []
           this.valueTables = d.value_tables || {}
+          if (d.bus_type) this.busType = d.bus_type
           resetMessageIdGenerator()
           if (d.status) {
             this._syncBackendStatus(d.status)
@@ -380,6 +381,9 @@ export const useEditorStore = defineStore('editor', {
             }
             this.messageCache = newCache
           }
+          if (msg.data.value_tables) {
+            this.valueTables = msg.data.value_tables
+          }
           // selectedMsgId 可能在 undo/redo ID 变更后失效（复用 full_sync 模式）
           if (this.selectedMsgId != null &&
               !this.messages.some(m => m.id === this.selectedMsgId)) {
@@ -423,6 +427,16 @@ export const useEditorStore = defineStore('editor', {
           if (this.valueTables[old_name]) {
             this.valueTables[new_name] = this.valueTables[old_name]
             delete this.valueTables[old_name]
+          }
+          // 级联更新 messageCache 中信号的 value_table_name 引用
+          for (const cache of Object.values(this.messageCache)) {
+            if (cache?.signals) {
+              for (const sig of cache.signals) {
+                if (sig.value_table_name === old_name) {
+                  sig.value_table_name = new_name
+                }
+              }
+            }
           }
           break
         }

@@ -81,6 +81,8 @@ def _register_all_handlers(ws_router, session_mgr, ws_transport=None):
         GetDataErrorsHandler, GetStatusHandler, GetMessagesHandler,
         EditDatabaseHandler,
         GetSnapshotDebugHandler,
+        AddValueTableHandler, UpdateValueTableHandler, DeleteValueTableHandler,
+        RenameValueTableHandler, GetValueTablesHandler,
     )
 
     ws_router.register("edit_signal", EditSignalHandler(session_mgr))
@@ -112,6 +114,11 @@ def _register_all_handlers(ws_router, session_mgr, ws_transport=None):
     ws_router.register("get_messages", GetMessagesHandler(session_mgr))
     ws_router.register("edit_database", EditDatabaseHandler(session_mgr))
     ws_router.register("get_snapshot_debug", GetSnapshotDebugHandler(session_mgr))
+    ws_router.register("add_value_table", AddValueTableHandler(session_mgr))
+    ws_router.register("update_value_table", UpdateValueTableHandler(session_mgr))
+    ws_router.register("delete_value_table", DeleteValueTableHandler(session_mgr))
+    ws_router.register("rename_value_table", RenameValueTableHandler(session_mgr))
+    ws_router.register("get_value_tables", GetValueTablesHandler(session_mgr))
 
 
 def main() -> None:

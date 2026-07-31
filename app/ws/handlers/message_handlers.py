@@ -8,7 +8,7 @@ from __future__ import annotations
 from app.models import Message
 from app.services import FileNameExistsError
 from app.ws.router import HandlerResult, HandlerError
-from ._common import push_data_errors
+from ._common import push_data_errors, build_messages_summary
 
 
 def _parse_id(s) -> int | None:
@@ -250,10 +250,5 @@ class GetMessagesHandler:
             raise HandlerError("SESSION_NOT_FOUND", "会话不存在")
         db = session.db
         with db.with_lock():
-            messages = [
-                {"id": mid, "id_hex": f"0x{mid:X}", "name": m.name,
-                 "dlc": m.dlc, "cycle_time": m.cycle_time, "is_fd": m.is_fd,
-                 "signal_count": len(m.signals)}
-                for mid, m in sorted(db.messages.items())
-            ]
+            messages = build_messages_summary(db)
         return HandlerResult(data=messages, session_id=sid)

@@ -186,6 +186,7 @@ function entryCount(name) {
 const expandedName = ref(null)
 const editingName = ref('')
 const localEntries = ref([])
+let _skipVtWatch = false
 
 function toggleExpand(name) {
   if (expandedName.value === name) {
@@ -211,6 +212,7 @@ function syncLocalEntries(name) {
 
 // 外部数据变化时同步（WS 事件等）
 watch(() => expandedName.value && editor.valueTables[expandedName.value], () => {
+  if (_skipVtWatch) { _skipVtWatch = false; return }
   if (expandedName.value) syncLocalEntries(expandedName.value)
 })
 
@@ -244,6 +246,7 @@ async function commitRename() {
   const oldName = expandedName.value
   try {
     await valueTables.renameValueTable(oldName, newName)
+    _skipVtWatch = true
     expandedName.value = newName
     editingName.value = newName
   } catch {

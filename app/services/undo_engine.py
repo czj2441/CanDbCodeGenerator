@@ -153,6 +153,17 @@ class UndoEngine:
                 self._delete_signal(session, snap["msgId"], sig["uuid"])
         elif snap_type == "database_update":
             self._restore_database_update(session, snap["prev"])
+        elif snap_type == "value_table_add":
+            session.db.value_tables.pop(snap["name"], None)
+        elif snap_type == "value_table_remove":
+            session.db.value_tables[snap["name"]] = dict(snap["entries"])
+        elif snap_type == "value_table_update":
+            session.db.value_tables[snap["name"]] = dict(snap["prev"])
+        elif snap_type == "value_table_rename":
+            old_name, new_name = snap["old_name"], snap["new_name"]
+            if new_name in session.db.value_tables:
+                session.db.value_tables[old_name] = session.db.value_tables.pop(new_name)
+                self._cascade_rename_value_table(session.db, new_name, old_name)
         else:
             raise ValueError(f"Unknown undo type: {snap_type}")
 
@@ -177,10 +188,29 @@ class UndoEngine:
                 self._restore_signal(session, snap["msgId"], sig["data"])
         elif snap_type == "database_update":
             self._restore_database_update(session, snap["next"])
+        elif snap_type == "value_table_add":
+            session.db.value_tables[snap["name"]] = dict(snap["entries"])
+        elif snap_type == "value_table_remove":
+            session.db.value_tables.pop(snap["name"], None)
+        elif snap_type == "value_table_update":
+            session.db.value_tables[snap["name"]] = dict(snap["next"])
+        elif snap_type == "value_table_rename":
+            old_name, new_name = snap["old_name"], snap["new_name"]
+            if old_name in session.db.value_tables:
+                session.db.value_tables[new_name] = session.db.value_tables.pop(old_name)
+                self._cascade_rename_value_table(session.db, old_name, new_name)
         else:
             raise ValueError(f"Unknown redo type: {snap_type}")
 
     # ── 撤销/重做辅助方法 ──
+
+    @staticmethod
+    def _cascade_rename_value_table(db, from_name: str, to_name: str):
+        """级联更新所有引用 from_name 的信号为 to_name。"""
+        for m in db.messages.values():
+            for s in m.signals:
+                if s.value_table_name == from_name:
+                    s.value_table_name = to_name
 
     def _restore_message(self, session, msg_data: dict):
         """恢复报文（含所有信号）。"""

@@ -26,6 +26,7 @@ class Signal:
     receivers: list[str] = field(default_factory=list)
     multiplexer_mode: str = "none"  # "none" | "multiplexer" | "multiplexed"
     multiplexer_value: int = 0
+    value_table_name: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         """序列化为字典。"""
@@ -45,6 +46,7 @@ class Signal:
             "receivers": self.receivers[:],
             "multiplexer_mode": self.multiplexer_mode,
             "multiplexer_value": self.multiplexer_value,
+            "value_table_name": self.value_table_name,
         }
 
     @classmethod
@@ -66,4 +68,5 @@ class Signal:
             receivers=list(data.get("receivers", [])),
             multiplexer_mode=str(data.get("multiplexer_mode", "none")),
             multiplexer_value=int(data.get("multiplexer_value", 0)),
+            value_table_name=str(data.get("value_table_name", "")),
         )

@@ -8,7 +8,7 @@ import json
 import os
 
 from app.ws.router import HandlerResult, HandlerError
-from ._common import pure_file_name as _pure_file_name
+from ._common import pure_file_name as _pure_file_name, build_undo_redo_events
 
 
 class UndoHandler:
@@ -26,32 +26,8 @@ class UndoHandler:
             result = self._sm.undo(session)
             if not result["success"]:
                 raise HandlerError("UNDO_FAILED", result.get("message", "撤销失败"))
+            events, new_version, _ = build_undo_redo_events(session, db, "undo_applied")
 
-            messages_data = [
-                {"id": mid, "id_hex": f"0x{mid:X}", "name": m.name,
-                 "dlc": m.dlc, "cycle_time": m.cycle_time, "signal_count": len(m.signals)}
-                for mid, m in sorted(db.messages.items())
-            ]
-            message_details = {str(mid): m.to_dict() for mid, m in db.messages.items()}
-            new_version = db._bump_version()
-            integrity_errors = db.full_validate()  # 全量扫描，锁内调用
-
-        events = [{
-            "type": "undo_applied",
-            "data": {
-                "messages": messages_data,
-                "message_details": message_details,
-                "bus_type": db.bus_type,
-                "status": {"modified": db.modified,
-                           "undo_count": len(session.undo_stack),
-                           "redo_count": len(session.redo_stack)},
-            },
-            "data_version": new_version,
-        }, {
-            "type": "data_errors_changed",
-            "data": {"errors": integrity_errors},
-            "data_version": new_version,
-        }]
         return HandlerResult(data={"undo_count": len(session.undo_stack),
                                    "redo_count": len(session.redo_stack)},
                              events=events, new_version=new_version, session_id=sid)
@@ -72,32 +48,8 @@ class RedoHandler:
             result = self._sm.redo(session)
             if not result["success"]:
                 raise HandlerError("REDO_FAILED", result.get("message", "重做失败"))
+            events, new_version, _ = build_undo_redo_events(session, db, "redo_applied")
 
-            messages_data = [
-                {"id": mid, "id_hex": f"0x{mid:X}", "name": m.name,
-                 "dlc": m.dlc, "cycle_time": m.cycle_time, "signal_count": len(m.signals)}
-                for mid, m in sorted(db.messages.items())
-            ]
-            message_details = {str(mid): m.to_dict() for mid, m in db.messages.items()}
-            new_version = db._bump_version()
-            integrity_errors = db.full_validate()  # 全量扫描，锁内调用
-
-        events = [{
-            "type": "redo_applied",
-            "data": {
-                "messages": messages_data,
-                "message_details": message_details,
-                "bus_type": db.bus_type,
-                "status": {"modified": db.modified,
-                           "undo_count": len(session.undo_stack),
-                           "redo_count": len(session.redo_stack)},
-            },
-            "data_version": new_version,
-        }, {
-            "type": "data_errors_changed",
-            "data": {"errors": integrity_errors},
-            "data_version": new_version,
-        }]
         return HandlerResult(data={"undo_count": len(session.undo_stack),
                                    "redo_count": len(session.redo_stack)},
                              events=events, new_version=new_version, session_id=sid)
