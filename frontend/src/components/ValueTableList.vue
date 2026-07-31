@@ -30,7 +30,7 @@
       <table v-else class="valtable-table" ref="tableRef">
         <colgroup>
           <col v-for="col in visibleColumns" :key="col.key"
-               :style="{ width: getColumnPct(col) + '%' }">
+               :style="{ width: normalizedPcts[col.key] + '%' }">
         </colgroup>
         <thead>
           <tr>
@@ -44,8 +44,8 @@
         </thead>
         <tbody>
           <template v-for="(name, idx) in filteredNames" :key="name">
-            <tr :class="{ selected: expandedName === name }"
-                @click="toggleExpand(name)">
+            <tr :class="{ selected: ui.selectedVtName === name }"
+                @click="selectRow(name)">
               <td v-for="col in visibleColumns" :key="col.key"
                   :class="{ 'col-idx': col.key === 'vt_idx' }">
                 <template v-if="col.key === 'vt_idx'"><span class="idx-label">{{ idx }}</span></template>
@@ -55,45 +55,6 @@
                 <template v-else-if="col.key === 'vt_actions'">
                   <button class="action-delete" @click.stop="deleteTable(name)" title="删除">×</button>
                 </template>
-              </td>
-            </tr>
-            <tr v-if="expandedName === name" class="detail-row">
-              <td :colspan="visibleColumns.length">
-                <div class="detail-area" @click.stop>
-                  <div class="detail-section">
-                    <label class="detail-label">{{ t('panel.name') }}</label>
-                    <input class="detail-input" v-model="editingName"
-                           @blur="commitRename" spellcheck="false">
-                    <span class="detail-ref-info">
-                      {{ t('valtable.refCount') }}: {{ refCountMap.get(name) || 0 }}
-                    </span>
-                  </div>
-                  <div class="detail-section">
-                    <div class="choices-header" v-if="localEntries.length > 0">
-                      <span class="choices-col-value">{{ t('panel.choicesValue') }}</span>
-                      <span class="choices-col-desc">{{ t('panel.choicesDesc') }}</span>
-                      <span class="choices-col-action"></span>
-                    </div>
-                    <div class="vt-entries">
-                      <div v-for="(row, eidx) in localEntries" :key="eidx" class="choices-row">
-                        <input class="choices-input-value mono"
-                               type="number"
-                               v-model.number="row.value"
-                               :class="{ 'input-error': row._error }"
-                               @blur="commitEntries">
-                        <input class="choices-input-desc"
-                               type="text"
-                               v-model="row.desc"
-                               :class="{ 'input-error': row._error }"
-                               @blur="commitEntries">
-                        <button class="choices-delete" @click="removeEntry(eidx)">✕</button>
-                      </div>
-                    </div>
-                    <button class="btn detail-add-entry" @click="addEntry">
-                      + {{ t('panel.addChoice') }}
-                    </button>
-                  </div>
-                </div>
               </td>
             </tr>
           </template>
@@ -131,6 +92,25 @@ const toggleableColumns = computed(() => COLUMNS.filter(c => c.toggleable))
 function getColumnPct(col) {
   return ui.getVtColumnWidth(col.key, col.defaultPct)
 }
+
+/** 归一化列宽百分比，确保总和 = 100%，防止浏览器自动缩放导致拖拽不同步 */
+const normalizedPcts = computed(() => {
+  const cols = visibleColumns.value
+  const raw = {}
+  let total = 0
+  for (const c of cols) {
+    const v = ui.getVtColumnWidth(c.key, c.defaultPct)
+    raw[c.key] = v
+    total += v
+  }
+  if (Math.abs(total - 100) < 0.01 || total === 0) return raw
+  const scale = 100 / total
+  const result = {}
+  for (const c of cols) {
+    result[c.key] = raw[c.key] * scale
+  }
+  return result
+})
 
 const showColMenu = ref(false)
 const colToggleRef = ref(null)
@@ -182,39 +162,10 @@ function entryCount(name) {
   return Object.keys(entries).length
 }
 
-// ── 展开行 ──
-const expandedName = ref(null)
-const editingName = ref('')
-const localEntries = ref([])
-let _skipVtWatch = false
-
-function toggleExpand(name) {
-  if (expandedName.value === name) {
-    expandedName.value = null
-  } else {
-    expandedName.value = name
-    syncLocalEntries(name)
-  }
+// ── 行选中 ──
+function selectRow(name) {
   ui.selectedVtName = name
 }
-
-function syncLocalEntries(name) {
-  editingName.value = name
-  const entries = editor.valueTables[name]
-  if (!entries || typeof entries !== 'object') {
-    localEntries.value = []
-    return
-  }
-  localEntries.value = Object.entries(entries)
-    .map(([k, v]) => ({ value: Number(k), desc: String(v), _error: false }))
-    .sort((a, b) => a.value - b.value)
-}
-
-// 外部数据变化时同步（WS 事件等）
-watch(() => expandedName.value && editor.valueTables[expandedName.value], () => {
-  if (_skipVtWatch) { _skipVtWatch = false; return }
-  if (expandedName.value) syncLocalEntries(expandedName.value)
-})
 
 // ── 新增表 ──
 async function addNewTable() {
@@ -224,70 +175,8 @@ async function addNewTable() {
   const name = baseName + i
   try {
     await valueTables.addValueTable(name, { '0': 'Default' })
-    expandedName.value = name
-    syncLocalEntries(name)
+    ui.selectedVtName = name
   } catch { /* toast already shown */ }
-}
-
-// ── 重命名 ──
-async function commitRename() {
-  const newName = editingName.value.trim()
-  if (!newName) {
-    editingName.value = expandedName.value
-    ui.showToast(t('valtable.emptyName'), true)
-    return
-  }
-  if (newName === expandedName.value) return
-  if (editor.valueTables[newName]) {
-    editingName.value = expandedName.value
-    ui.showToast(t('valtable.duplicateName'), true)
-    return
-  }
-  const oldName = expandedName.value
-  try {
-    await valueTables.renameValueTable(oldName, newName)
-    _skipVtWatch = true
-    expandedName.value = newName
-    editingName.value = newName
-  } catch {
-    editingName.value = oldName
-  }
-}
-
-// ── 编辑条目 ──
-function addEntry() {
-  const maxVal = localEntries.value.length > 0
-    ? Math.max(...localEntries.value.map(r => Number(r.value) || 0))
-    : -1
-  localEntries.value.push({ value: maxVal + 1, desc: '', _error: false })
-}
-
-function removeEntry(idx) {
-  localEntries.value.splice(idx, 1)
-  commitEntries()
-}
-
-function commitEntries() {
-  if (!expandedName.value) return
-  let valid = true
-  const seen = new Set()
-  for (const row of localEntries.value) {
-    row._error = false
-    if (row.value === '' || row.value === null || !Number.isInteger(row.value)) {
-      row._error = true; valid = false
-    } else if (!row.desc?.trim()) {
-      row._error = true; valid = false
-    } else if (seen.has(row.value)) {
-      row._error = true; valid = false
-    }
-    seen.add(row.value)
-  }
-  if (!valid) return
-  const dict = {}
-  for (const row of localEntries.value) {
-    dict[String(row.value)] = row.desc
-  }
-  valueTables.updateValueTable(expandedName.value, dict).catch(() => {})
 }
 
 // ── 删除表 ──
@@ -300,9 +189,8 @@ async function deleteTable(name) {
   if (!confirm(t('valtable.confirmDelete'))) return
   try {
     await valueTables.deleteValueTable(name)
-    if (expandedName.value === name) {
-      expandedName.value = null
-      localEntries.value = []
+    if (ui.selectedVtName === name) {
+      ui.selectedVtName = null
     }
   } catch { /* toast already shown */ }
 }
@@ -310,8 +198,7 @@ async function deleteTable(name) {
 // ── 外部跳转支持 ──
 watch(() => ui.valueTableFocusName, (name) => {
   if (name && editor.valueTables[name]) {
-    expandedName.value = name
-    syncLocalEntries(name)
+    ui.selectedVtName = name
     searchQuery.value = ''
   }
   ui.valueTableFocusName = ''
@@ -327,10 +214,13 @@ function startResize(colIndex, e) {
   const nextCol = cols[colIndex + 1]
   if (!nextCol) return
 
-  const curPct = ui.getVtColumnWidth(col.key, col.defaultPct)
-  const nextPct = ui.getVtColumnWidth(nextCol.key, nextCol.defaultPct)
-  const tableWidth = document.querySelector('.valtable-table')?.getBoundingClientRect().width
-  if (!tableWidth) return
+  // 从 DOM 读取实际渲染宽度，避免 store 原始百分比与浏览器缩放后的渲染宽度不一致
+  const tableWidth = tableRef.value.getBoundingClientRect().width
+  const colEls = tableRef.value.querySelectorAll('colgroup col')
+  const curPct = colEls[colIndex]?.getBoundingClientRect().width / tableWidth * 100
+    ?? ui.getVtColumnWidth(col.key, col.defaultPct)
+  const nextPct = colEls[colIndex + 1]?.getBoundingClientRect().width / tableWidth * 100
+    ?? ui.getVtColumnWidth(nextCol.key, nextCol.defaultPct)
 
   resizeState = { col, nextCol, colIndex, startX: e.clientX, curPct, nextPct, tableWidth }
   document.addEventListener('mousemove', onResize)
@@ -347,7 +237,7 @@ function onResize(e) {
   let newNext = resizeState.nextPct - (newCur - resizeState.curPct)
   if (newNext < MIN) { newNext = MIN; newCur = resizeState.curPct + resizeState.nextPct - MIN }
 
-  const colEls = document.querySelectorAll('.valtable-table colgroup col')
+  const colEls = tableRef.value.querySelectorAll('colgroup col')
   if (colEls[resizeState.colIndex]) colEls[resizeState.colIndex].style.width = newCur + '%'
   if (colEls[resizeState.colIndex + 1]) colEls[resizeState.colIndex + 1].style.width = newNext + '%'
 }
@@ -388,9 +278,8 @@ watch(() => ui.vtHiddenColumns, () => {
 }, { deep: true })
 
 onMounted(() => {
-  if (sortedNames.value.length > 0 && !expandedName.value) {
-    expandedName.value = sortedNames.value[0]
-    syncLocalEntries(sortedNames.value[0])
+  if (sortedNames.value.length > 0 && !ui.selectedVtName) {
+    ui.selectedVtName = sortedNames.value[0]
   }
 })
 </script>
@@ -501,106 +390,6 @@ tr.selected .idx-label { opacity: 1; font-weight: 600; }
 }
 .action-delete:hover { color: oklch(0.75 0.15 25); }
 
-/* ── 展开行详情 ── */
-.detail-row td {
-  padding: 0 !important;
-  border-bottom: 1px solid var(--border) !important;
-}
-.detail-area {
-  padding: 12px 16px;
-  background: var(--bg-raised);
-  border-top: 1px solid var(--border-light);
-}
-.detail-section { margin-bottom: 10px; }
-.detail-section:last-child { margin-bottom: 0; }
-.detail-label {
-  display: inline-block;
-  font-size: 11px;
-  color: var(--text-muted);
-  margin-right: 8px;
-}
-.detail-input {
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-  color: var(--text);
-  padding: 4px 8px;
-  font-size: 12px;
-  border-radius: var(--radius-sm);
-  outline: none;
-  width: 240px;
-}
-.detail-input:focus { border-color: var(--accent-dim); }
-.detail-ref-info {
-  font-size: 11px;
-  color: var(--text-muted);
-  margin-left: 12px;
-}
-
-.choices-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 4px;
-}
-.choices-col-value { width: 60px; font-size: 11px; color: var(--text-muted); }
-.choices-col-desc { flex: 1; font-size: 11px; color: var(--text-muted); }
-.choices-col-action { width: 20px; }
-
-.vt-entries {
-  max-height: 280px;
-  overflow-y: auto;
-}
-
-.choices-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 4px;
-}
-.choices-input-value {
-  width: 60px;
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-  color: var(--text);
-  padding: 4px 6px;
-  font-size: 12px;
-  border-radius: var(--radius-sm);
-  outline: none;
-  font-family: var(--font-mono);
-}
-.choices-input-desc {
-  flex: 1;
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-  color: var(--text);
-  padding: 4px 6px;
-  font-size: 12px;
-  border-radius: var(--radius-sm);
-  outline: none;
-}
-.choices-input-value:focus, .choices-input-desc:focus {
-  border-color: var(--accent-dim);
-}
-.choices-input-value.input-error, .choices-input-desc.input-error {
-  border-color: var(--danger, #e74c3c);
-}
-.choices-delete {
-  width: 20px; height: 20px;
-  background: none; border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 14px;
-  line-height: 1;
-  padding: 0;
-}
-.choices-delete:hover { color: var(--danger, #e74c3c); }
-
-.detail-add-entry {
-  width: 100%;
-  margin-top: 6px;
-  font-size: 11px;
-}
-
 /* ── 拖拽手柄 ── */
 .resize-handle {
   position: absolute;
@@ -618,8 +407,7 @@ tr.selected .idx-label { opacity: 1; font-weight: 600; }
   border-radius: 1px;
   background: var(--border);
 }
-.resize-handle:hover::after,
-.resize-handle.active::after { background: var(--accent); }
+.resize-handle:hover::after { background: var(--accent); }
 
 /* ── 列显隐下拉菜单 ── */
 .col-toggle-wrap { position: relative; }
@@ -633,7 +421,7 @@ tr.selected .idx-label { opacity: 1; font-weight: 600; }
   padding: 6px 0;
   min-width: 140px;
   z-index: 20;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  box-shadow: var(--shadow);
 }
 .col-dropdown-item {
   display: flex;

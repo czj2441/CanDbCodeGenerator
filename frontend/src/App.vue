@@ -28,7 +28,8 @@
           <DataErrorList />
           <LogPanel />
         </div>
-        <MessagePanel v-if="ui.centerTab !== 'valtables'" />
+        <ValueTablePanel v-if="ui.centerTab === 'valtables'" />
+        <MessagePanel v-else />
       </div>
       <StatusBar />
       <!-- 离线编辑遮罩：覆盖编辑区域，不遮挡 TopBar -->
@@ -125,6 +126,7 @@ import ContextMenu from './components/ContextMenu.vue'
 import LogPanel from './components/LogPanel.vue'
 import DataErrorList from './components/DataErrorList.vue'
 import ValueTableList from './components/ValueTableList.vue'
+import ValueTablePanel from './components/ValueTablePanel.vue'
 import { versionMismatch } from './utils/version-check.js'
 
 const store = useEditorStore()

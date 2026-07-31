@@ -1,7 +1,7 @@
 <template>
   <div class="panel">
     <!-- 信号属性区域 -->
-    <template v-if="selectedSig">
+    <template v-if="ui.centerTab === 'signals' && selectedSig">
       <div class="panel-section">
         <div class="panel-section-title">{{ t('panel.signalProperties') }}</div>
         <div class="field">
@@ -83,15 +83,10 @@
         </template>
       </div>
 
-      <div class="panel-section">
-        <div class="panel-section-title">{{ t('panel.signalActions') }}</div>
-        <button class="btn" @click="copySig" style="width:100%;margin-bottom:6px">{{ t('panel.copySignal') }}</button>
-        <button class="btn btn-danger" @click="deleteSig" style="width:100%">{{ t('panel.deleteSignal') }}</button>
-      </div>
     </template>
 
     <!-- 报文属性区域 -->
-    <template v-else-if="msg">
+    <template v-else-if="ui.centerTab === 'messages' && msg">
       <div class="panel-section">
         <div class="panel-section-title">{{ t('panel.properties') }}</div>
         <div class="field">
@@ -137,22 +132,10 @@
         </div>
         <div class="bit-usage-text">{{ totalBits }} / {{ maxBits }} bit</div>
       </div>
-
-
-      <!-- 值描述统计 -->
-      <div class="panel-section" v-if="msg.signals.length > 0">
-        <div class="panel-section-title">{{ t('panel.valTableStats') }}</div>
-        <div class="vt-stats">{{ valTableStatsText }}</div>
-      </div>
-
-      <div class="panel-section">
-        <div class="panel-section-title">{{ t('panel.actions') }}</div>
-        <button class="btn" @click="duplicate" style="width:100%">{{ t('panel.duplicate') }}</button>
-      </div>
     </template>
 
     <!-- 空状态 -->
-    <div v-else class="panel-empty" v-html="t('panel.empty')">
+    <div v-else class="panel-empty" v-html="emptyHtml">
     </div>
   </div>
 </template>
@@ -162,7 +145,6 @@ import { computed, ref, watch } from 'vue'
 import { useEditorStore } from '../stores/editor.js'
 import { useMessagesStore } from '../stores/messages.js'
 import { useSignalsStore } from '../stores/signals.js'
-import { useClipboardStore } from '../stores/clipboard.js'
 import { useUiStore } from '../stores/uiStore.js'
 import { toHex, parseHex } from '../utils/format.js'
 import { t } from '../i18n.js'
@@ -172,9 +154,15 @@ import { vLazyValue } from '../directives/lazyValue.js'
 const store = useEditorStore()
 const messages = useMessagesStore()
 const signals = useSignalsStore()
-const clipboard = useClipboardStore()
 const ui = useUiStore()
 const msg = computed(() => store.selectedMessage)
+
+// ── 空状态文本 ──
+const emptyHtml = computed(() =>
+  ui.centerTab === 'signals'
+    ? t('panel.signalEmpty')
+    : t('panel.msgEmpty')
+)
 
 // ── 报文位使用率 ──
 const totalBits = computed(() => {
@@ -188,20 +176,6 @@ const bitUsageClass = computed(() => {
   if (pct >= 100) return 'danger'
   if (pct >= 75) return 'warn'
   return 'ok'
-})
-
-// ── 报文值描述统计 ──
-const valTableStatsText = computed(() => {
-  if (!msg.value?.signals) return ''
-  let refCount = 0, noneCount = 0
-  for (const sig of msg.value.signals) {
-    if (sig.value_table_name) refCount++
-    else noneCount++
-  }
-  const parts = []
-  if (refCount) parts.push(t('panel.statsRefCount', { count: refCount }))
-  if (noneCount) parts.push(t('panel.statsNoneCount', { count: noneCount }))
-  return parts.join(' · ') || t('panel.statsNoSignals')
 })
 
 // ── 值描述表引用 ──
@@ -228,13 +202,13 @@ watch(() => selectedSig.value?.value_table_name, (v) => {
   localValueTableName.value = v || ''
 }, { immediate: true })
 
-
-// 本地 is_fd 状态：从 msg.is_fd 同步，用于 v-model 双向绑定
+// 本地 is_fd 状态
 const localIsFd = ref(msg.value?.is_fd ? 'true' : 'false')
 const isFdEl = ref(null)
 watch(() => msg.value?.is_fd, (v) => {
   localIsFd.value = v ? 'true' : 'false'
 }, { immediate: true })
+
 const selectedSig = computed(() => {
   if (!msg.value || !ui.selectedSignalUuid) return null
   return msg.value.signals.find(s => s.uuid === ui.selectedSignalUuid) || null
@@ -259,26 +233,6 @@ function modifyDisplayStartBit(displayValue) {
   signals.updateSignal(ui.selectedSignalUuid, 'start_bit', valueToSend).catch(() => {})
 }
 
-function update(field, value) {
-  messages.updateMessageField(field, value).catch(() => {})
-}
-
-function updateDlc(value) {
-  update('dlc', value)
-}
-
-function toggleIsFd(newIsFd) {
-  messages.updateMessageField('is_fd', newIsFd)
-    .catch(e => {
-      // 后端拒绝时，updateMessageField 已将缓存恢复为后端值
-      // 同步本地 ref 并强制 DOM 恢复
-      localIsFd.value = msg.value?.is_fd ? 'true' : 'false'
-      if (isFdEl.value) {
-        isFdEl.value.value = localIsFd.value
-      }
-    })
-}
-
 function updateSignal(field, value) {
   if (ui.selectedSignalUuid) {
     signals.updateSignal(ui.selectedSignalUuid, field, value).catch(() => {})
@@ -292,20 +246,22 @@ function handleByteOrderChange(e) {
     .catch(() => { if (oldOrder != null) e.target.value = oldOrder })
 }
 
-function duplicate() {
-  clipboard.duplicateMessage()
+function update(field, value) {
+  messages.updateMessageField(field, value).catch(() => {})
 }
 
-function copySig() {
-  if (ui.selectedSignalUuid) {
-    clipboard.copySignal(ui.selectedSignalUuid)
-  }
+function updateDlc(value) {
+  update('dlc', value)
 }
 
-function deleteSig() {
-  if (ui.selectedSignalUuid) {
-    signals.deleteSignal(ui.selectedSignalUuid)
-  }
+function toggleIsFd(newIsFd) {
+  messages.updateMessageField('is_fd', newIsFd)
+    .catch(e => {
+      localIsFd.value = msg.value?.is_fd ? 'true' : 'false'
+      if (isFdEl.value) {
+        isFdEl.value.value = localIsFd.value
+      }
+    })
 }
 </script>
 
@@ -426,6 +382,4 @@ function deleteSig() {
 .bit-usage-fill.danger { background: var(--danger); }
 .bit-usage-text { font-size: 11px; color: var(--text-muted); }
 
-/* ── 值描述统计 ── */
-.vt-stats { font-size: 11px; color: var(--text-muted); line-height: 1.6; }
 </style>

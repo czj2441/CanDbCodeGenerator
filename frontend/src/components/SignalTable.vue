@@ -36,7 +36,7 @@
       <table v-else class="signal-table" ref="tableRef" @keydown="onCellKeyDown">
         <colgroup>
           <col v-for="col in visibleColumns" :key="col.key"
-               :style="{ width: getColumnPct(col) + '%' }">
+               :style="{ width: normalizedPcts[col.key] + '%' }">
         </colgroup>
         <thead>
           <tr>
@@ -148,6 +148,25 @@ function getColumnPct(col) {
   return ui.getColumnWidth(col.key, col.defaultPct)
 }
 
+/** 归一化列宽百分比，确保总和 = 100%，防止浏览器自动缩放导致拖拽不同步 */
+const normalizedPcts = computed(() => {
+  const cols = visibleColumns.value
+  const raw = {}
+  let total = 0
+  for (const c of cols) {
+    const v = ui.getColumnWidth(c.key, c.defaultPct)
+    raw[c.key] = v
+    total += v
+  }
+  if (Math.abs(total - 100) < 0.01 || total === 0) return raw
+  const scale = 100 / total
+  const result = {}
+  for (const c of cols) {
+    result[c.key] = raw[c.key] * scale
+  }
+  return result
+})
+
 const showColMenu = ref(false)
 const colToggleRef = ref(null)
 const tableRef = ref(null)
@@ -174,9 +193,13 @@ function startResize(colIndex, e) {
   const nextCol = cols[colIndex + 1]
   if (!nextCol) return
 
-  const curPct = ui.getColumnWidth(col.key, col.defaultPct)
-  const nextPct = ui.getColumnWidth(nextCol.key, nextCol.defaultPct)
-  const tableWidth = document.querySelector('.signal-table').getBoundingClientRect().width
+  // 从 DOM 读取实际渲染宽度，避免 store 原始百分比与浏览器缩放后的渲染宽度不一致
+  const tableWidth = tableRef.value.getBoundingClientRect().width
+  const colEls = tableRef.value.querySelectorAll('colgroup col')
+  const curPct = colEls[colIndex]?.getBoundingClientRect().width / tableWidth * 100
+    ?? ui.getColumnWidth(col.key, col.defaultPct)
+  const nextPct = colEls[colIndex + 1]?.getBoundingClientRect().width / tableWidth * 100
+    ?? ui.getColumnWidth(nextCol.key, nextCol.defaultPct)
 
   resizeState = { col, nextCol, colIndex, startX: e.clientX, curPct, nextPct, tableWidth }
   document.addEventListener('mousemove', onResize)
@@ -193,7 +216,7 @@ function onResize(e) {
   let newNext = resizeState.nextPct - (newCur - resizeState.curPct)
   if (newNext < MIN) { newNext = MIN; newCur = resizeState.curPct + resizeState.nextPct - MIN }
 
-  const colEls = document.querySelectorAll('colgroup col')
+  const colEls = tableRef.value.querySelectorAll('colgroup col')
   if (colEls[resizeState.colIndex]) colEls[resizeState.colIndex].style.width = newCur + '%'
   if (colEls[resizeState.colIndex + 1]) colEls[resizeState.colIndex + 1].style.width = newNext + '%'
 }
