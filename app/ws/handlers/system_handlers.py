@@ -8,7 +8,7 @@ import json
 import os
 
 from app.ws.router import HandlerResult, HandlerError
-from ._common import pure_file_name as _pure_file_name, build_undo_redo_events
+from ._common import pure_file_name as _pure_file_name, build_undo_redo_events, build_messages_summary
 
 
 class UndoHandler:
@@ -96,13 +96,11 @@ class GetSummaryHandler:
             raise HandlerError("SESSION_NOT_FOUND", "会话不存在")
         db = session.db
         with db.with_lock():
-            msgs = list(db.messages.values())
             data = {
-                "name": db.name, "message_count": len(msgs),
+                "name": db.name, "bus_type": db.bus_type,
+                "message_count": len(db.messages),
                 "signal_count": db.total_signals(), "modified": db.modified,
-                "messages": [{"id": m.id, "id_hex": f"0x{m.id:X}", "name": m.name,
-                              "dlc": m.dlc, "signal_count": len(m.signals)}
-                             for m in sorted(msgs, key=lambda m: m.id)],
+                "messages": build_messages_summary(db),
             }
         return HandlerResult(data=data, session_id=sid)
 

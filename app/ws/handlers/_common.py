@@ -34,7 +34,7 @@ def build_undo_redo_events(session, db, action_type: str) -> tuple[list, int, li
             "messages": messages_data,
             "message_details": message_details,
             "bus_type": db.bus_type,
-            "value_tables": dict(db.value_tables),
+            "value_tables": {k: dict(v) for k, v in db.value_tables.items()},
             "status": {"modified": db.modified,
                        "undo_count": len(session.undo_stack),
                        "redo_count": len(session.redo_stack)},

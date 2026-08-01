@@ -541,7 +541,7 @@ class CanDatabase:
             return {
                 "name": self.name,
                 "bus_type": self.bus_type,
-                "value_tables": dict(self.value_tables),
+                "value_tables": {k: dict(v) for k, v in self.value_tables.items()},
                 "messages": {
                     f"0x{mid:X}": m.to_dict() for mid, m in sorted(self.messages.items())
                 },
