@@ -64,10 +64,10 @@ const selectedName = computed(() => {
 // ── 引用计数 ──
 const refCountMap = computed(() => {
   const map = new Map()
-  for (const msg of editor.messages) {
+  for (const msg of Object.values(editor.messages)) {
     const cache = editor.messageCache[msg.id]
     if (cache?.signals) {
-      for (const s of cache.signals) {
+      for (const s of Object.values(cache.signals)) {
         if (s.value_table_name) {
           map.set(s.value_table_name, (map.get(s.value_table_name) || 0) + 1)
         }

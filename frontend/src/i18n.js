@@ -116,7 +116,6 @@ const dict = {
     'signal.add': '+ 信号',
     'signal.batch': '批量 +',
     'signal.deleteMsg': '删除报文',
-    'signal.thIdx': '#',
     'signal.thName': '名称',
     'signal.thStart': '起始位',
     'signal.thLen': '长度',
@@ -140,7 +139,6 @@ const dict = {
     'msgtable.allMessages': '所有报文',
     'msgtable.unit': '条',
     'msgtable.add': '+ 报文',
-    'msgtable.thIdx': '#',
     'msgtable.thId': 'ID',
     'msgtable.thName': '名称',
     'msgtable.thDlc': 'DLC',
@@ -317,7 +315,6 @@ const dict = {
 
     // 值描述表管理
     'valtable.title': '全局值描述表管理',
-    'valtable.thIdx': '#',
     'valtable.thName': '表名',
     'valtable.thEntries': '条目数',
     'valtable.thRefs': '引用数',

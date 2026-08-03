@@ -25,7 +25,7 @@ export function translateError(e) {
 
 /**
  * 在报文中寻找第一个足够大的空闲区间
- * @param {Array} signals - 当前报文的信号列表
+ * @param {Object} signals - 当前报文的信号 dict
  * @param {number} dlc - 报文 DLC
  * @param {number} length - 新信号长度
  * @param {string} byteOrder - 新信号字节序
@@ -35,8 +35,9 @@ export function findNextAvailableStartBit(signals, dlc, length, byteOrder) {
   const maxBits = dlc * 8
   if (length > maxBits) return null
 
+  const sigArray = Object.values(signals)
   const used = new Set()
-  for (const s of signals) {
+  for (const s of sigArray) {
     for (const b of getSignalBits(s.start_bit, s.length, s.byte_order)) {
       used.add(b)
     }
@@ -110,15 +111,16 @@ let _lastGeneratedMsgId = null
 
 /**
  * 生成新的报文 ID（优先基于最后一次新增的 ID +1）
- * @param {Array} messages - 当前报文列表
+ * @param {Object} messages - 当前报文 dict
  * @returns {number}
  */
 export function generateMessageId(messages) {
   if (_lastGeneratedMsgId != null) {
     _lastGeneratedMsgId += 1
   } else {
-    _lastGeneratedMsgId = messages.length > 0
-      ? Math.max(...messages.map(m => m.id)) + 1
+    const msgArray = Object.values(messages)
+    _lastGeneratedMsgId = msgArray.length > 0
+      ? Math.max(...msgArray.map(m => m.id)) + 1
       : 0x300
   }
   return _lastGeneratedMsgId
@@ -133,10 +135,12 @@ export function resetMessageIdGenerator() {
 
 /**
  * 生成唯一信号名：扫描已有信号名，提取同名前缀的最大数字后缀并 +1。
+ * @param {Object} signals - 当前报文的信号 dict
  * 例：已有 NewSignal, NewSignal2 → 返回 NewSignal3
  */
 export function generateSignalName(signals, baseName = 'NewSignal') {
-  const existingNames = new Set(signals.map(s => s.name))
+  const sigArray = Object.values(signals)
+  const existingNames = new Set(sigArray.map(s => s.name))
   if (!existingNames.has(baseName)) return baseName
   let maxSuffix = 1
   const escaped = baseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')

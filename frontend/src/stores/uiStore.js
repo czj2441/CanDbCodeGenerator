@@ -30,7 +30,7 @@ export const useUiStore = defineStore('ui', {
     },
     // 视图状态
     layoutViewMode: false,
-    selectedSignalUuid: null,
+    selectedSignalName: null,
     // 主题
     theme: localStorage.getItem('canmatrix_theme') || 'dark',
     // 日志面板
@@ -51,6 +51,13 @@ export const useUiStore = defineStore('ui', {
     // 值描述表选中状态 + 外部跳转焦点
     selectedVtName: null,
     valueTableFocusName: '',
+    // 排序偏好（所有文件共享，localStorage 持久化）
+    signalSortField: localStorage.getItem('canmatrix_sig_sort_field') || 'start_bit',
+    signalSortDir: localStorage.getItem('canmatrix_sig_sort_dir') || 'asc',
+    msgSortField: localStorage.getItem('canmatrix_msg_sort_field') || 'id',
+    msgSortDir: localStorage.getItem('canmatrix_msg_sort_dir') || 'asc',
+    vtSortField: localStorage.getItem('canmatrix_vt_sort_field') || 'name',
+    vtSortDir: localStorage.getItem('canmatrix_vt_sort_dir') || 'asc',
   }),
 
   getters: {
@@ -191,7 +198,7 @@ export const useUiStore = defineStore('ui', {
 
     toggleLayoutView() {
       this.layoutViewMode = !this.layoutViewMode
-      this.selectedSignalUuid = null
+      this.selectedSignalName = null
     },
 
     // ── Tab 切换 ──
@@ -293,6 +300,26 @@ export const useUiStore = defineStore('ui', {
     },
     closeCcodePreview() {
       this.ccodePreview.open = false
+    },
+
+    // ── 排序偏好 ──
+    setSignalSort(field, dir) {
+      this.signalSortField = field
+      this.signalSortDir = dir
+      localStorage.setItem('canmatrix_sig_sort_field', field)
+      localStorage.setItem('canmatrix_sig_sort_dir', dir)
+    },
+    setMsgSort(field, dir) {
+      this.msgSortField = field
+      this.msgSortDir = dir
+      localStorage.setItem('canmatrix_msg_sort_field', field)
+      localStorage.setItem('canmatrix_msg_sort_dir', dir)
+    },
+    setVtSort(field, dir) {
+      this.vtSortField = field
+      this.vtSortDir = dir
+      localStorage.setItem('canmatrix_vt_sort_field', field)
+      localStorage.setItem('canmatrix_vt_sort_dir', dir)
     },
   },
 })

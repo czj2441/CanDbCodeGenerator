@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import logging
 import threading
-import uuid
 from typing import Any
 
 from .signal import Signal
@@ -22,7 +21,6 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _SIGNAL_DEFAULTS = {
-    "uuid": "",
     "name": "",
     "start_bit": 0,
     "length": 8,
@@ -46,12 +44,12 @@ _SIGNAL_DEFAULTS = {
 # ---------------------------------------------------------------------------
 
 def _make_signal_key(sig: Signal, seen: set[str]) -> str:
-    """为信号生成唯一 Properties key。优先用 name，空名/重名时回退到 uuid。"""
+    """为信号生成唯一 Properties key。优先用 name，空名/重名时回退到 id(sig)。"""
     name = sig.name.strip() if sig.name else ""
     if name and name not in seen:
         seen.add(name)
         return name
-    fallback = sig.uuid or uuid.uuid4().hex[:8]
+    fallback = f"_unnamed_{id(sig)}"
     if fallback in seen:
         counter = len(seen)
         while f"{fallback}_{counter}" in seen:
@@ -130,7 +128,7 @@ class CanDatabase:
                 return False
             self.value_tables[new_name] = self.value_tables.pop(old_name)
             for m in self.messages.values():
-                for s in m.signals:
+                for s in m.signals.values():
                     if s.value_table_name == old_name:
                         s.value_table_name = new_name
             self.modified = True
@@ -144,7 +142,7 @@ class CanDatabase:
     def _count_value_table_refs(self, table_name: str) -> int:
         """统计引用计数。**不加锁**，必须在已有 __lock 内调用。"""
         return sum(1 for m in self.messages.values()
-                   for s in m.signals if s.value_table_name == table_name)
+                   for s in m.signals.values() if s.value_table_name == table_name)
 
     # ── 报文操作 ─────────────────────────────────────────────────────────
 
@@ -286,66 +284,62 @@ class CanDatabase:
 
     # ── 信号操作 ─────────────────────────────────────────────────────────
 
-    def _ensure_sig_uuid_unique(
-        self, msg: Message, sig: Signal, exclude_sig: Signal | None = None
-    ) -> None:
-        """若 sig.uuid 与 msg 中其他信号冲突，则重新生成。"""
-        existing = {s.uuid for s in msg.signals if s is not exclude_sig}
-        while sig.uuid in existing:
-            sig.uuid = uuid.uuid4().hex[:8]
-
     def add_signal_to_message(self, msg_id: int, sig: Signal) -> bool:
-        """添加信号到报文。"""
+        """添加信号到报文。信号以 name 为 key 存入 dict。"""
         with self.__lock:
             msg = self.messages.get(msg_id)
             if not msg:
                 return False
-            self._ensure_sig_uuid_unique(msg, sig)
-            msg.signals.append(sig)
+            msg.signals[sig.name] = sig
             self.modified = True
             return True
 
-    def remove_signal_from_message(self, msg_id: int, sig_uuid: str) -> bool:
+    def remove_signal_from_message(self, msg_id: int, sig_name: str) -> bool:
         """从报文中删除信号。"""
         with self.__lock:
             msg = self.messages.get(msg_id)
             if not msg:
                 return False
-            for i, sig in enumerate(msg.signals):
-                if sig.uuid == sig_uuid:
-                    msg.signals.pop(i)
-                    self.modified = True
-                    return True
+            if sig_name in msg.signals:
+                del msg.signals[sig_name]
+                self.modified = True
+                return True
             return False
 
     def update_signal_in_message(
-        self, msg_id: int, sig_uuid: str, **kwargs: Any
-    ) -> bool:
-        """更新信号属性。"""
+        self, msg_id: int, sig_name: str, **kwargs: Any
+    ) -> tuple[bool, str | None]:
+        """更新信号属性。返回 (success, old_name_if_renamed)。
+
+        重命名时自动更新 dict key。"""
         with self.__lock:
             msg = self.messages.get(msg_id)
             if not msg:
-                return False
-            for sig in msg.signals:
-                if sig.uuid == sig_uuid:
-                    changed = False
-                    new_uuid = kwargs.get("uuid")
-                    if new_uuid is not None and new_uuid != sig.uuid:
-                        if any(s.uuid == new_uuid for s in msg.signals if s is not sig):
-                            kwargs.pop("uuid", None)
-                        else:
-                            sig.uuid = new_uuid
-                            changed = True
-                    for k, v in kwargs.items():
-                        if k == "uuid":
-                            continue
-                        if hasattr(sig, k) and getattr(sig, k) != v:
-                            setattr(sig, k, v)
-                            changed = True
-                    if changed:
-                        self.modified = True
-                    return True
-            return False
+                return False, None
+            sig = msg.signals.get(sig_name)
+            if sig is None:
+                return False, None
+            changed = False
+            old_name = None
+            new_name = kwargs.pop("name", None)
+            if new_name is not None and new_name != sig.name:
+                # 重命名：检查新名是否冲突
+                if new_name in msg.signals:
+                    kwargs.pop("name", None)  # 新名冲突，忽略改名
+                else:
+                    old_name = sig.name
+                    sig.name = new_name
+                    # 更新 dict key
+                    del msg.signals[old_name]
+                    msg.signals[new_name] = sig
+                    changed = True
+            for k, v in kwargs.items():
+                if hasattr(sig, k) and getattr(sig, k) != v:
+                    setattr(sig, k, v)
+                    changed = True
+            if changed:
+                self.modified = True
+            return True, old_name
 
     def total_signals(self) -> int:
         """获取信号总数。"""
@@ -373,7 +367,7 @@ class CanDatabase:
         return bits
 
     def validate_signal(
-        self, msg: Message, sig: Signal, exclude_uuid: str | None = None
+        self, msg: Message, sig: Signal, exclude_name: str | None = None
     ) -> tuple[bool, str, dict]:
         """验证信号是否可以加入/更新到报文中。返回 (is_valid, error_message, details)。"""
         if sig.start_bit < 0:
@@ -394,15 +388,15 @@ class CanDatabase:
             return []
         errors: list[dict] = []
         max_bits = msg.dlc * 8
-        n = len(msg.signals)
+        sig_list = list(msg.signals.values())
+        n = len(sig_list)
         for i in range(n):
-            sig = msg.signals[i]
+            sig = sig_list[i]
             occupied = self._get_signal_bits(sig.start_bit, sig.length, sig.byte_order)
             oob = [b for b in occupied if b < 0 or b >= max_bits]
             if oob:
                 errors.append({
                     "type": "out_of_bounds",
-                    "signal_uuid": sig.uuid,
                     "signal_name": sig.name,
                     "start_bit": sig.start_bit,
                     "length": sig.length,
@@ -410,15 +404,13 @@ class CanDatabase:
                     "suggestion": None,
                 })
             for j in range(i + 1, n):
-                other = msg.signals[j]
+                other = sig_list[j]
                 other_bits = self._get_signal_bits(other.start_bit, other.length, other.byte_order)
                 overlap = occupied & other_bits
                 if overlap:
                     errors.append({
                         "type": "overlap",
-                        "signal_uuid": sig.uuid,
                         "signal_name": sig.name,
-                        "conflicts_uuid": other.uuid,
                         "conflicts_name": other.name,
                         "overlapping_bits": sorted(overlap),
                         "suggestion": None,
@@ -462,12 +454,11 @@ class CanDatabase:
 
         # ── 信号字段级 ──
         seen_names: set[str] = set()
-        for sig in msg.signals:
+        for sig in msg.signals.values():
             if sig.factor == 0:
                 errors.append({
                     "type": "factor_zero",
                     "msg_id": msg_id,
-                    "signal_uuid": sig.uuid,
                     "signal_name": sig.name,
                     "message": f"Signal '{sig.name}' factor is 0",
                 })
@@ -475,7 +466,6 @@ class CanDatabase:
                 errors.append({
                     "type": "signal_name_empty",
                     "msg_id": msg_id,
-                    "signal_uuid": sig.uuid,
                     "signal_name": "(empty)",
                     "message": f"Signal in message 0x{msg_id:X} has empty name",
                 })
@@ -484,7 +474,6 @@ class CanDatabase:
                     errors.append({
                         "type": "signal_name_duplicate",
                         "msg_id": msg_id,
-                        "signal_uuid": sig.uuid,
                         "signal_name": sig.name,
                         "message": f"Signal name '{sig.name}' duplicated in message 0x{msg_id:X}",
                     })
@@ -493,7 +482,6 @@ class CanDatabase:
                 errors.append({
                     "type": "signal_length_zero",
                     "msg_id": msg_id,
-                    "signal_uuid": sig.uuid,
                     "signal_name": sig.name,
                     "message": f"Signal '{sig.name}' length must be ≥ 1",
                 })
@@ -567,15 +555,6 @@ class CanDatabase:
                            for k, v in data.get("value_tables", {}).items()}
         return db
 
-    def to_json_dict(self) -> dict[str, Any]:
-        """JSON 序列化（与 to_dict 相同）。"""
-        return self.to_dict()
-
-    @classmethod
-    def from_json_dict(cls, data: dict[str, Any]) -> CanDatabase:
-        """JSON 反序列化。"""
-        return cls.from_dict(data)
-
     def to_properties_str(self) -> str:
         """序列化为 Java Properties 字符串（O(n) 线性性能）。"""
         import json as _json
@@ -604,11 +583,11 @@ class CanDatabase:
 
                 if msg.signals:
                     seen: set[str] = set()
-                    for sig in msg.signals:
+                    sorted_sigs = sorted(msg.signals.values(), key=lambda s: s.start_bit)
+                    for sig in sorted_sigs:
                         sig_key = _make_signal_key(sig, seen)
                         sp = f"{mp}.signals.{sig_key}"
 
-                        props[f"{sp}.uuid"] = sig.uuid
                         props[f"{sp}.name"] = sig.name
                         props[f"{sp}.start_bit"] = str(sig.start_bit)
                         props[f"{sp}.length"] = str(sig.length)
@@ -722,8 +701,7 @@ class CanDatabase:
                 else:
                     receivers = []
 
-                msg.signals.append(Signal.from_dict({
-                    "uuid": sig_d.get("uuid", ""),
+                sig = Signal.from_dict({
                     "name": sig_d.get("name", ""),
                     "start_bit": int(sig_d.get("start_bit", 0)),
                     "length": int(sig_d.get("length", 8)),
@@ -739,7 +717,8 @@ class CanDatabase:
                     "multiplexer_mode": sig_d.get("multiplexer_mode", "none"),
                     "multiplexer_value": int(sig_d.get("multiplexer_value", 0)),
                     "value_table_name": sig_d.get("value_table_name", ""),
-                }))
+                })
+                msg.signals[sig.name] = sig
 
             db.messages[mid] = msg
         return db
@@ -791,7 +770,7 @@ class CanDatabase:
             for msg in sorted(self.messages.values(), key=lambda m: m.id):
                 can_signals = []
                 
-                for sig in msg.signals:
+                for sig in msg.signals.values():
                     choices = None
                     if sig.value_table_name and sig.value_table_name in self.value_tables:
                         vt = self.value_tables[sig.value_table_name]
@@ -944,7 +923,7 @@ class CanDatabase:
                     "multiplexer_value": mux_value,
                     "value_table_name": sig_vt_name,
                 })
-                msg.signals.append(sig)
+                msg.signals[sig.name] = sig
             
             db.messages[msg.id] = msg
 

@@ -4,7 +4,7 @@
       <div class="center-title">
         <template v-if="msg">
           <strong>{{ msg.name || t('msglist.unnamed') }}</strong>
-          &mdash; {{ toHex(msg.id) }} &middot; {{ msg.signals.length }} signals
+          &mdash; {{ toHex(msg.id) }} &middot; {{ Object.keys(msg.signals).length }} signals
         </template>
       </div>
       <div class="toolbar">
@@ -97,7 +97,7 @@
           <v-layer ref="signalLayer">
             <!-- 着色方格 -->
             <v-rect
-              v-for="cell in coloredCells" :key="'c-' + cell.uuid + '-' + cell.bit"
+              v-for="cell in coloredCells" :key="'c-' + cell.name + '-' + cell.bit"
               :config="{
                 x: labelWidth + cell.col * cellSize,
                 y: headerH + cell.row * cellSize,
@@ -136,7 +136,7 @@
             </v-group>
             <!-- 信号名标签 -->
             <v-text
-              v-for="lbl in signalLabels" :key="'lbl-' + lbl.uuid"
+              v-for="lbl in signalLabels" :key="'lbl-' + lbl.name"
               :config="{
                 x: labelWidth + lbl.col * cellSize,
                 y: headerH + lbl.row * cellSize,
@@ -216,7 +216,7 @@ import { useEditorStore } from '../stores/editor.js'
 import { useSignalsStore } from '../stores/signals.js'
 import { useUiStore } from '../stores/uiStore.js'
 import { t } from '../i18n.js'
-import { getSignalBits, bitToGridCell, gridCellToBit, pixelToGridCell, getSignalColor, motorolaBitAtPosition, motorolaFindMsbByPosition } from '../utils/signalLayout.js'
+import { getSignalBits, bitToGridCell, gridCellToBit, pixelToGridCell, getSignalColorByName, motorolaBitAtPosition, motorolaFindMsbByPosition } from '../utils/signalLayout.js'
 import { toHex } from '../utils/format.js'
 
 const store = useEditorStore()
@@ -321,25 +321,25 @@ const previewStartBit = ref(null)  // 拖拽预览用的临时 start_bit
 // ── cellMap: 所有信号格子 + 重叠 bit 位置集合 ──
 const cellMap = computed(() => {
   const allCellsArr = []
-  const bitOwner = {}  // bit → uuid of first signal at this bit
+  const bitOwner = {}  // bit → name of first signal at this bit
   const overlapBitSet = new Set()
   if (!msg.value) return { all: allCellsArr, overlapBits: overlapBitSet }
   const maxRenderBit = 511
 
-  msg.value.signals.forEach((sig, idx) => {
-    const color = getSignalColor(idx)
-    const effectiveStartBit = (dragState.value?.uuid === sig.uuid && previewStartBit.value != null)
+  const sigArr = Object.values(msg.value.signals)
+  sigArr.forEach((sig) => {
+    const color = getSignalColorByName(sig.name)
+    const effectiveStartBit = (dragState.value?.name === sig.name && previewStartBit.value != null)
       ? previewStartBit.value
       : sig.start_bit
     const bits = getSignalBits(effectiveStartBit, sig.length, sig.byte_order)
-    const isPreview = dragState.value?.uuid === sig.uuid && previewStartBit.value != null
+    const isPreview = dragState.value?.name === sig.name && previewStartBit.value != null
 
     for (const bit of bits) {
       if (bit < 0 || bit > maxRenderBit) continue
       const { row, col } = bitToGridCell(bit)
       allCellsArr.push({
         bit, row, col,
-        uuid: sig.uuid,
         name: sig.name,
         color,
         isPreview,
@@ -351,7 +351,7 @@ const cellMap = computed(() => {
       if (bit in bitOwner) {
         overlapBitSet.add(bit)
       } else {
-        bitOwner[bit] = sig.uuid
+        bitOwner[bit] = sig.name
       }
     }
   })
@@ -397,14 +397,14 @@ const signalLabels = computed(() => {
   const cells = coloredCells.value
   if (cells.length === 0) return []
 
-  const byUuid = {}
+  const byName = {}
   for (const cell of cells) {
-    if (!byUuid[cell.uuid]) byUuid[cell.uuid] = []
-    byUuid[cell.uuid].push(cell)
+    if (!byName[cell.name]) byName[cell.name] = []
+    byName[cell.name].push(cell)
   }
 
   const labels = []
-  for (const [uuid, cells] of Object.entries(byUuid)) {
+  for (const [name, cells] of Object.entries(byName)) {
     const startCell = cells.find(c => c.isStartBit) || cells[0]
     const sameRow = cells
       .filter(c => c.row === startCell.row && c.col >= startCell.col)
@@ -416,7 +416,7 @@ const signalLabels = computed(() => {
       span++
     }
     labels.push({
-      uuid,
+      name,
       row: startCell.row,
       col: startCell.col,
       span,
@@ -428,8 +428,8 @@ const signalLabels = computed(() => {
 
 // selectedCells: 选中信号的所有方格（含重叠层）
 const selectedCells = computed(() => {
-  if (!ui.selectedSignalUuid) return []
-  return allCells.value.filter(c => c.uuid === ui.selectedSignalUuid)
+  if (!ui.selectedSignalName) return []
+  return allCells.value.filter(c => c.name === ui.selectedSignalName)
 })
 
 // previewCells: 拖拽预览的虚线边框方格（含重叠层）
@@ -487,7 +487,7 @@ function onCellMouseDown(cell, konvaEvent) {
   }
 
   dragState.value = {
-    uuid: cell.uuid,
+    name: cell.name,
     sigStartBit: cell.startBit,
     sigLength: cell.length,
     sigByteOrder: cell.byteOrder,
@@ -504,7 +504,7 @@ function onCellMouseDown(cell, konvaEvent) {
 
 function onCellClick(cell) {
   if (hasMoved.value) return
-  ui.selectedSignalUuid = cell.uuid
+  ui.selectedSignalName = cell.name
 }
 
 function handleGlobalMouseMove(e) {
@@ -577,8 +577,8 @@ function processDrop(clientX, clientY) {
       return
     }
 
-    const sig = store.selectedMessage?.signals?.find(s => s.uuid === ds.uuid)
-    const sigName = sig?.name || ds.uuid.slice(0, 8)
+    const sig = store.selectedMessage?.signals?.[ds.name]
+    const sigName = sig?.name || ds.name
 
     if (newStartBit === ds.sigStartBit) {
       store.addLogEntry('drag', `${sigName}: 松开(${grid.row},${grid.col}) bit=${grid.bit} → ${ds.sigStartBit} 未变 (${calcDetail})`)
@@ -589,7 +589,7 @@ function processDrop(clientX, clientY) {
       `${sigName}: startBit ${ds.sigStartBit} → ${newStartBit}`,
       `  松开(${grid.row},${grid.col}) bit=${grid.bit}  ${calcDetail}`,
     ].join('\n'))
-    signals.moveSignalByLayout(ds.uuid, newStartBit)
+    signals.moveSignalByLayout(ds.name, newStartBit)
   } finally {
     isProcessingDrop.value = false
     dragExtraRows.value = 0
@@ -614,13 +614,13 @@ function onStageMouseUp(konvaEvent) {
 function onStageClick(konvaEvent) {
   const target = konvaEvent?.target
   if (target && target === stageRef.value?.getStage()) {
-    ui.selectedSignalUuid = null
+    ui.selectedSignalName = null
   }
 }
 
 // ── Watch selectedMsgId → clear selection ──
 watch(() => store.selectedMsgId, () => {
-  ui.selectedSignalUuid = null
+  ui.selectedSignalName = null
 })
 </script>
 

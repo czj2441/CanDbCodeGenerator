@@ -286,7 +286,7 @@
     <input
       ref="importFileInput"
       type="file"
-      accept=".dbc,.properties,.json"
+      accept=".dbc,.properties"
       style="display: none"
       @change="handleImportFileSelect"
     />
@@ -606,7 +606,7 @@ function handleImportFileSelect(event) {
   event.target.value = ''
 
   const ext = file.name.split('.').pop().toLowerCase()
-  const supportedFormats = ['dbc', 'properties', 'json']
+  const supportedFormats = ['dbc', 'properties']
 
   if (!supportedFormats.includes(ext)) {
     useUiStore().showToast(t('browser.importUnsupported', { ext }), true)

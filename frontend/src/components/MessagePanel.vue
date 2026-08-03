@@ -167,7 +167,7 @@ const emptyHtml = computed(() =>
 // ── 报文位使用率 ──
 const totalBits = computed(() => {
   if (!msg.value) return 0
-  return msg.value.signals.reduce((sum, s) => sum + (s.length || 0), 0)
+  return Object.values(msg.value.signals).reduce((sum, s) => sum + (s.length || 0), 0)
 })
 const maxBits = computed(() => (msg.value?.dlc || 0) * 8)
 const bitUsagePct = computed(() => maxBits.value > 0 ? Math.min(100, (totalBits.value / maxBits.value) * 100) : 0)
@@ -188,8 +188,8 @@ const valueTablePreview = computed(() => {
 })
 
 function onValueTableRefChange() {
-  if (!ui.selectedSignalUuid) return
-  signals.updateSignal(ui.selectedSignalUuid, 'value_table_name', localValueTableName.value).catch(() => {})
+  if (!ui.selectedSignalName) return
+  signals.updateSignal(ui.selectedSignalName, 'value_table_name', localValueTableName.value).catch(() => {})
 }
 
 function openValueTableManager() {
@@ -210,8 +210,8 @@ watch(() => msg.value?.is_fd, (v) => {
 }, { immediate: true })
 
 const selectedSig = computed(() => {
-  if (!msg.value || !ui.selectedSignalUuid) return null
-  return msg.value.signals.find(s => s.uuid === ui.selectedSignalUuid) || null
+  if (!msg.value || !ui.selectedSignalName) return null
+  return msg.value.signals[ui.selectedSignalName] || null
 })
 
 /**
@@ -230,19 +230,19 @@ function modifyDisplayStartBit(displayValue) {
   if (!selectedSig.value) return
   const msbValue = toStorageStartBit(displayValue, selectedSig.value.length, selectedSig.value.byte_order, 63, selectedSig.value.start_bit)
   const valueToSend = msbValue >= 0 ? msbValue : -1
-  signals.updateSignal(ui.selectedSignalUuid, 'start_bit', valueToSend).catch(() => {})
+  signals.updateSignal(ui.selectedSignalName, 'start_bit', valueToSend).catch(() => {})
 }
 
 function updateSignal(field, value) {
-  if (ui.selectedSignalUuid) {
-    signals.updateSignal(ui.selectedSignalUuid, field, value).catch(() => {})
+  if (ui.selectedSignalName) {
+    signals.updateSignal(ui.selectedSignalName, field, value).catch(() => {})
   }
 }
 
 function handleByteOrderChange(e) {
-  if (!ui.selectedSignalUuid) return
+  if (!ui.selectedSignalName) return
   const oldOrder = selectedSig.value?.byte_order
-  signals.updateSignal(ui.selectedSignalUuid, 'byte_order', e.target.value)
+  signals.updateSignal(ui.selectedSignalName, 'byte_order', e.target.value)
     .catch(() => { if (oldOrder != null) e.target.value = oldOrder })
 }
 

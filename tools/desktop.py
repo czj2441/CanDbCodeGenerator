@@ -144,7 +144,7 @@ if HAS_WEBBROWSER_INTEROP:
                 ext = f'.{kind}'
                 default_name = c_export_filename("export", kind)
             else:
-                ext_map = {'dbc': '.dbc', 'properties': '.properties', 'json': '.json'}
+                ext_map = {'dbc': '.dbc', 'properties': '.properties'}
                 ext = ext_map.get(format_str, f'.{format_str}')
                 default_name = f"export{ext}"
 

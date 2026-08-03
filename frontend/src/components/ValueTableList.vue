@@ -34,8 +34,11 @@
         </colgroup>
         <thead>
           <tr>
-            <th v-for="(col, ci) in visibleColumns" :key="col.key">
+            <th v-for="(col, ci) in visibleColumns" :key="col.key"
+                @click="col.sortable !== false ? onHeaderClick(col.sortField || col.key) : null"
+                :class="{ 'th-sortable': col.sortable !== false }">
               <span class="th-label">{{ col.i18n ? t(col.i18n) : '' }}</span>
+              <span v-if="col.sortable !== false && getSortIconText(col.sortField || col.key)" class="sort-icon">{{ getSortIconText(col.sortField || col.key) }}</span>
               <span v-if="ci < visibleColumns.length - 1"
                     class="resize-handle"
                     @mousedown.stop="startResize(ci, $event)"></span>
@@ -43,13 +46,11 @@
           </tr>
         </thead>
         <tbody>
-          <template v-for="(name, idx) in filteredNames" :key="name">
+          <template v-for="name in sortedFilteredNames" :key="name">
             <tr :class="{ selected: ui.selectedVtName === name }"
                 @click="selectRow(name)">
-              <td v-for="col in visibleColumns" :key="col.key"
-                  :class="{ 'col-idx': col.key === 'vt_idx' }">
-                <template v-if="col.key === 'vt_idx'"><span class="idx-label">{{ idx }}</span></template>
-                <template v-else-if="col.key === 'vt_name'"><span class="vt-name">{{ name }}</span></template>
+              <td v-for="col in visibleColumns" :key="col.key">
+                <template v-if="col.key === 'vt_name'"><span class="vt-name">{{ name }}</span></template>
                 <template v-else-if="col.key === 'vt_entries'">{{ entryCount(name) }}</template>
                 <template v-else-if="col.key === 'vt_refs'">{{ refCountMap.get(name) || 0 }}</template>
                 <template v-else-if="col.key === 'vt_actions'">
@@ -71,12 +72,13 @@ import { useValueTablesStore } from '../stores/valueTables.js'
 import { useUiStore } from '../stores/uiStore.js'
 import { t } from '../i18n.js'
 
+import { sortByField, toggleSort, getSortIcon } from '../utils/sortHelper.js'
+
 const COLUMNS = [
-  { key: 'vt_idx',     i18n: 'valtable.thIdx',     toggleable: false, defaultPct: 4  },
-  { key: 'vt_name',    i18n: 'valtable.thName',    toggleable: false, defaultPct: 28 },
-  { key: 'vt_entries', i18n: 'valtable.thEntries', toggleable: true,  defaultPct: 10 },
-  { key: 'vt_refs',    i18n: 'valtable.thRefs',    toggleable: true,  defaultPct: 10 },
-  { key: 'vt_actions', i18n: null,                 toggleable: false, defaultPct: 6  },
+  { key: 'vt_name',    i18n: 'valtable.thName',    toggleable: false, defaultPct: 28, sortField: 'name' },
+  { key: 'vt_entries', i18n: 'valtable.thEntries', toggleable: true,  defaultPct: 10, sortable: false },
+  { key: 'vt_refs',    i18n: 'valtable.thRefs',    toggleable: true,  defaultPct: 10, sortable: false },
+  { key: 'vt_actions', i18n: null,                 toggleable: false, defaultPct: 6,  sortable: false },
 ]
 
 const editor = useEditorStore()
@@ -140,13 +142,31 @@ const filteredNames = computed(() => {
   return sortedNames.value.filter(n => n.toLowerCase().includes(q))
 })
 
+// ── 排序 ──
+const sortedFilteredNames = computed(() => {
+  const items = filteredNames.value.map(name => ({ name, _entryCount: entryCount(name), _refCount: refCountMap.value.get(name) || 0 }))
+  const field = ui.vtSortField
+  const dir = ui.vtSortDir
+  return sortByField(items, field === 'name' ? 'name' : field === 'entries' ? '_entryCount' : '_refCount', dir).map(i => i.name)
+})
+
+function onHeaderClick(field) {
+  const mappedField = field === 'entries' ? 'entries' : field === 'refs' ? 'refs' : field
+  const result = toggleSort(ui.vtSortField, ui.vtSortDir, mappedField)
+  ui.setVtSort(result.field, result.dir)
+}
+
+function getSortIconText(field) {
+  return getSortIcon(field, ui.vtSortField, ui.vtSortDir)
+}
+
 // ── 引用计数（computed Map 优化） ──
 const refCountMap = computed(() => {
   const map = new Map()
-  for (const msg of editor.messages) {
+  for (const msg of Object.values(editor.messages)) {
     const cache = editor.messageCache[msg.id]
     if (cache?.signals) {
-      for (const s of cache.signals) {
+      for (const s of Object.values(cache.signals)) {
         if (s.value_table_name) {
           map.set(s.value_table_name, (map.get(s.value_table_name) || 0) + 1)
         }
@@ -361,22 +381,13 @@ onMounted(() => {
 .valtable-table tr.selected > td {
   background: color-mix(in oklch, var(--accent) 15%, transparent) !important;
 }
-.valtable-table tr.selected .col-idx {
+.valtable-table tr.selected td:first-child {
   border-left: 3px solid var(--accent);
 }
 
-.idx-label {
-  display: block;
-  text-align: center;
-  opacity: 0.45;
-  font-size: 11px;
-  font-family: var(--font-mono);
-  user-select: none;
-  cursor: pointer;
-  line-height: 1.8;
-}
-tr:hover .idx-label { opacity: 0.7; }
-tr.selected .idx-label { opacity: 1; font-weight: 600; }
+.th-sortable { cursor: pointer; user-select: none; }
+.th-sortable:hover { color: var(--text); }
+.sort-icon { font-size: 10px; margin-left: 2px; }
 
 .vt-name { font-weight: 500; }
 

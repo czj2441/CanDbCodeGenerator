@@ -143,14 +143,14 @@ class UndoEngine:
         elif snap_type == "message_update":
             self._restore_message_update(session, snap["msgId"], snap, "prev")
         elif snap_type == "signal_update":
-            self._restore_signal_update(session, snap["msgId"], snap["sigUuid"], snap["prev"])
+            self._restore_signal_update(session, snap["msgId"], snap, "prev")
         elif snap_type == "message_add":
             self._delete_message(session, snap["msgId"])
         elif snap_type == "signal_add":
-            self._delete_signal(session, snap["msgId"], snap["sigUuid"])
+            self._delete_signal(session, snap["msgId"], snap["sigName"])
         elif snap_type == "batch_signal_add":
             for sig in snap["signals"]:
-                self._delete_signal(session, snap["msgId"], sig["uuid"])
+                self._delete_signal(session, snap["msgId"], sig["name"])
         elif snap_type == "database_update":
             self._restore_database_update(session, snap["prev"])
         elif snap_type == "value_table_add":
@@ -174,11 +174,11 @@ class UndoEngine:
         if snap_type == "message_delete":
             self._delete_message(session, snap["data"]["id"])
         elif snap_type == "signal_delete":
-            self._delete_signal(session, snap["msgId"], snap["data"]["uuid"])
+            self._delete_signal(session, snap["msgId"], snap["data"]["name"])
         elif snap_type == "message_update":
             self._restore_message_update(session, snap["msgId"], snap, "next")
         elif snap_type == "signal_update":
-            self._restore_signal_update(session, snap["msgId"], snap["sigUuid"], snap["next"])
+            self._restore_signal_update(session, snap["msgId"], snap, "next")
         elif snap_type == "message_add":
             self._restore_message(session, snap["data"])
         elif snap_type == "signal_add":
@@ -208,7 +208,7 @@ class UndoEngine:
     def _cascade_rename_value_table(db, from_name: str, to_name: str):
         """级联更新所有引用 from_name 的信号为 to_name。"""
         for m in db.messages.values():
-            for s in m.signals:
+            for s in m.signals.values():
                 if s.value_table_name == from_name:
                     s.value_table_name = to_name
 
@@ -217,13 +217,11 @@ class UndoEngine:
         from app.models import Signal, Message
 
         msg_id = msg_data["id"]
-        signals = []
-        for sig_data in msg_data.get("signals", []):
-            if isinstance(sig_data, dict):
-                sig = Signal.from_dict(sig_data)
-            else:
-                sig = sig_data
-            signals.append(sig)
+        signals: dict[str, Signal] = {}
+        raw_signals = msg_data.get("signals", {})
+        for _key, sig_data in raw_signals.items():
+            sig = Signal.from_dict(sig_data)
+            signals[sig.name] = sig
 
         msg = Message(
             id=msg_id,
@@ -246,7 +244,7 @@ class UndoEngine:
             raise ValueError(f"Message {msg_id} not found")
 
         sig = Signal.from_dict(sig_data)
-        msg.signals.append(sig)
+        msg.signals[sig.name] = sig
 
     def _restore_message_update(self, session, msg_id: int, snap: dict, direction: str):
         """恢复报文属性更新（含 ID 变更）。
@@ -284,17 +282,44 @@ class UndoEngine:
             if hasattr(msg, key):
                 setattr(msg, key, value)
 
-    def _restore_signal_update(self, session, msg_id: int, sig_uuid: str, updates: dict):
-        """恢复信号属性更新。"""
+    def _restore_signal_update(self, session, msg_id: int, snap: dict, direction: str):
+        """恢复信号属性更新。支持重命名回退。
+
+        Args:
+            snap: 完整快照，含 sigName / prev / next
+            direction: "prev"（undo）或 "next"（redo）
+        """
         msg = session.db.messages.get(msg_id)
         if not msg:
             raise ValueError(f"Message {msg_id} not found")
 
-        sig = next((s for s in msg.signals if s.uuid == sig_uuid), None)
+        updates = snap[direction]
+        other_dir = "next" if direction == "prev" else "prev"
+        sig_name = snap["sigName"]
+
+        # 查找信号：sig_name 是快照时的名字，重命名后可能已失效
+        sig = msg.signals.get(sig_name)
         if not sig:
-            raise ValueError(f"Signal {sig_uuid} not found")
+            # 重命名场景：用反方向的 name 定位当前信号
+            other_name = snap[other_dir].get("name")
+            if other_name:
+                sig = msg.signals.get(other_name)
+        if not sig:
+            raise ValueError(f"Signal {sig_name} not found")
+
+        # 应用 updates 中的字段值
+        new_name = updates.get("name")
+        if new_name is not None and new_name != sig.name:
+            # 重命名：更新 sig.name 和 dict key
+            old_key = sig.name
+            sig.name = new_name
+            if old_key in msg.signals:
+                del msg.signals[old_key]
+            msg.signals[new_name] = sig
 
         for key, value in updates.items():
+            if key == "name":
+                continue  # 已在上面处理
             if hasattr(sig, key):
                 setattr(sig, key, value)
 
@@ -309,11 +334,10 @@ class UndoEngine:
         """删除报文。"""
         session.db.messages.pop(msg_id, None)
 
-    def _delete_signal(self, session, msg_id: int, sig_uuid: str):
+    def _delete_signal(self, session, msg_id: int, sig_name: str):
         """删除信号。"""
         msg = session.db.messages.get(msg_id)
         if not msg:
             raise ValueError(f"Message {msg_id} not found")
 
-        # ✅ 原地修改，保持列表引用不变
-        msg.signals[:] = [s for s in msg.signals if s.uuid != sig_uuid]
+        msg.signals.pop(sig_name, None)

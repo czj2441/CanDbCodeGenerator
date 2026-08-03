@@ -10,15 +10,15 @@ export const useSignalsStore = defineStore('signals', {
     /**
      * 通过布局视图移动信号位置
      */
-    async moveSignalByLayout(sigUuid, newStartBit) {
-      await this.updateSignal(sigUuid, 'start_bit', newStartBit).catch(() => {})
+    async moveSignalByLayout(sigName, newStartBit) {
+      await this.updateSignal(sigName, 'start_bit', newStartBit).catch(() => {})
     },
 
     /**
      * 通过布局视图调整信号长度
      */
-    async resizeSignalByLayout(sigUuid, newLength) {
-      await this.updateSignal(sigUuid, 'length', newLength).catch(() => {})
+    async resizeSignalByLayout(sigName, newLength) {
+      await this.updateSignal(sigName, 'length', newLength).catch(() => {})
     },
 
     /**
@@ -61,12 +61,12 @@ export const useSignalsStore = defineStore('signals', {
     /**
      * 更新信号属性（等待服务器模式）
      */
-    async updateSignal(sigUuid, field, value) {
+    async updateSignal(sigName, field, value) {
       const editor = useEditorStore()
       if (editor.selectedMsgId == null) return
       const msg = editor.messageCache[editor.selectedMsgId]
       if (!msg) return
-      const sig = msg.signals.find(s => s.uuid === sigUuid)
+      const sig = msg.signals[sigName]
       if (!sig) return
 
       // 记忆用户修改的 length
@@ -77,7 +77,7 @@ export const useSignalsStore = defineStore('signals', {
       try {
         await editor._wsRequest('edit_signal', {
           msg_id: editor.selectedMsgId,
-          sig_uuid: sigUuid,
+          sig_name: sigName,
           field: field,
           value: value
         })
@@ -99,11 +99,11 @@ export const useSignalsStore = defineStore('signals', {
     /**
      * 删除信号（等待服务器模式）
      */
-    async deleteSignal(sigUuid) {
+    async deleteSignal(sigName) {
       const editor = useEditorStore()
       if (editor.selectedMsgId == null) return
       try {
-        await editor._wsRequest('delete_signal', { msg_id: editor.selectedMsgId, sig_uuid: sigUuid })
+        await editor._wsRequest('delete_signal', { msg_id: editor.selectedMsgId, sig_name: sigName })
         useUiStore().showToast(t('toast.signalDeleted'))
       } catch (e) {
         useUiStore().showToast(translateError(e), true)

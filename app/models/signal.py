@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -11,7 +10,6 @@ from typing import Any
 class Signal:
     """单个 CAN 信号定义（per-message 实体）。"""
 
-    uuid: str = field(default_factory=lambda: uuid.uuid4().hex[:8])
     name: str = ""
     start_bit: int = 0
     length: int = 8
@@ -31,7 +29,6 @@ class Signal:
     def to_dict(self) -> dict[str, Any]:
         """序列化为字典。"""
         return {
-            "uuid": self.uuid,
             "name": self.name,
             "start_bit": self.start_bit,
             "length": self.length,
@@ -53,7 +50,6 @@ class Signal:
     def from_dict(cls, data: dict[str, Any]) -> Signal:
         """从字典创建。"""
         return cls(
-            uuid=str(data.get("uuid", uuid.uuid4().hex[:8])),
             name=str(data.get("name", "")),
             start_bit=int(data.get("start_bit", 0)),
             length=int(data.get("length", 8)),

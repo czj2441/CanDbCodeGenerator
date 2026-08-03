@@ -251,9 +251,9 @@ class CanDatabase:
 | `get_message(msg_id) → Message | None` | 按 ID 获取报文 |
 | `update_message(msg_id, **kwargs) → bool` | 按关键字更新报文属性 |
 | `move_message(old_id, new_id) → bool` | 移动报文到新 CAN ID |
-| `add_signal_to_message(msg_id, sig) → bool` | 向报文追加信号（自动确保 UUID 唯一） |
-| `remove_signal_from_message(msg_id, sig_uuid) → bool` | 按 UUID 从报文删除信号 |
-| `update_signal_in_message(msg_id, sig_uuid, **kwargs) → bool` | 按 UUID 更新信号字段 |
+| `add_signal_to_message(msg_id, sig) → bool` | 向报文追加信号（以 name 为 dict key） |
+| `remove_signal_from_message(msg_id, sig_name) → bool` | 按 name 从报文删除信号 |
+| `update_signal_in_message(msg_id, sig_name, **kwargs) → (bool, old_name)` | 按 name 更新信号字段（重命名时自动更新 dict key） |
 | `validate_signal(msg_id, sig) → (bool, str, dict)` | 验证单个信号的位域合法性 |
 | `validate_all_signals(msg_id) → list[dict]` | 返回报文全部信号的布局错误列表 |
 | `total_signals() → int` | 统计全部信号总数 |
@@ -695,7 +695,7 @@ frontend/
 | 报文 CAN ID | 支持十进制和 `0x` 十六进制解析，重复检查 |
 | 报文 DLC | 隐式通过信号越界检查约束（`dlc × 8` 位范围） |
 | 信号起始位/长度 | `validate_signal()` 检查越界和重叠 |
-| 信号 UUID | `_ensure_sig_uuid_unique()` 自动去重 |
+| 信号名称 | `add_signal_to_message()` 以 name 为 dict key，重名覆盖 |
 
 ### 10.4 依赖
 

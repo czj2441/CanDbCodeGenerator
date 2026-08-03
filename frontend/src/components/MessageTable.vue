@@ -2,7 +2,7 @@
   <div class="message-area">
     <div class="center-header">
       <div class="center-title">
-        {{ t('msgtable.allMessages') }} · {{ store.messages.length }} {{ t('msgtable.unit') }}
+        {{ t('msgtable.allMessages') }} · {{ messageCount }} {{ t('msgtable.unit') }}
       </div>
       <div class="toolbar">
         <button class="btn" @click="addMessage">{{ t('msgtable.add') }}</button>
@@ -22,7 +22,7 @@
     </div>
 
     <div class="table-wrap">
-      <div v-if="store.messages.length === 0" class="empty">{{ t('msgtable.empty') }}</div>
+      <div v-if="messageCount === 0" class="empty">{{ t('msgtable.empty') }}</div>
       <table v-else class="message-table" ref="tableRef" @keydown="onCellKeyDown">
         <colgroup>
           <col v-for="col in visibleColumns" :key="col.key"
@@ -30,8 +30,11 @@
         </colgroup>
         <thead>
           <tr>
-            <th v-for="(col, ci) in visibleColumns" :key="col.key">
+            <th v-for="(col, ci) in visibleColumns" :key="col.key"
+                @click="col.sortable !== false ? onHeaderClick(col.sortField || col.key) : null"
+                :class="{ 'th-sortable': col.sortable !== false }">
               <span class="th-label">{{ col.i18n ? t(col.i18n) : '' }}</span>
+              <span v-if="col.sortable !== false && getSortIconText(col.sortField || col.key)" class="sort-icon">{{ getSortIconText(col.sortField || col.key) }}</span>
               <span v-if="ci < visibleColumns.length - 1"
                     class="resize-handle"
                     @mousedown.stop="startResize(ci, $event)"></span>
@@ -39,13 +42,12 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="(m, idx) in store.messages" :key="m.id"
+          <tr v-for="m in sortedMessages" :key="m.id"
               :class="{ selected: store.selectedMsgId === m.id }"
               @mousedown="selectRow(m.id)"
               @dblclick="jumpToSignals(m.id)">
-            <td v-for="col in visibleColumns" :key="col.key" :class="{ 'col-idx': col.key === 'msg_idx' }">
-              <template v-if="col.key === 'msg_idx'"><span class="idx-label">{{ idx }}</span></template>
-              <template v-else-if="col.key === 'msg_id'"><input class="mono" v-lazy-value="toHex(m.id)" @blur="e => update('id', parseHex(e.target.value))"></template>
+            <td v-for="col in visibleColumns" :key="col.key">
+              <template v-if="col.key === 'msg_id'"><input class="mono" v-lazy-value="toHex(m.id)" @blur="e => update('id', parseHex(e.target.value))"></template>
               <template v-else-if="col.key === 'msg_name'"><input v-lazy-value="m.name" @blur="e => update('name', e.target.value)"></template>
               <template v-else-if="col.key === 'msg_dlc'"><input class="mono" type="number" v-lazy-value="m.dlc" @blur="e => update('dlc', parseInt(e.target.value))"></template>
               <template v-else-if="col.key === 'msg_cycle'"><input class="mono" type="number" v-lazy-value="m.cycle_time" @blur="e => update('cycle_time', parseInt(e.target.value))"></template>
@@ -73,19 +75,37 @@ import { toHex, parseHex } from '../utils/format.js'
 import { t } from '../i18n.js'
 import { vLazyValue } from '../directives/lazyValue.js'
 
+import { sortByField, toggleSort, getSortIcon } from '../utils/sortHelper.js'
+
 const COLUMNS = [
-  { key: 'msg_idx',     i18n: 'msgtable.thIdx',     toggleable: false, defaultPct: 3  },
-  { key: 'msg_id',      i18n: 'msgtable.thId',      toggleable: false, defaultPct: 10 },
-  { key: 'msg_name',    i18n: 'msgtable.thName',    toggleable: false, defaultPct: 18 },
-  { key: 'msg_dlc',     i18n: 'msgtable.thDlc',     toggleable: true,  defaultPct: 6  },
-  { key: 'msg_cycle',   i18n: 'msgtable.thCycle',   toggleable: true,  defaultPct: 8  },
-  { key: 'msg_fd',      i18n: 'msgtable.thFd',      toggleable: true,  defaultPct: 7  },
-  { key: 'msg_actions', i18n: null,                 toggleable: false, defaultPct: 4  },
+  { key: 'msg_id',      i18n: 'msgtable.thId',      toggleable: false, defaultPct: 10, sortField: 'id' },
+  { key: 'msg_name',    i18n: 'msgtable.thName',    toggleable: false, defaultPct: 18, sortField: 'name' },
+  { key: 'msg_dlc',     i18n: 'msgtable.thDlc',     toggleable: true,  defaultPct: 6,  sortField: 'dlc' },
+  { key: 'msg_cycle',   i18n: 'msgtable.thCycle',   toggleable: true,  defaultPct: 8,  sortField: 'cycle_time' },
+  { key: 'msg_fd',      i18n: 'msgtable.thFd',      toggleable: true,  defaultPct: 7,  sortable: false },
+  { key: 'msg_actions', i18n: null,                 toggleable: false, defaultPct: 4,  sortable: false },
 ]
 
 const store = useEditorStore()
 const messages = useMessagesStore()
 const ui = useUiStore()
+
+// ── 报文数量 + 排序后的报文数组 ──
+const messageCount = computed(() => Object.keys(store.messages).length)
+
+const sortedMessages = computed(() => {
+  const arr = Object.values(store.messages)
+  return sortByField(arr, ui.msgSortField, ui.msgSortDir)
+})
+
+function onHeaderClick(field) {
+  const result = toggleSort(ui.msgSortField, ui.msgSortDir, field)
+  ui.setMsgSort(result.field, result.dir)
+}
+
+function getSortIconText(field) {
+  return getSortIcon(field, ui.msgSortField, ui.msgSortDir)
+}
 
 // ── 列显隐 + 列宽 ──
 const visibleColumns = computed(() =>
@@ -231,7 +251,7 @@ function jumpToSignals(id) {
 }
 
 // ── 方向键单元格导航 ──
-const NON_NAVIGABLE_COLS = new Set(['msg_idx', 'msg_actions'])
+const NON_NAVIGABLE_COLS = new Set(['msg_actions'])
 
 function getCellPosition(el) {
   const td = el.closest('td')
@@ -278,7 +298,7 @@ function onCellKeyDown(e) {
   if (!pos) return
 
   const cols = visibleColumns.value
-  const totalRows = store.messages.length
+  const totalRows = sortedMessages.value.length
   let { rowIdx, colIdx } = pos
   let targetRow = rowIdx
   let targetCol = colIdx
@@ -314,7 +334,7 @@ function onCellKeyDown(e) {
   target.focus()
   if (target.tagName === 'INPUT') target.select()
   target.closest('tr')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
-  const targetMsg = store.messages[targetRow]
+  const targetMsg = sortedMessages.value[targetRow]
   if (targetMsg) messages.selectMessage(targetMsg.id)
 }
 </script>
@@ -423,18 +443,9 @@ function onCellKeyDown(e) {
 .message-table input[type="number"] {
   -moz-appearance: textfield;
 }
-.message-table .idx-label {
-  display: block;
-  text-align: center;
-  opacity: 0.45;
-  font-size: 11px;
-  font-family: var(--font-mono);
-  user-select: none;
-  cursor: pointer;
-  line-height: 1.8;
-}
-.message-table tr:hover .idx-label { opacity: 0.7; }
-.message-table tr.selected .idx-label { opacity: 1; font-weight: 600; }
+.th-sortable { cursor: pointer; user-select: none; }
+.th-sortable:hover { color: var(--text); }
+.sort-icon { font-size: 10px; margin-left: 2px; }
 
 .message-table tbody tr { cursor: pointer; }
 
@@ -510,7 +521,7 @@ function onCellKeyDown(e) {
 .message-table tr.selected {
   background: color-mix(in oklch, var(--accent) 15%, transparent) !important;
 }
-.message-table tr.selected .col-idx {
+.message-table tr.selected td:first-child {
   border-left: 3px solid var(--accent);
 }
 </style>

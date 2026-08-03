@@ -34,7 +34,7 @@ class HandlerError(Exception):
         super().__init__(message or code)
 
 
-# 信号可编辑字段白名单（防止写入 uuid 等不可变字段）
+# 信号可编辑字段白名单（防止写入非法字段）
 EDITABLE_SIGNAL_FIELDS = {
     'name', 'start_bit', 'length', 'byte_order',
     'factor', 'offset', 'min_val', 'max_val', 'unit', 'comment',

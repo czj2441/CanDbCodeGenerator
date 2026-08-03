@@ -11,7 +11,7 @@ import { resetMessageIdGenerator } from '../utils/storeHelpers.js'
 export const useEditorStore = defineStore('editor', {
   state: () => ({
     // ── 核心数据 ──
-    messages: [],
+    messages: {},
     selectedMsgId: null,
     messageCache: {},
 
@@ -48,10 +48,10 @@ export const useEditorStore = defineStore('editor', {
       return state.messageCache[state.selectedMsgId] || null
     },
     messageCount(state) {
-      return state.messages.length
+      return Object.keys(state.messages).length
     },
     signalCount(state) {
-      return state.messages.reduce((sum, m) => sum + (m.signal_count || 0), 0)
+      return Object.values(state.messages).reduce((sum, m) => sum + (m.signal_count || 0), 0)
     },
     signalErrors(state) {
       if (state.selectedMsgId == null) return []
@@ -103,7 +103,7 @@ export const useEditorStore = defineStore('editor', {
     },
 
     resetEditorState() {
-      this.messages = []
+      this.messages = {}
       this.selectedMsgId = null
       this.messageCache = {}
       this.currentFileName = ''
@@ -256,7 +256,7 @@ export const useEditorStore = defineStore('editor', {
             break
           }
 
-          this.messages = d.messages || []
+          this.messages = d.messages || {}
           this.valueTables = d.value_tables || {}
           if (d.bus_type) this.busType = d.bus_type
           resetMessageIdGenerator()
@@ -264,7 +264,7 @@ export const useEditorStore = defineStore('editor', {
             this._syncBackendStatus(d.status)
           }
           if (this.selectedMsgId != null &&
-              !this.messages.some(m => m.id === this.selectedMsgId)) {
+              !this.messages[String(this.selectedMsgId)]) {
             this.selectedMsgId = null
             this.messageCache = {}
           }
@@ -277,13 +277,13 @@ export const useEditorStore = defineStore('editor', {
 
         case 'signal_updated': {
           WsFrontendDiag.count('signal_updated')
-          const { msg_id, signal } = msg.data
+          const { msg_id, signal, old_name } = msg.data
           const cache = this.messageCache[msg_id]
-          if (cache) {
-            const idx = cache.signals.findIndex(s => s.uuid === signal.uuid)
-            if (idx >= 0) {
-              cache.signals[idx] = signal
+          if (cache && cache.signals) {
+            if (old_name && old_name !== signal.name) {
+              delete cache.signals[old_name]
             }
+            cache.signals[signal.name] = signal
           }
           break
         }
@@ -292,50 +292,58 @@ export const useEditorStore = defineStore('editor', {
           const { msg_id, signal } = msg.data
           const cache = this.messageCache[msg_id]
           if (cache) {
-            cache.signals = [...cache.signals, signal]
+            cache.signals = { ...cache.signals, [signal.name]: signal }
           }
-          const msgIdx = this.messages.findIndex(m => m.id === msg_id)
-          if (msgIdx >= 0) {
-            this.messages[msgIdx] = {
-              ...this.messages[msgIdx],
-              signal_count: cache ? cache.signals.length
-                : this.messages[msgIdx].signal_count + 1
+          const msgSummary = this.messages[String(msg_id)]
+          if (msgSummary) {
+            this.messages[String(msg_id)] = {
+              ...msgSummary,
+              signal_count: cache ? Object.keys(cache.signals).length
+                : msgSummary.signal_count + 1
             }
           }
           break
         }
 
         case 'signal_deleted': {
-          const { msg_id, signal_uuid } = msg.data
+          const { msg_id, signal_name } = msg.data
           const cache = this.messageCache[msg_id]
-          if (cache) {
-            cache.signals = cache.signals.filter(s => s.uuid !== signal_uuid)
+          if (cache && cache.signals) {
+            const newSignals = { ...cache.signals }
+            delete newSignals[signal_name]
+            cache.signals = newSignals
           }
-          const msgIdx = this.messages.findIndex(m => m.id === msg_id)
-          if (msgIdx >= 0) {
-            this.messages[msgIdx] = {
-              ...this.messages[msgIdx],
-              signal_count: cache ? cache.signals.length
-                : Math.max(0, this.messages[msgIdx].signal_count - 1)
+          const msgSummary2 = this.messages[String(msg_id)]
+          if (msgSummary2) {
+            this.messages[String(msg_id)] = {
+              ...msgSummary2,
+              signal_count: cache ? Object.keys(cache.signals).length
+                : Math.max(0, msgSummary2.signal_count - 1)
             }
+          }
+          // 删除的信号若正在选中，清空 selectedSignalName
+          if (useUiStore().selectedSignalName === signal_name) {
+            useUiStore().selectedSignalName = null
           }
           break
         }
 
         case 'message_added': {
-          this.messages = [...this.messages, msg.data.message]
+          const addedMsg = msg.data.message
+          this.messages = { ...this.messages, [String(addedMsg.id)]: addedMsg }
           break
         }
         case 'message_updated': {
           const m = msg.data.message
           const oldId = msg.data.old_id
-          const lookupId = oldId != null ? oldId : m.id
-          const idx = this.messages.findIndex(x => x.id === lookupId)
-          if (idx >= 0) {
-            this.messages[idx] = { ...this.messages[idx], ...m }
+          const lookupKey = oldId != null ? String(oldId) : String(m.id)
+          if (this.messages[lookupKey]) {
+            this.messages[lookupKey] = { ...this.messages[lookupKey], ...m }
           }
           if (oldId != null && oldId !== m.id) {
-            // ID 变更：re-key cache
+            // ID 变更：re-key summary + cache
+            delete this.messages[String(oldId)]
+            this.messages[String(m.id)] = { ...m }
             const oldCache = this.messageCache[oldId]
             if (oldCache) {
               Object.assign(oldCache, m)
@@ -356,7 +364,10 @@ export const useEditorStore = defineStore('editor', {
         }
         case 'message_deleted': {
           const deletedId = msg.data.msg_id
-          this.messages = this.messages.filter(m => m.id !== deletedId)
+          const delKey = String(deletedId)
+          const newMessages = { ...this.messages }
+          delete newMessages[delKey]
+          this.messages = newMessages
           if (this.selectedMsgId === deletedId) {
             this.selectedMsgId = null
           }
@@ -386,7 +397,7 @@ export const useEditorStore = defineStore('editor', {
           }
           // selectedMsgId 可能在 undo/redo ID 变更后失效（复用 full_sync 模式）
           if (this.selectedMsgId != null &&
-              !this.messages.some(m => m.id === this.selectedMsgId)) {
+              !this.messages[String(this.selectedMsgId)]) {
             this.selectedMsgId = null
           }
           break
@@ -431,7 +442,7 @@ export const useEditorStore = defineStore('editor', {
           // 级联更新 messageCache 中信号的 value_table_name 引用
           for (const cache of Object.values(this.messageCache)) {
             if (cache?.signals) {
-              for (const sig of cache.signals) {
+              for (const sig of Object.values(cache.signals)) {
                 if (sig.value_table_name === old_name) {
                   sig.value_table_name = new_name
                 }

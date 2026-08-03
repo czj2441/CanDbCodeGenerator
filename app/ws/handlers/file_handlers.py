@@ -5,8 +5,6 @@ Save / NewFile / ImportFile / DownloadFile / CreateFile / LoadFile /
 SaveAs / DeleteFile / GetSessions
 """
 
-import json
-
 from app.models import CanDatabase
 from app.services import FileLockedError, FileNameExistsError
 from app.ws.router import HandlerResult, HandlerError
@@ -64,16 +62,13 @@ class ImportFileHandler:
 
     def __call__(self, data: dict) -> HandlerResult:
         sid = data["session_id"]
-        fmt = data.get("format", "json")
+        fmt = data.get("format", "properties")
         content = data.get("content", "")
         filename = data.get("filename", "")
 
         try:
             if fmt == "properties":
                 new_db = CanDatabase.from_properties_str(content)
-            elif fmt == "json":
-                parsed = json.loads(content)
-                new_db = CanDatabase.from_dict(parsed)
             elif fmt == "dbc":
                 new_db = CanDatabase.from_dbc_str(content)
                 if filename:

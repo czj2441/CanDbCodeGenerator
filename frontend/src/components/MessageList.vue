@@ -21,7 +21,7 @@
           :title="t('msglist.moreActions')"
         >⋮</button>
       </div>
-      <div v-if="store.messages.length === 0" class="empty" v-html="t('msglist.empty')">
+      <div v-if="store.messageCount === 0" class="empty" v-html="t('msglist.empty')">
       </div>
     </div>
   </div>

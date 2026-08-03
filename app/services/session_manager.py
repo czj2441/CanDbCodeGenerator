@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 import threading
 import time
 import uuid
@@ -99,54 +98,6 @@ class SessionManager:
         self._model_factory = factory
 
     # ── 会话 CRUD ──
-
-    @staticmethod
-    def _strip_legacy_prefix(fname: str) -> str:
-        """剥离旧格式 {12-hex}_{name}.properties 中的 session_id 前缀。
-
-        若匹配旧格式，返回 {name}.properties；否则原样返回。
-        """
-        m = re.match(r'^[0-9a-f]{12}_(.+\.properties)$', fname)
-        return m.group(1) if m else fname
-
-    def _rename_legacy_file(self, old_fname: str) -> str:
-        """将旧格式文件重命名为新格式，返回新文件名。
-
-        若目标已存在则使用 resolve_duplicate 生成不冲突的名称。
-        """
-        new_fname = self._strip_legacy_prefix(old_fname)
-        if new_fname == old_fname:
-            return old_fname  # 非旧格式，无需处理
-        old_path = os.path.join(self._data_dir, old_fname)
-        new_path = os.path.join(self._data_dir, new_fname)
-        if os.path.isfile(new_path):
-            new_fname = resolve_duplicate(new_fname, self._data_dir)
-            new_path = os.path.join(self._data_dir, new_fname)
-        try:
-            os.replace(old_path, new_path)
-        except OSError as e:
-            logger.warning("Failed to rename legacy file %s -> %s: %s", old_path, new_path, e)
-            return old_fname  # 重命名失败，保持旧名
-        # 迁移缓存
-        cached = self._history_cache.pop(old_fname, None)
-        if cached:
-            self._history_cache[new_fname] = cached
-        return new_fname
-
-    def _find_legacy_file(self, clean_fname: str) -> str:
-        """在 data 目录中查找匹配 clean_fname 的旧格式文件。
-
-        例如 clean_fname="Untitled.properties" 可能对应磁盘上的
-        "0fc9257db538_Untitled.properties"。
-        返回找到的旧格式文件名，未找到则返回空字符串。
-        """
-        pattern = re.compile(r'^[0-9a-f]{12}_' + re.escape(clean_fname) + r'$')
-        if not os.path.isdir(self._data_dir):
-            return ''
-        for fname in os.listdir(self._data_dir):
-            if pattern.match(fname):
-                return fname
-        return ''
 
     def create(self, file_name: str, db) -> str:
         """
@@ -230,13 +181,7 @@ class SessionManager:
             # 从磁盘加载（精确路径）
             file_path = self._safe_path(file_name)
             if not os.path.isfile(file_path):
-                # 尝试查找旧格式文件并透明重命名
-                legacy_fname = self._find_legacy_file(file_name)
-                if legacy_fname:
-                    file_name = self._rename_legacy_file(legacy_fname)
-                    file_path = self._safe_path(file_name)
-                else:
-                    return None
+                return None
 
             # 检查文件锁（排除当前会话自身）
             if self.is_file_locked(file_path, exclude_session=exclude_session):
@@ -406,9 +351,7 @@ class SessionManager:
         for fname in sorted(os.listdir(self._data_dir), key=_safe_mtime, reverse=True):
             if not fname.endswith(".properties"):
                 continue
-            # 透明处理旧格式文件：剥离 {session_id}_ 前缀
-            display_fname = self._strip_legacy_prefix(fname)
-            name = display_fname[:-11]  # 去掉 .properties 即为纯名称
+            name = fname[:-11]  # 去掉 .properties 即为纯名称
             fpath = os.path.join(self._data_dir, fname)
             try:
                 mtime = os.path.getmtime(fpath)
@@ -440,7 +383,7 @@ class SessionManager:
                                 rest = k[len("messages."):]
                                 mid_key = rest.split(".", 1)[0]
                                 msg_ids.add(mid_key)
-                                if ".signals." in rest and ".uuid" in rest:
+                                if ".signals." in rest and ".name" in rest:
                                     sig_count += 1
                         msg_count = len(msg_ids)
                     except Exception:
@@ -448,16 +391,15 @@ class SessionManager:
                     self._history_cache[fname] = (mtime, size, msg_count, sig_count)
             
             entry = {
-                "file_name": display_fname,
+                "file_name": fname,
                 "name": name,
-                "_disk_fname": fname,  # 实际磁盘文件名（内部用）
                 "mtime": mtime,
                 "size": size,
                 "message_count": msg_count,
                 "signal_count": sig_count,
                 "is_locked": self.is_file_locked(os.path.normpath(fpath), exclude_session=exclude_session),
                 "is_modified": is_modified,
-                "has_snapshot": display_fname in snapshot_fnames,
+                "has_snapshot": fname in snapshot_fnames,
             }
             # 活跃文件提供 session_id（供 steal_lock 使用）
             if fname in active_by_fname:
@@ -488,19 +430,6 @@ class SessionManager:
                     logger.error("Failed to delete file %s: %s", file_path, e)
                     return False
                 logger.info("History file deleted: %s", file_name)
-                return True
-            # 尝试查找并删除旧格式文件
-            legacy_fname = self._find_legacy_file(file_name)
-            if legacy_fname:
-                legacy_path = self._safe_path(legacy_fname)
-                self._history_cache.pop(legacy_fname, None)
-                self._undo.remove_orphan(legacy_fname)
-                try:
-                    os.remove(legacy_path)
-                except OSError as e:
-                    logger.error("Failed to delete legacy file %s: %s", legacy_path, e)
-                    return False
-                logger.info("Legacy history file deleted: %s", legacy_fname)
                 return True
             return bool(sids_to_remove)
 

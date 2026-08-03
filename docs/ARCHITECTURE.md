@@ -76,14 +76,14 @@
 
 #### signals（信号操作）
 
-- `addSignal(signalData)`、`updateSignal(sigUuid, field, value)`、`deleteSignal(sigUuid)`
+- `addSignal(signalData)`、`updateSignal(sigName, field, value)`、`deleteSignal(sigName)`
 - `batchAddSignals(params)` — 批量创建，含边界检查
 - `moveSignalByLayout()`、`resizeSignalByLayout()`
 - `loadSignalErrors()`
 
 #### clipboard（剪贴板）
 
-- `copySignal(sigUuid)`、`cutSignal(sigUuid)`、`pasteSignal()`
+- `copySignal(sigName)`、`cutSignal(sigName)`、`pasteSignal()`
 - `copyMessage()`、`pasteMessage()`、`duplicateMessage()`
 
 #### fileOperations（文件管理）

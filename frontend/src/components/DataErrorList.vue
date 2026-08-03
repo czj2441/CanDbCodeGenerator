@@ -80,7 +80,7 @@ const groupedErrors = computed(() => {
   const map = new Map()
   for (const err of errors) {
     if (!map.has(err.msg_id)) {
-      const msg = editor.messages.find(m => m.id === err.msg_id)
+      const msg = editor.messages[String(err.msg_id)]
       map.set(err.msg_id, {
         msg_id: err.msg_id,
         msg_id_hex: '0x' + err.msg_id.toString(16).toUpperCase(),
@@ -106,7 +106,7 @@ const totalCount = computed(() => (editor.dataErrors || []).length)
 // ── 跳转逻辑 ──
 async function navigateToError(err) {
   // Step 0: 根据错误类型决定目标 Tab
-  const isSignalError = !!err.signal_uuid
+  const isSignalError = !!err.signal_name
   const targetTab = isSignalError ? 'signals' : 'messages'
   if (ui.centerTab !== targetTab) ui.switchCenterTab(targetTab)
   // Step 1: 选中目标报文并等待数据加载
@@ -124,10 +124,10 @@ async function navigateToError(err) {
   await nextTick()
 
   // Step 2: 定位并高亮信号行
-  if (err.signal_uuid) {
-    ui.selectedSignalUuid = err.signal_uuid
+  if (err.signal_name) {
+    ui.selectedSignalName = err.signal_name
     await nextTick()
-    const row = document.querySelector(`[data-sig-id="${err.signal_uuid}"]`)
+    const row = document.querySelector(`[data-sig-id="${err.signal_name}"]`)
     row?.scrollIntoView({ behavior: 'smooth', block: 'center' })
     row?.classList.add('highlight-flash')
     setTimeout(() => row?.classList.remove('highlight-flash'), 2000)

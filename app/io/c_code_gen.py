@@ -78,7 +78,7 @@ def _prepare_context(db: "CanDatabase") -> dict[str, Any]:
         
         msg_signals = []
         seen_sig_names: dict[str, int] = {}
-        for sig in msg.signals:
+        for sig in sorted(msg.signals.values(), key=lambda s: s.start_bit):
             sig_name = _sanitize_identifier(sig.name)
             # Signal-level dedup within same message
             if sig_name in seen_sig_names:

@@ -37,7 +37,7 @@ export const useFileOperationsStore = defineStore('fileOperations', {
 
       editor.selectedMsgId = null
       editor.messageCache = {}
-      editor.messages = []
+      editor.messages = {}
       resetMessageIdGenerator()
       editor._defaultSignalLength = 8
       editor._healthFailCount = 0
@@ -87,7 +87,7 @@ export const useFileOperationsStore = defineStore('fileOperations', {
         editor.currentFileName = data.file_name
         editor.selectedMsgId = null
         editor.messageCache = {}
-        editor.messages = []
+        editor.messages = {}
         resetMessageIdGenerator()
         editor._dataVersion = 0
         undoRedo.clearUndoStack()
@@ -118,7 +118,7 @@ export const useFileOperationsStore = defineStore('fileOperations', {
 
       editor.selectedMsgId = null
       editor.messageCache = {}
-      editor.messages = []
+      editor.messages = {}
       resetMessageIdGenerator()
       editor._defaultSignalLength = 8
       editor._dataVersion = 0
@@ -169,7 +169,7 @@ export const useFileOperationsStore = defineStore('fileOperations', {
         editor.busType = data.bus_type || 'CAN'
         editor.selectedMsgId = null
         editor.messageCache = {}
-        editor.messages = []
+        editor.messages = {}
         resetMessageIdGenerator()
         editor._defaultSignalLength = 8
         editor._dataVersion = 0

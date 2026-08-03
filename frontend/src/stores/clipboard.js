@@ -15,11 +15,11 @@ export const useClipboardStore = defineStore('clipboard', {
     /**
      * 复制信号到剪贴板
      */
-    copySignal(sigUuid) {
+    copySignal(sigName) {
       const editor = useEditorStore()
       const msg = editor.selectedMessage
       if (!msg) return
-      const sig = msg.signals.find(s => s.uuid === sigUuid)
+      const sig = msg.signals[sigName]
       if (!sig) return
       this.clipboard = { type: 'signal', data: JSON.parse(JSON.stringify(sig)) }
       useUiStore().showToast(t('toast.signalCopied'))
@@ -28,10 +28,10 @@ export const useClipboardStore = defineStore('clipboard', {
     /**
      * 剪切信号到剪贴板（复制 + 删除）
      */
-    async cutSignal(sigUuid) {
+    async cutSignal(sigName) {
       const signals = useSignalsStore()
-      this.copySignal(sigUuid)
-      await signals.deleteSignal(sigUuid)
+      this.copySignal(sigName)
+      await signals.deleteSignal(sigName)
       useUiStore().showToast(t('toast.signalCut'))
     },
 

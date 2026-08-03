@@ -21,17 +21,18 @@ def _validate_value_table_ref(db, value_table_name: str):
              "field": "value_table_name", "value": value_table_name})
 
 
-def _validate_signal_fields(body: dict, msg, sig_uuid: str = None):
-    """统一信号字段校验，供 add/edit/batch 复用。sig_uuid 非空时为编辑模式。"""
+def _validate_signal_fields(body: dict, msg, sig_name: str = None):
+    """统一信号字段校验，供 add/edit/batch 复用。sig_name 非空时为编辑模式。"""
     if "name" in body:
         name = body["name"]
         if not isinstance(name, str) or not name.strip():
             raise HandlerError("VALUE_INVALID", "Signal name cannot be empty",
                                {"error_code": "signal_name_empty", "field": "name"})
-        for existing in msg.signals:
-            if existing.uuid != sig_uuid and existing.name == name.strip():
-                raise HandlerError("VALUE_INVALID", f"Signal name '{name}' already exists",
-                                   {"error_code": "signal_name_duplicate", "field": "name", "name": name})
+        stripped = name.strip()
+        # 重命名时检查新名是否与已有信号冲突
+        if stripped != sig_name and stripped in msg.signals:
+            raise HandlerError("VALUE_INVALID", f"Signal name '{name}' already exists",
+                               {"error_code": "signal_name_duplicate", "field": "name", "name": name})
     if "length" in body:
         length = body["length"]
         if length is None or not isinstance(length, (int, float)) or int(length) < 1:
@@ -61,7 +62,7 @@ class EditSignalHandler:
             raise HandlerError("SESSION_NOT_FOUND", "会话不存在")
 
         msg_id = data["msg_id"]
-        sig_uuid = data["sig_uuid"]
+        sig_name = data["sig_name"]
         field = data["field"]
         value = data["value"]
 
@@ -73,14 +74,14 @@ class EditSignalHandler:
             msg = db.messages.get(msg_id)
             if not msg:
                 raise HandlerError("MESSAGE_NOT_FOUND", f"报文 {msg_id} 不存在")
-            sig = next((s for s in msg.signals if s.uuid == sig_uuid), None)
+            sig = msg.signals.get(sig_name)
             if not sig:
-                raise HandlerError("SIGNAL_NOT_FOUND", f"信号 {sig_uuid} 不存在")
+                raise HandlerError("SIGNAL_NOT_FOUND", f"信号 {sig_name} 不存在")
 
             old_val = getattr(sig, field)
 
             try:
-                _validate_signal_fields({field: value}, msg, sig_uuid)
+                _validate_signal_fields({field: value}, msg, sig_name)
             except HandlerError as e:
                 if e.details is not None:
                     e.details[field] = old_val
@@ -91,22 +92,28 @@ class EditSignalHandler:
                 _validate_value_table_ref(db, value)
 
             test_sig = Signal.from_dict({**sig.to_dict(), field: value})
-            ok, err, info = db.validate_signal(msg, test_sig, exclude_uuid=sig_uuid)
+            ok, err, info = db.validate_signal(msg, test_sig, exclude_name=sig_name)
             if not ok:
                 if info is None:
                     info = {}
                 info[field] = old_val
                 raise HandlerError("VALUE_INVALID", err, info)
 
-            setattr(sig, field, value)
-            db.modified = True
+            # 使用 update_signal_in_message 处理（含重命名逻辑）
+            ok, old_name = db.update_signal_in_message(msg_id, sig_name, **{field: value})
+            if not ok:
+                raise HandlerError("SIGNAL_NOT_FOUND", f"信号 {sig_name} 不存在")
+            # 重新获取更新后的 sig（重命名后 key 变了）
+            final_name = value if field == 'name' and old_name else sig_name
+            sig = msg.signals[final_name]
             self._sm.push_undo(session, {
-                "type": "signal_update", "msgId": msg_id, "sigUuid": sig_uuid,
+                "type": "signal_update", "msgId": msg_id, "sigName": sig_name,
+                "oldName": old_name,
                 "prev": {field: old_val}, "next": {field: value}
             })
             new_version = db._bump_version()
             events = [
-                {"type": "signal_updated", "data": {"msg_id": msg_id, "signal": sig.to_dict()},
+                {"type": "signal_updated", "data": {"msg_id": msg_id, "signal": sig.to_dict(), "old_name": old_name},
                  "data_version": new_version},
                 {"type": "status_changed", "data": {"modified": True,
                  "undo_count": len(session.undo_stack), "redo_count": len(session.redo_stack)},
@@ -143,7 +150,7 @@ class AddSignalHandler:
             if not db.add_signal_to_message(msg_id, sig):
                 raise HandlerError("MESSAGE_NOT_FOUND", f"报文 {msg_id} 不存在")
             self._sm.push_undo(session, {"type": "signal_add", "msgId": msg_id,
-                                     "sigUuid": sig.uuid, "data": sig.to_dict()})
+                                     "sigName": sig.name, "data": sig.to_dict()})
             new_version = db._bump_version()
             events = [
                 {"type": "signal_added", "data": {"msg_id": msg_id, "signal": sig.to_dict()},
@@ -167,30 +174,30 @@ class DeleteSignalHandler:
         if not session:
             raise HandlerError("SESSION_NOT_FOUND", "会话不存在")
         msg_id = data["msg_id"]
-        sig_uuid = data["sig_uuid"]
+        sig_name = data["sig_name"]
 
         db = session.db
         with db.with_lock():
             msg = db.messages.get(msg_id)
             if not msg:
                 raise HandlerError("MESSAGE_NOT_FOUND", f"报文 {msg_id} 不存在")
-            sig = next((s for s in msg.signals if s.uuid == sig_uuid), None)
+            sig = msg.signals.get(sig_name)
             if not sig:
-                raise HandlerError("SIGNAL_NOT_FOUND", f"信号 {sig_uuid} 不存在")
+                raise HandlerError("SIGNAL_NOT_FOUND", f"信号 {sig_name} 不存在")
             sig_data = sig.to_dict()
-            if not db.remove_signal_from_message(msg_id, sig_uuid):
+            if not db.remove_signal_from_message(msg_id, sig_name):
                 raise HandlerError("SIGNAL_NOT_FOUND", "删除失败")
             self._sm.push_undo(session, {"type": "signal_delete", "msgId": msg_id, "data": sig_data})
             new_version = db._bump_version()
             events = [
-                {"type": "signal_deleted", "data": {"msg_id": msg_id, "signal_uuid": sig_uuid},
+                {"type": "signal_deleted", "data": {"msg_id": msg_id, "signal_name": sig_name},
                  "data_version": new_version},
                 {"type": "status_changed", "data": {"modified": True,
                  "undo_count": len(session.undo_stack), "redo_count": len(session.redo_stack)},
                  "data_version": new_version},
             ]
             push_data_errors(events, db, new_version, {msg_id})
-            return HandlerResult(data={"deleted": sig_uuid}, events=events,
+            return HandlerResult(data={"deleted": sig_name}, events=events,
                                  new_version=new_version, session_id=sid)
 
 
@@ -235,7 +242,7 @@ class BatchAddSignalsHandler:
             if not created:
                 raise HandlerError("VALUE_INVALID", "No signals created", {"errors": errors})
             self._sm.push_undo(session, {"type": "batch_signal_add", "msgId": msg_id,
-                                     "signals": [{"uuid": s.uuid, "data": s.to_dict()} for s in created]})
+                                     "signals": [{"name": s.name, "data": s.to_dict()} for s in created]})
             new_version = db._bump_version()
             events = []
             for sig in created:

@@ -54,7 +54,7 @@ export const useMessagesStore = defineStore('messages', {
 
       try {
         const result = await editor._wsRequest('add_message', {
-          message: { id, name, dlc: 8, cycle_time: 0, sender: '', is_fd: false, signals: [] }
+          message: { id, name, dlc: 8, cycle_time: 0, sender: '', is_fd: false, signals: {} }
         })
         if (result?.id != null) {
           editor.messageCache[result.id] = result

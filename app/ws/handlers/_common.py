@@ -7,15 +7,15 @@ def pure_file_name(session) -> str:
     return os.path.basename(session.file_path)
 
 
-def build_messages_summary(db) -> list[dict]:
-    """构建报文摘要列表，供 full_sync / undo / redo / get_messages 复用。"""
-    return [
-        {"id": mid, "id_hex": f"0x{mid:X}", "name": m.name,
-         "dlc": m.dlc, "cycle_time": m.cycle_time,
-         "is_fd": m.is_fd, "sender": m.sender, "comment": m.comment,
-         "signal_count": len(m.signals)}
+def build_messages_summary(db) -> dict[str, dict]:
+    """构建报文摘要 dict（keyed by msg_id），供 full_sync / undo / redo / get_messages 复用。"""
+    return {
+        str(mid): {"id": mid, "id_hex": f"0x{mid:X}", "name": m.name,
+                    "dlc": m.dlc, "cycle_time": m.cycle_time,
+                    "is_fd": m.is_fd, "sender": m.sender, "comment": m.comment,
+                    "signal_count": len(m.signals)}
         for mid, m in sorted(db.messages.items())
-    ]
+    }
 
 
 def build_undo_redo_events(session, db, action_type: str) -> tuple[list, int, list]:

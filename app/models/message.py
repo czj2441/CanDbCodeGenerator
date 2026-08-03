@@ -19,11 +19,12 @@ class Message:
     comment: str = ""
     sender: str = ""
     is_fd: bool = False  # True = CAN FD, False = Classic CAN
-    signals: list[Signal] = field(default_factory=list)
+    signals: dict[str, Signal] = field(default_factory=dict)
 
-    def to_dict(self, signals_as_dict: bool = True) -> dict[str, Any]:
-        """序列化为字典。"""
-        d = {
+    def to_dict(self) -> dict[str, Any]:
+        """序列化为字典。信号按 start_bit 升序输出为 dict。"""
+        sorted_sigs = sorted(self.signals.values(), key=lambda s: s.start_bit)
+        return {
             "id": self.id,
             "name": self.name,
             "dlc": self.dlc,
@@ -31,16 +32,17 @@ class Message:
             "comment": self.comment,
             "sender": self.sender,
             "is_fd": self.is_fd,
+            "signals": {sig.name: sig.to_dict() for sig in sorted_sigs},
         }
-        if signals_as_dict:
-            d["signals"] = [sig.to_dict() for sig in self.signals]
-        else:
-            d["signals"] = self.signals
-        return d
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Message:
         """从字典创建。id 字段应为整数。"""
+        raw_signals = data.get("signals", {})
+        signals: dict[str, Signal] = {}
+        for _key, sig_data in raw_signals.items():
+            sig = Signal.from_dict(sig_data)
+            signals[sig.name] = sig
         return cls(
             id=int(data.get("id", 0)),
             name=str(data.get("name", "")),
@@ -49,5 +51,5 @@ class Message:
             comment=str(data.get("comment", "")),
             sender=str(data.get("sender", "")),
             is_fd=bool(data.get("is_fd", False)),
-            signals=[Signal.from_dict(sig_data) for sig_data in data.get("signals", [])],
+            signals=signals,
         )

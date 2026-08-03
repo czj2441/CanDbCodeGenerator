@@ -281,11 +281,11 @@ export function clampStartBit(candidate, length, byteOrder, dlc) {
 }
 
 /**
- * Color palette for signal blocks — OKLCH hues with moderate saturation/lightness.
- * @param {number} index
+ * 根据信号名称哈希分配颜色，与位置无关。
+ * @param {string} name
  * @returns {string} OKLCH color string
  */
-export function getSignalColor(index) {
+export function getSignalColorByName(name) {
   const palette = [
     'oklch(0.72 0.13 155)',   // green
     'oklch(0.72 0.14 40)',    // orange
@@ -298,7 +298,11 @@ export function getSignalColor(index) {
     'oklch(0.72 0.13 120)',   // lime
     'oklch(0.72 0.11 220)',   // cyan
   ]
-  return palette[index % palette.length]
+  let hash = 0
+  for (let i = 0; i < name.length; i++) {
+    hash = ((hash << 5) - hash + name.charCodeAt(i)) | 0
+  }
+  return palette[Math.abs(hash) % palette.length]
 }
 
 /**
@@ -329,78 +333,4 @@ export function gridCellToPixel(row, col, { labelWidth, headerH, cellSize }) {
   return { x, y }
 }
 
-/**
- * Build render data for a signal, ready to be drawn by a Konva (or any) renderer.
- *
- * Uses `signalToRowRects` to determine the occupied grid cells, then maps them
- * to pixel coordinates relative to a Group anchor.
- *
- * @param {SignalInput} signal
- * @param {number} dlc - message DLC (bytes)
- * @param {RenderOptions} options
- * @returns {SignalRenderData|null} null when the signal has no visible rects
- */
-export function signalToRenderData(signal, dlc, options) {
-  const {
-    cellSize = 36,
-    headerH = 32,
-    labelWidth = 44,
-    color,
-    hasError = false,
-    labelText,
-  } = options
 
-  const rects = signalToRowRects(signal, dlc)
-  if (rects.length === 0) {
-    return null
-  }
-
-  let minRow = Infinity
-  let minCol = Infinity
-  let maxCol = -1
-
-  for (const r of rects) {
-    if (r.row < minRow) minRow = r.row
-    if (r.colStart < minCol) minCol = r.colStart
-    if (r.colEnd > maxCol) maxCol = r.colEnd
-  }
-
-  const groupX = labelWidth + minCol * cellSize
-  const groupY = headerH + minRow * cellSize
-
-  const pixelRects = rects.map((r) => ({
-    x: (r.colStart - minCol) * cellSize,
-    y: (r.row - minRow) * cellSize,
-    width: (r.colEnd - r.colStart + 1) * cellSize,
-    height: cellSize,
-    row: r.row,
-    colStart: r.colStart,
-    colEnd: r.colEnd,
-  }))
-
-  const colSpan = maxCol - minCol + 1
-  const label = {
-    x: -labelWidth,
-    y: 0,
-    width: labelWidth,
-    text: labelText !== undefined ? labelText : signal.name,
-  }
-
-  return {
-    uuid: signal.uuid,
-    groupX,
-    groupY,
-    rects: pixelRects,
-    label,
-    color,
-    hasError,
-    _meta: {
-      startBit: signal.start_bit,
-      length: signal.length,
-      byteOrder: signal.byte_order,
-      minRow,
-      minCol,
-      startCell: { row: minRow, col: minCol },
-    },
-  }
-}
