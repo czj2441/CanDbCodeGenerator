@@ -31,7 +31,7 @@
         <ValueTablePanel v-if="ui.centerTab === 'valtables'" />
         <MessagePanel v-else />
       </div>
-      <StatusBar />
+      <StatusBar /> 
       <!-- 离线编辑遮罩：覆盖编辑区域，不遮挡 TopBar -->
       <div v-if="hasBeenConnected && connectionStatus !== 'connected' && connectionStatus !== 'dead'" class="offline-overlay">
         <div class="dead-overlay-box" style="border-color: var(--warn);">
@@ -42,19 +42,22 @@
       </div>
       <BatchModal v-model:visible="ui.batchModalOpen" />
 
-      <LoadingOverlay />
+      <LoadingOverlay /> 
       <ContextMenu :items="contextMenuItems" />
     </template>
-    <!-- 版本不匹配遮罩：全局阻断，z-index 高于 dead-overlay(500) -->
-    <div v-if="versionMismatch" class="dead-overlay" style="z-index: 501;">
-      <div class="dead-overlay-box" style="border-color: var(--info);">
-        <span class="dead-overlay-icon">🔄</span>
-        <p>{{ t('overlay.versionMismatchTitle') }}</p>
-        <p class="dead-overlay-sub">{{ t('overlay.versionMismatchSub') }}</p>
-        <button class="btn btn-accent" style="margin-top:16px" @click="reloadPage">
-          {{ t('overlay.versionReload') }}
-        </button>
+    <!-- 版本不匹配浮动提示：非阻断，可拖动，用户可继续编辑 -->
+    <div v-if="versionMismatch" ref="versionCardRef" class="version-mismatch-card"
+         :style="{ top: vmPos.top + 'px', left: vmPos.left + 'px' }">
+      <div class="vm-drag-handle" @mousedown="onVmDragStart">
+        <span class="version-mismatch-icon">🔄</span>
+        <div class="version-mismatch-text">
+          <p class="version-mismatch-title">{{ t('overlay.versionMismatchTitle') }}</p>
+          <p class="version-mismatch-sub">{{ t('overlay.versionMismatchSub') }}</p>
+        </div>
       </div>
+      <button class="btn btn-accent" @click="reloadPage">
+        {{ t('overlay.versionReload') }}
+      </button>
     </div>
     <!-- 死遮罩：全局覆盖所有模式 -->
     <div v-if="connectionStatus === 'dead'" class="dead-overlay">
@@ -102,7 +105,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed, watchEffect } from 'vue'
+import { ref, reactive, onMounted, onUnmounted, computed, watchEffect, nextTick } from 'vue'
 import { useEditorStore } from './stores/editor.js'
 import { useFileOperationsStore } from './stores/fileOperations.js'
 import { useClipboardStore } from './stores/clipboard.js'
@@ -146,9 +149,56 @@ watchEffect(() => {
 let beforeUnloadHandler = null  // beforeunload 事件处理器
 let navigateHandler = null     // navigate-browser 事件处理器
 
+// 模块级标志：版本刷新时跳过 abort，保留快照保护未保存变更
+let _isVersionReload = false
+
 function reloadPage() {
+  _isVersionReload = true
   window.location.reload()
 }
+
+// ── 版本不匹配卡片：可拖动定位 ──
+const versionCardRef = ref(null)
+const vmPos = reactive({ top: 40, left: -1 })  // left=-1 表示待初始化（居中）
+
+function _initVmPos() {
+  // 首次出现时水平居中（需等 DOM 渲染）
+  nextTick(() => {
+    const el = versionCardRef.value
+    if (el && vmPos.left < 0) {
+      vmPos.left = Math.max(0, (window.innerWidth - el.offsetWidth) / 2)
+    }
+  })
+}
+
+let _vmDragState = null
+function onVmDragStart(e) {
+  // 仅主键拖动，阻止冒泡避免触发外层 contextmenu
+  if (e.button !== 0) return
+  e.preventDefault()
+  _vmDragState = {
+    startX: e.clientX,
+    startY: e.clientY,
+    origTop: vmPos.top,
+    origLeft: vmPos.left,
+  }
+  window.addEventListener('mousemove', _onVmDragMove)
+  window.addEventListener('mouseup', _onVmDragEnd)
+}
+function _onVmDragMove(e) {
+  if (!_vmDragState) return
+  const dx = e.clientX - _vmDragState.startX
+  const dy = e.clientY - _vmDragState.startY
+  vmPos.left = Math.max(0, _vmDragState.origLeft + dx)
+  vmPos.top = Math.max(0, _vmDragState.origTop + dy)
+}
+function _onVmDragEnd() {
+  _vmDragState = null
+  window.removeEventListener('mousemove', _onVmDragMove)
+  window.removeEventListener('mouseup', _onVmDragEnd)
+}
+// versionMismatch 变化时初始化位置
+watchEffect(() => { if (versionMismatch.value) _initVmPos() })
 
 // 应用模式：'browser' | 'editor'
 const mode = ref('browser')
@@ -178,10 +228,17 @@ onMounted(() => {
   beforeUnloadHandler = (e) => {
     const sid = getSessionId()
     if (sid) {
-      navigator.sendBeacon('/api/release?sid=' + encodeURIComponent(sid) + '&abort=1')
-      setSessionId('')  // 清除 sessionStorage，防止 Ctrl+F5 后旧 ID 残留
+      if (_isVersionReload) {
+        // 版本刷新：不带 abort=1，后端写快照保护未保存变更
+        navigator.sendBeacon('/api/release?sid=' + encodeURIComponent(sid))
+        setSessionId('')  // 清除旧 ID，防止新页面 WS hello 携带已销毁的 session_id
+      } else {
+        // 正常关闭/刷新：放弃变更
+        navigator.sendBeacon('/api/release?sid=' + encodeURIComponent(sid) + '&abort=1')
+        setSessionId('')  // 清除 sessionStorage，防止 Ctrl+F5 后旧 ID 残留
+      }
     }
-    if (sid && store.backendDirty) {
+    if (sid && store.backendDirty && !_isVersionReload) {
       e.preventDefault()
       e.returnValue = '您有未保存的更改，确定要离开吗？'
       return e.returnValue
@@ -203,6 +260,9 @@ onUnmounted(() => {
     window.removeEventListener('beforeunload', beforeUnloadHandler)
     beforeUnloadHandler = null
   }
+  // 清理拖拽监听（若组件卸载时正在拖拽）
+  window.removeEventListener('mousemove', _onVmDragMove)
+  window.removeEventListener('mouseup', _onVmDragEnd)
 })
 
 // 打开文件
@@ -518,6 +578,73 @@ body {
   font-weight: 600;
 }
 .dead-overlay-box .btn-accent:hover { filter: brightness(1.1); }
+
+/* ── 版本不匹配浮动提示（非阻断，可拖动） ── */
+.version-mismatch-card {
+  position: fixed;
+  z-index: 498;
+  background: var(--bg-raised);
+  border: 1px solid var(--info);
+  border-radius: var(--radius-lg);
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  max-width: 480px;
+}
+
+.vm-drag-handle {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: grab;
+  user-select: none;
+  flex: 1;
+}
+.vm-drag-handle:active { cursor: grabbing; }
+
+.version-mismatch-icon {
+  font-size: 24px;
+  flex-shrink: 0;
+}
+
+.version-mismatch-text {
+  flex: 1;
+}
+
+.version-mismatch-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.version-mismatch-sub {
+  margin: 3px 0 0;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.version-mismatch-card .btn {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 5px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  cursor: pointer;
+  transition: var(--transition);
+  flex-shrink: 0;
+}
+.version-mismatch-card .btn:hover { background: var(--bg-hover); }
+.version-mismatch-card .btn-accent {
+  background: var(--accent);
+  color: oklch(0.12 0.01 155);
+  border-color: transparent;
+  font-weight: 600;
+}
+.version-mismatch-card .btn-accent:hover { filter: brightness(1.1); }
 
 /* ── 离线编辑遮罩 ── */
 .offline-overlay {
