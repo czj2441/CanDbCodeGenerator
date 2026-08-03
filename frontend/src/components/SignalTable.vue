@@ -24,7 +24,7 @@
             <button class="col-dropdown-reset" @click="resetAll">{{ t('signal.resetColumns') }}</button>
           </div>
         </div>
-        <button class="btn btn-danger" @click="deleteMsg">{{ t('signal.deleteMsg') }}</button>
+
       </div>
     </div>
 
@@ -87,7 +87,6 @@
 import { computed, ref, onMounted, onUnmounted, watch } from 'vue'
 import { useEditorStore } from '../stores/editor.js'
 import { useSignalsStore } from '../stores/signals.js'
-import { useMessagesStore } from '../stores/messages.js'
 import { useClipboardStore } from '../stores/clipboard.js'
 import { useUndoRedoStore } from '../stores/undoRedo.js'
 import { useUiStore } from '../stores/uiStore.js'
@@ -115,7 +114,6 @@ const COLUMNS = [
 
 const store = useEditorStore()
 const signals = useSignalsStore()
-const messages = useMessagesStore()
 const clipboard = useClipboardStore()
 const undoRedo = useUndoRedoStore()
 const ui = useUiStore()
@@ -268,11 +266,6 @@ function updateStartBit(sig, displayValue) {
   signals.updateSignal(sig.name, 'start_bit', valueToSend).catch(() => {})
 }
 
-function deleteMsg() {
-  if (store.selectedMsgId == null) return
-  messages.deleteMessage(store.selectedMsgId)
-}
-
 // ── 方向键单元格导航 ──
 const NON_NAVIGABLE_COLS = new Set(['actions'])
 
@@ -412,7 +405,6 @@ function onCellKeyDown(e) {
 }
 .btn:hover { background: var(--bg-hover); }
 .btn-accent { background: var(--accent); color: oklch(0.12 0.01 155); border-color: transparent; font-weight: 600; }
-.btn-danger { background: oklch(0.22 0.05 25); color: oklch(0.85 0.05 25); border-color: oklch(0.35 0.08 25); }
 
 .table-wrap { flex: 1 1 auto; overflow: auto; padding: 8px; min-height: 120px; }
 

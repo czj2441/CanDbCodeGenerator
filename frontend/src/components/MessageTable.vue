@@ -43,6 +43,7 @@
         </thead>
         <tbody>
           <tr v-for="m in sortedMessages" :key="m.id"
+              :data-msg-id="m.id"
               :class="{ selected: store.selectedMsgId === m.id }"
               @mousedown="selectRow(m.id)"
               @dblclick="jumpToSignals(m.id)">

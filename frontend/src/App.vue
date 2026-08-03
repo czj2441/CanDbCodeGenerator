@@ -17,7 +17,6 @@
                 @click="ui.switchCenterTab('valtables')">{{ t('tab.valtables') }}</button>
       </div>
       <div class="main">
-        <MessageList v-if="ui.centerTab === 'signals'" />
         <div class="center">
           <template v-if="ui.centerTab === 'signals'">
             <SignalLayoutVisualizer v-if="ui.layoutViewMode" />
@@ -117,7 +116,6 @@ import { t } from './i18n.js'
 import { getSessionId, setSessionId } from './api/client.js'
 import FileBrowser from './components/FileBrowser.vue'
 import TopBar from './components/TopBar.vue'
-import MessageList from './components/MessageList.vue'
 import SignalTable from './components/SignalTable.vue'
 import MessageTable from './components/MessageTable.vue'
 import SignalLayoutVisualizer from './components/SignalLayoutVisualizer.vue'
@@ -387,44 +385,62 @@ function hideMenu() {
 const contextMenuItems = computed(() => {
   const target = ui.contextMenu.target
   const idx = ui.contextMenu.idx
-  if (target === 'signal' && idx !== null) {
+  if (target === 'signal') {
+    if (idx !== null) {
+      return [
+        { label: t('ctx.copySignal'), action: () => clipboard.copySignal(idx) },
+        { label: t('ctx.cutSignal'), action: () => clipboard.cutSignal(idx) },
+        { label: t('ctx.pasteSignal'), action: () => clipboard.pasteSignal(), disabled: !clipboard.clipboard || clipboard.clipboard.type !== 'signal' },
+        { label: t('ctx.deleteSignal'), action: () => signals.deleteSignal(idx), danger: true },
+      ]
+    }
+    // 空白区域
     return [
-      { label: t('ctx.copySignal'), action: () => clipboard.copySignal(idx) },
-      { label: t('ctx.cutSignal'), action: () => clipboard.cutSignal(idx) },
       { label: t('ctx.pasteSignal'), action: () => clipboard.pasteSignal(), disabled: !clipboard.clipboard || clipboard.clipboard.type !== 'signal' },
-      { label: t('ctx.deleteSignal'), action: () => signals.deleteSignal(idx), danger: true },
     ]
   }
   if (target === 'message') {
+    const hasMsg = store.selectedMsgId != null
     return [
-      { label: t('ctx.copyMessage'), action: () => clipboard.copyMessage() },
+      { label: t('ctx.copyMessage'), action: () => clipboard.copyMessage(), disabled: !hasMsg },
       { label: t('ctx.pasteMessage'), action: () => clipboard.pasteMessage(), disabled: !clipboard.clipboard || clipboard.clipboard.type !== 'message' },
-      { label: t('ctx.duplicateMessage'), action: () => clipboard.duplicateMessage() },
-      { label: t('ctx.deleteMessage'), action: () => messages.deleteMessage(store.selectedMsgId), danger: true },
+      { label: t('ctx.duplicateMessage'), action: () => clipboard.duplicateMessage(), disabled: !hasMsg },
+      { label: t('ctx.deleteMessage'), action: () => messages.deleteMessage(store.selectedMsgId), danger: true, disabled: !hasMsg },
     ]
   }
   return []
 })
 
 function onContextMenu(e) {
-  const row = e.target.closest('tr[data-sig-id]')
-  const msgItem = e.target.closest('.message-item')
-  if (row) {
+  const x = Math.min(e.clientX, window.innerWidth - 180)
+  const y = Math.min(e.clientY, window.innerHeight - 200)
+
+  // 行级优先匹配
+  const sigRow = e.target.closest('tr[data-sig-id]')
+  if (sigRow) {
     e.preventDefault()
-    ui.showContextMenu(
-      Math.min(e.clientX, window.innerWidth - 180),
-      Math.min(e.clientY, window.innerHeight - 200),
-      'signal',
-      row.dataset.sigId
-    )
-  } else if (msgItem) {
+    ui.showContextMenu(x, y, 'signal', sigRow.dataset.sigId)
+    return
+  }
+  const msgRow = e.target.closest('tr[data-msg-id]')
+  if (msgRow) {
     e.preventDefault()
-    ui.showContextMenu(
-      Math.min(e.clientX, window.innerWidth - 180),
-      Math.min(e.clientY, window.innerHeight - 200),
-      'message',
-      null
-    )
+    const msgId = Number(msgRow.dataset.msgId)
+    if (store.selectedMsgId !== msgId) messages.selectMessage(msgId)
+    ui.showContextMenu(x, y, 'message', null)
+    return
+  }
+
+  // 区域级匹配（空白区域）
+  if (e.target.closest('.signal-area')) {
+    e.preventDefault()
+    ui.showContextMenu(x, y, 'signal', null)
+    return
+  }
+  if (e.target.closest('.message-area')) {
+    e.preventDefault()
+    ui.showContextMenu(x, y, 'message', null)
+    return
   }
 }
 </script>
