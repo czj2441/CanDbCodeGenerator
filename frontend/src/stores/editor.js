@@ -7,6 +7,7 @@ import { useUndoRedoStore } from './undoRedo.js'
 import { WsSyncClient, WsFrontendDiag } from '../utils/ws-client.js'
 import { checkVersionHash } from '../utils/version-check.js'
 import { resetMessageIdGenerator } from '../utils/storeHelpers.js'
+import { setConnectionStatus, resetConnection } from './connectionHealth.js'
 
 export const useEditorStore = defineStore('editor', {
   state: () => ({
@@ -24,14 +25,12 @@ export const useEditorStore = defineStore('editor', {
 
     // ── 运行时状态 ──
     isLoading: false,
-    apiStatus: 'connecting',
     backendDirty: false,
     lastSaveError: null,
     saveStatus: 'idle',   // 'idle' | 'saving' | 'saved' | 'modified'
     _saveStatusTimer: null,
     dataErrors: [],
     _healthFailCount: 0,
-    _hasBeenConnected: false,
     _defaultSignalLength: 8,
     logEntries: [],
 
@@ -89,7 +88,7 @@ export const useEditorStore = defineStore('editor', {
       this.stopEditorSync()
       setSessionId('')
       this.currentFileName = ''
-      this.apiStatus = 'connecting'
+      resetConnection()
       this.resetEditorState()
       // 关闭所有模态框，避免残留弹出
       const uiStore = useUiStore()
@@ -116,7 +115,6 @@ export const useEditorStore = defineStore('editor', {
       this.logEntries = []
       this.valueTables = {}
       this._dataVersion = 0
-      this._hasBeenConnected = false
       // 通过拆分 store 清理
       const undoRedo = useUndoRedoStore()
       undoRedo.clearUndoStack()
@@ -500,15 +498,14 @@ export const useEditorStore = defineStore('editor', {
     checkApiHealth() {
       if (this._wsClient?.connected) {
         this._healthFailCount = 0
-        this.apiStatus = 'connected'
-        this._hasBeenConnected = true
+        setConnectionStatus('connected')
         // 版本信息已通过 WS pong/server_version 推送（ws-client.js），无需 HTTP 轮询
       } else {
         this._healthFailCount++
         if (this._healthFailCount >= 2) {
-          this.apiStatus = 'dead'
+          setConnectionStatus('dead')
         } else {
-          this.apiStatus = 'offline'
+          setConnectionStatus('offline')
         }
       }
     },

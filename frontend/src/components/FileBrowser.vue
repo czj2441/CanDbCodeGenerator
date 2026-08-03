@@ -291,8 +291,9 @@
       @change="handleImportFileSelect"
     />
 
-    <!-- 底部版本栏 -->
+    <!-- 底部状态栏 -->
     <div class="browser-footer">
+      <ConnectionStatus :status="connectionStatus" />
       <span class="version-tag">{{ manualVersion }} {{ autoVersion }}</span>
     </div>
   </div>
@@ -304,6 +305,8 @@ import { getSessionId } from '../api/client.js'
 import { useUiStore } from '../stores/uiStore.js'
 import { t } from '../i18n.js'
 import { WsSyncClient } from '../utils/ws-client.js'
+import { setConnectionStatus, connectionStatus } from '../stores/connectionHealth.js'
+import ConnectionStatus from './ConnectionStatus.vue'
 
 const manualVersion = typeof __MANUAL_VERSION__ !== 'undefined' ? __MANUAL_VERSION__ : 'dev'
 const autoVersion = typeof __AUTO_VERSION__ !== 'undefined' ? __AUTO_VERSION__ : 'dev'
@@ -340,6 +343,7 @@ let wsClient = null       // FileBrowser 独立 WS 连接
 let refreshTimer = null   // 周期性刷新列表
 let _loadPromise = null    // loadFiles 请求去重
 let _lastErrorToast = 0    // 错误 toast 节流时间戳
+let _browserFailCount = 0  // 连续断连次数（用于 offline→dead 升级）
 
 // Escape 键关闭模态框（优先级：stealModal > deleteModal > newFileModal > importConfirm）
 function handleKeydown(e) {
@@ -654,9 +658,16 @@ onMounted(() => {
     },
     onStatusChange: (status) => {
       if (status === 'connected') {
+        _browserFailCount = 0
+        setConnectionStatus('connected')
         loadFiles()  // 连接成功后加载文件列表
+      } else if (status === 'disconnected') {
+        // 重连中：连续失败多次后升级为 dead
+        _browserFailCount++
+        setConnectionStatus(_browserFailCount >= 3 ? 'dead' : 'offline')
       } else if (status === 'session_invalid' || status === 'permanent_failure') {
         // WS 永久断开，停止刷新并通知用户
+        setConnectionStatus('dead')
         initialLoading.value = false
         if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null }
         useUiStore().showToast(t('toast.sessionLost'), true)
@@ -1077,7 +1088,7 @@ onUnmounted(() => {
 .browser-footer {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   padding: 0 24px;
   height: 26px;
   background: var(--bg-panel);

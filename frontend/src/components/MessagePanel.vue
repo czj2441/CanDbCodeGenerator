@@ -197,6 +197,11 @@ function openValueTableManager() {
   ui.switchCenterTab('valtables')
 }
 
+const selectedSig = computed(() => {
+  if (!msg.value || !ui.selectedSignalName) return null
+  return msg.value.signals[ui.selectedSignalName] || null
+})
+
 // 从 selectedSig.value_table_name 同步
 watch(() => selectedSig.value?.value_table_name, (v) => {
   localValueTableName.value = v || ''
@@ -208,11 +213,6 @@ const isFdEl = ref(null)
 watch(() => msg.value?.is_fd, (v) => {
   localIsFd.value = v ? 'true' : 'false'
 }, { immediate: true })
-
-const selectedSig = computed(() => {
-  if (!msg.value || !ui.selectedSignalName) return null
-  return msg.value.signals[ui.selectedSignalName] || null
-})
 
 /**
  * 显示用的起始位：Motorola 信号显示 LSB，Intel 信号显示原始 start_bit

@@ -33,7 +33,7 @@
       </div>
       <StatusBar />
       <!-- 离线编辑遮罩：覆盖编辑区域，不遮挡 TopBar -->
-      <div v-if="store._hasBeenConnected && store.apiStatus !== 'connected' && store.apiStatus !== 'dead'" class="offline-overlay">
+      <div v-if="hasBeenConnected && connectionStatus !== 'connected' && connectionStatus !== 'dead'" class="offline-overlay">
         <div class="dead-overlay-box" style="border-color: var(--warn);">
           <div class="offline-spinner"></div>
           <p>{{ t('overlay.reconnectTitle') }}</p>
@@ -57,7 +57,7 @@
       </div>
     </div>
     <!-- 死遮罩：全局覆盖所有模式 -->
-    <div v-if="store.apiStatus === 'dead'" class="dead-overlay">
+    <div v-if="connectionStatus === 'dead'" class="dead-overlay">
       <div class="dead-overlay-box">
         <span class="dead-overlay-icon">⚠️</span>
         <p>{{ t('overlay.deadTitle') }}</p>
@@ -109,6 +109,7 @@ import { useClipboardStore } from './stores/clipboard.js'
 import { useSignalsStore } from './stores/signals.js'
 import { useMessagesStore } from './stores/messages.js'
 import { useUiStore } from './stores/uiStore.js'
+import { connectionStatus, hasBeenConnected } from './stores/connectionHealth.js'
 import { t } from './i18n.js'
 import { getSessionId, setSessionId } from './api/client.js'
 import FileBrowser from './components/FileBrowser.vue'

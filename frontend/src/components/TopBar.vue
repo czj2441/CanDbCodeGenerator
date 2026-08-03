@@ -34,12 +34,7 @@
     >
       {{ ui.showLogPanel ? '📋' : '📄' }}
     </button>
-    <span class="api-status" :class="store.apiStatus">
-      <span class="dot"></span>
-      <template v-if="store.apiStatus === 'connected'">{{ t('topbar.connected') }}</template>
-      <template v-else-if="store.apiStatus === 'dead'">{{ t('topbar.dead') }}</template>
-      <template v-else>{{ t('topbar.offline') }}</template>
-    </span>
+    <ConnectionStatus :status="connectionStatus" />
   </div>
 
   <!-- SaveAs Confirm Dialog -->
@@ -80,9 +75,11 @@ import { useEditorStore } from '../stores/editor.js'
 import { useUndoRedoStore } from '../stores/undoRedo.js'
 import { useFileOperationsStore } from '../stores/fileOperations.js'
 import { useUiStore } from '../stores/uiStore.js'
+import { connectionStatus } from '../stores/connectionHealth.js'
 import { t } from '../i18n.js'
 import { getSessionId } from '../api/client.js'
 import CcodePreviewModal from './CcodePreviewModal.vue'
+import ConnectionStatus from './ConnectionStatus.vue'
 
 defineEmits(['back'])
 
@@ -379,23 +376,6 @@ async function save() {
   flex-shrink: 0;
 }
 
-.api-status {
-  font-size: 11px;
-  color: var(--text-muted);
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.api-status.connected { color: var(--accent); }
-.api-status.offline,
-.api-status.dead { color: var(--danger); }
-
-.dot {
-  width: 7px; height: 7px;
-  border-radius: 50%;
-  background: currentColor;
-  display: inline-block;
-}
 
 .btn {
   background: var(--bg-raised);
