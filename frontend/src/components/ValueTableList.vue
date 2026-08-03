@@ -73,6 +73,7 @@ import { useUiStore } from '../stores/uiStore.js'
 import { t } from '../i18n.js'
 
 import { sortByField, toggleSort, getSortIcon } from '../utils/sortHelper.js'
+import { useColumnResize } from '../composables/useColumnResize.js'
 
 const COLUMNS = [
   { key: 'vt_name',    i18n: 'valtable.thName',    toggleable: false, defaultPct: 28, sortField: 'name' },
@@ -91,32 +92,16 @@ const visibleColumns = computed(() =>
 )
 const toggleableColumns = computed(() => COLUMNS.filter(c => c.toggleable))
 
-function getColumnPct(col) {
-  return ui.getVtColumnWidth(col.key, col.defaultPct)
-}
-
-/** 归一化列宽百分比，确保总和 = 100%，防止浏览器自动缩放导致拖拽不同步 */
-const normalizedPcts = computed(() => {
-  const cols = visibleColumns.value
-  const raw = {}
-  let total = 0
-  for (const c of cols) {
-    const v = ui.getVtColumnWidth(c.key, c.defaultPct)
-    raw[c.key] = v
-    total += v
-  }
-  if (Math.abs(total - 100) < 0.01 || total === 0) return raw
-  const scale = 100 / total
-  const result = {}
-  for (const c of cols) {
-    result[c.key] = raw[c.key] * scale
-  }
-  return result
-})
-
 const showColMenu = ref(false)
 const colToggleRef = ref(null)
 const tableRef = ref(null)
+
+const { normalizedPcts, startResize, consumeJustResized } = useColumnResize(tableRef, visibleColumns, {
+  getColumnWidth: (key, def) => ui.getVtColumnWidth(key, def),
+  getColumnWidths: () => ui.vtColumnWidths,
+  setColumnWidths: (w) => ui.setVtColumnWidths(w),
+  hiddenColumns: () => ui.vtHiddenColumns,
+})
 
 function resetAll() {
   ui.resetVtColumnVisibility()
@@ -151,6 +136,7 @@ const sortedFilteredNames = computed(() => {
 })
 
 function onHeaderClick(field) {
+  if (consumeJustResized()) return
   const mappedField = field === 'entries' ? 'entries' : field === 'refs' ? 'refs' : field
   const result = toggleSort(ui.vtSortField, ui.vtSortDir, mappedField)
   ui.setVtSort(result.field, result.dir)
@@ -223,79 +209,6 @@ watch(() => ui.valueTableFocusName, (name) => {
   }
   ui.valueTableFocusName = ''
 })
-
-// ── 列宽拖拽 ──
-let resizeState = null
-
-function startResize(colIndex, e) {
-  e.preventDefault()
-  const cols = visibleColumns.value
-  const col = cols[colIndex]
-  const nextCol = cols[colIndex + 1]
-  if (!nextCol) return
-
-  // 从 DOM 读取实际渲染宽度，避免 store 原始百分比与浏览器缩放后的渲染宽度不一致
-  const tableWidth = tableRef.value.getBoundingClientRect().width
-  const colEls = tableRef.value.querySelectorAll('colgroup col')
-  const curPct = colEls[colIndex]?.getBoundingClientRect().width / tableWidth * 100
-    ?? ui.getVtColumnWidth(col.key, col.defaultPct)
-  const nextPct = colEls[colIndex + 1]?.getBoundingClientRect().width / tableWidth * 100
-    ?? ui.getVtColumnWidth(nextCol.key, nextCol.defaultPct)
-
-  resizeState = { col, nextCol, colIndex, startX: e.clientX, curPct, nextPct, tableWidth }
-  document.addEventListener('mousemove', onResize)
-  document.addEventListener('mouseup', stopResize)
-  document.body.style.cursor = 'col-resize'
-  document.body.style.userSelect = 'none'
-}
-
-function onResize(e) {
-  if (!resizeState) return
-  const deltaPct = ((e.clientX - resizeState.startX) / resizeState.tableWidth) * 100
-  const MIN = 2
-  let newCur = Math.max(MIN, resizeState.curPct + deltaPct)
-  let newNext = resizeState.nextPct - (newCur - resizeState.curPct)
-  if (newNext < MIN) { newNext = MIN; newCur = resizeState.curPct + resizeState.nextPct - MIN }
-
-  const colEls = tableRef.value.querySelectorAll('colgroup col')
-  if (colEls[resizeState.colIndex]) colEls[resizeState.colIndex].style.width = newCur + '%'
-  if (colEls[resizeState.colIndex + 1]) colEls[resizeState.colIndex + 1].style.width = newNext + '%'
-}
-
-function stopResize(e) {
-  if (!resizeState) return
-  const deltaPct = ((e.clientX - resizeState.startX) / resizeState.tableWidth) * 100
-  const MIN = 2
-  let newCur = Math.max(MIN, resizeState.curPct + deltaPct)
-  let newNext = resizeState.nextPct - (newCur - resizeState.curPct)
-  if (newNext < MIN) { newNext = MIN; newCur = resizeState.curPct + resizeState.nextPct - MIN }
-
-  const widths = { ...ui.vtColumnWidths }
-  widths[resizeState.col.key] = Math.round(newCur * 100) / 100
-  widths[resizeState.nextCol.key] = Math.round(newNext * 100) / 100
-  ui.setVtColumnWidths(widths)
-
-  resizeState = null
-  document.removeEventListener('mousemove', onResize)
-  document.removeEventListener('mouseup', stopResize)
-  document.body.style.cursor = ''
-  document.body.style.userSelect = ''
-}
-
-// 列显隐时宽度归一化
-watch(() => ui.vtHiddenColumns, () => {
-  const visible = visibleColumns.value
-  if (!visible.length) return
-  const total = visible.reduce((s, c) => s + ui.getVtColumnWidth(c.key, c.defaultPct), 0)
-  if (Math.abs(total - 100) > 0.1) {
-    const scale = 100 / total
-    const widths = { ...ui.vtColumnWidths }
-    for (const c of visible) {
-      widths[c.key] = Math.round(ui.getVtColumnWidth(c.key, c.defaultPct) * scale * 100) / 100
-    }
-    ui.setVtColumnWidths(widths)
-  }
-}, { deep: true })
 
 onMounted(() => {
   if (sortedNames.value.length > 0 && !ui.selectedVtName) {

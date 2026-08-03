@@ -195,7 +195,7 @@
     <!-- 抢占确认对话框 -->
     <Teleport to="body">
       <Transition name="fade">
-        <div v-if="stealModalOpen" class="modal-overlay" @click="closeStealModal">
+        <div v-if="stealModalOpen" class="modal-overlay" @mousedown.self="closeStealModal">
           <div class="modal-box" @click.stop>
             <h3>{{ t('browser.stealConfirmTitle') }}</h3>
             <p>
@@ -214,7 +214,7 @@
     <!-- 删除确认对话框 -->
     <Teleport to="body">
       <Transition name="fade">
-        <div v-if="deleteModalOpen" class="modal-overlay" @click="closeDeleteModal">
+        <div v-if="deleteModalOpen" class="modal-overlay" @mousedown.self="closeDeleteModal">
           <div class="modal-box" @click.stop>
             <h3>{{ t('browser.deleteConfirmTitle') }}</h3>
             <p>
@@ -242,7 +242,7 @@
     <!-- 新建文件对话框 -->
     <Teleport to="body">
       <Transition name="fade">
-        <div v-if="newFileModalOpen" class="modal-overlay" @click="closeNewFileModal">
+        <div v-if="newFileModalOpen" class="modal-overlay" @mousedown.self="closeNewFileModal">
           <div class="modal-box" @click.stop>
             <h3>{{ t('browser.newFileTitle') }}</h3>
             <p>{{ t('browser.newFileLabel') }}</p>
@@ -268,7 +268,7 @@
     <!-- 导入确认对话框 -->
     <Teleport to="body">
       <Transition name="fade">
-        <div v-if="importConfirmOpen" class="modal-overlay" @click="importConfirmOpen = false">
+        <div v-if="importConfirmOpen" class="modal-overlay" @mousedown.self="importConfirmOpen = false">
           <div class="modal-box" @click.stop>
             <h3>{{ t('browser.importConfirmTitle') }}</h3>
             <p>{{ t('browser.importConfirmDesc') }}</p>

@@ -1,7 +1,7 @@
 <template>
   <Teleport to="body">
     <Transition name="modal">
-      <div v-if="visible" class="modal-overlay" @click.self="close">
+      <div v-if="visible" class="modal-overlay" @mousedown.self="close">
         <div class="modal-panel">
           <div class="modal-header">
             <span class="modal-title">{{ t('ccode_preview.title') }}</span>

@@ -96,6 +96,7 @@ import { toDisplayStartBit, toStorageStartBit } from '../utils/signalLayout.js'
 import { t } from '../i18n.js'
 import { vLazyValue } from '../directives/lazyValue.js'
 import { sortByField, toggleSort, getSortIcon } from '../utils/sortHelper.js'
+import { useColumnResize } from '../composables/useColumnResize.js'
 
 const COLUMNS = [
   { key: 'name',    i18n: 'signal.thName',     toggleable: false, defaultPct: 14, sortField: 'name'  },
@@ -153,6 +154,7 @@ const sortedSignals = computed(() => {
 })
 
 function onHeaderClick(field) {
+  if (consumeJustResized()) return
   const result = toggleSort(ui.signalSortField, ui.signalSortDir, field)
   ui.setSignalSort(result.field, result.dir)
 }
@@ -167,32 +169,16 @@ const visibleColumns = computed(() =>
 )
 const toggleableColumns = computed(() => COLUMNS.filter(c => c.toggleable))
 
-function getColumnPct(col) {
-  return ui.getColumnWidth(col.key, col.defaultPct)
-}
-
-/** 归一化列宽百分比，确保总和 = 100%，防止浏览器自动缩放导致拖拽不同步 */
-const normalizedPcts = computed(() => {
-  const cols = visibleColumns.value
-  const raw = {}
-  let total = 0
-  for (const c of cols) {
-    const v = ui.getColumnWidth(c.key, c.defaultPct)
-    raw[c.key] = v
-    total += v
-  }
-  if (Math.abs(total - 100) < 0.01 || total === 0) return raw
-  const scale = 100 / total
-  const result = {}
-  for (const c of cols) {
-    result[c.key] = raw[c.key] * scale
-  }
-  return result
-})
-
 const showColMenu = ref(false)
 const colToggleRef = ref(null)
 const tableRef = ref(null)
+
+const { normalizedPcts, startResize, consumeJustResized } = useColumnResize(tableRef, visibleColumns, {
+  getColumnWidth: (key, def) => ui.getColumnWidth(key, def),
+  getColumnWidths: () => ui.columnWidths,
+  setColumnWidths: (w) => ui.setColumnWidths(w),
+  hiddenColumns: () => ui.hiddenColumns,
+})
 
 function resetAll() {
   ui.resetColumnVisibility()
@@ -205,79 +191,6 @@ function onDocClick(e) {
     showColMenu.value = false
   }
 }
-
-// ── 列宽拖拽 ──
-let resizeState = null
-
-function startResize(colIndex, e) {
-  e.preventDefault()
-  const cols = visibleColumns.value
-  const col = cols[colIndex]
-  const nextCol = cols[colIndex + 1]
-  if (!nextCol) return
-
-  // 从 DOM 读取实际渲染宽度，避免 store 原始百分比与浏览器缩放后的渲染宽度不一致
-  const tableWidth = tableRef.value.getBoundingClientRect().width
-  const colEls = tableRef.value.querySelectorAll('colgroup col')
-  const curPct = colEls[colIndex]?.getBoundingClientRect().width / tableWidth * 100
-    ?? ui.getColumnWidth(col.key, col.defaultPct)
-  const nextPct = colEls[colIndex + 1]?.getBoundingClientRect().width / tableWidth * 100
-    ?? ui.getColumnWidth(nextCol.key, nextCol.defaultPct)
-
-  resizeState = { col, nextCol, colIndex, startX: e.clientX, curPct, nextPct, tableWidth }
-  document.addEventListener('mousemove', onResize)
-  document.addEventListener('mouseup', stopResize)
-  document.body.style.cursor = 'col-resize'
-  document.body.style.userSelect = 'none'
-}
-
-function onResize(e) {
-  if (!resizeState) return
-  const deltaPct = ((e.clientX - resizeState.startX) / resizeState.tableWidth) * 100
-  const MIN = 2
-  let newCur = Math.max(MIN, resizeState.curPct + deltaPct)
-  let newNext = resizeState.nextPct - (newCur - resizeState.curPct)
-  if (newNext < MIN) { newNext = MIN; newCur = resizeState.curPct + resizeState.nextPct - MIN }
-
-  const colEls = tableRef.value.querySelectorAll('colgroup col')
-  if (colEls[resizeState.colIndex]) colEls[resizeState.colIndex].style.width = newCur + '%'
-  if (colEls[resizeState.colIndex + 1]) colEls[resizeState.colIndex + 1].style.width = newNext + '%'
-}
-
-function stopResize(e) {
-  if (!resizeState) return
-  const deltaPct = ((e.clientX - resizeState.startX) / resizeState.tableWidth) * 100
-  const MIN = 2
-  let newCur = Math.max(MIN, resizeState.curPct + deltaPct)
-  let newNext = resizeState.nextPct - (newCur - resizeState.curPct)
-  if (newNext < MIN) { newNext = MIN; newCur = resizeState.curPct + resizeState.nextPct - MIN }
-
-  const widths = { ...ui.columnWidths }
-  widths[resizeState.col.key] = Math.round(newCur * 100) / 100
-  widths[resizeState.nextCol.key] = Math.round(newNext * 100) / 100
-  ui.setColumnWidths(widths)
-
-  resizeState = null
-  document.removeEventListener('mousemove', onResize)
-  document.removeEventListener('mouseup', stopResize)
-  document.body.style.cursor = ''
-  document.body.style.userSelect = ''
-}
-
-// 列显隐时宽度归一化
-watch(() => ui.hiddenColumns, () => {
-  const visible = visibleColumns.value
-  if (!visible.length) return
-  const total = visible.reduce((s, c) => s + ui.getColumnWidth(c.key, c.defaultPct), 0)
-  if (Math.abs(total - 100) > 0.1) {
-    const scale = 100 / total
-    const widths = { ...ui.columnWidths }
-    for (const c of visible) {
-      widths[c.key] = Math.round(ui.getColumnWidth(c.key, c.defaultPct) * scale * 100) / 100
-    }
-    ui.setColumnWidths(widths)
-  }
-}, { deep: true })
 
 function handleRowMouseDown(sigName, event) {
   // ⚠️ 维护注意：新增交互元素类型（如自定义 datepicker/autocomplete）时，
