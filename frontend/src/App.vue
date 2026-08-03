@@ -112,7 +112,7 @@ import { useClipboardStore } from './stores/clipboard.js'
 import { useSignalsStore } from './stores/signals.js'
 import { useMessagesStore } from './stores/messages.js'
 import { useUiStore } from './stores/uiStore.js'
-import { connectionStatus, hasBeenConnected } from './stores/connectionHealth.js'
+import { connectionStatus, hasBeenConnected, resetConnection } from './stores/connectionHealth.js'
 import { t } from './i18n.js'
 import { getSessionId, setSessionId } from './api/client.js'
 import FileBrowser from './components/FileBrowser.vue'
@@ -148,6 +148,7 @@ watchEffect(() => {
 
 let beforeUnloadHandler = null  // beforeunload 事件处理器
 let navigateHandler = null     // navigate-browser 事件处理器
+let pageshowHandler = null     // bfcache 恢复检测处理器
 
 // 模块级标志：版本刷新时跳过 abort，保留快照保护未保存变更
 let _isVersionReload = false
@@ -224,6 +225,23 @@ onMounted(() => {
   }
   window.addEventListener('navigate-browser', navigateHandler)
 
+  // bfcache 恢复检测：浏览器前进/后退缓存恢复页面时，
+  // Vue 状态被冻结保留（mode='editor'），但服务端 session 已被 beforeunload 释放。
+  // 必须立即切回文件浏览器，避免断连遮罩闪烁和"会话不存在"错误。
+  pageshowHandler = (e) => {
+    if (e.persisted && mode.value === 'editor') {
+      console.warn('[bfcache] page restored from cache, switching to browser')
+      store.stopEditorSync()   // 停止 WS + 健康检查（防止离线遮罩闪烁）
+      setSessionId('')         // 清除残留 session_id
+      resetConnection()        // 重置连接状态
+      store.resetEditorState() // 清理编辑器数据
+      mode.value = 'browser'   // 切回文件浏览器
+      // 等 FileBrowser 挂载后再提示，复用已有的 sessionLost 文案
+      nextTick(() => ui.showToast(t('toast.sessionLost'), false))
+    }
+  }
+  window.addEventListener('pageshow', pageshowHandler)
+
   // 页面关闭/刷新时：释放文件锁 + 确认对话框
   beforeUnloadHandler = (e) => {
     const sid = getSessionId()
@@ -255,6 +273,10 @@ onUnmounted(() => {
   if (navigateHandler) {
     window.removeEventListener('navigate-browser', navigateHandler)
     navigateHandler = null
+  }
+  if (pageshowHandler) {
+    window.removeEventListener('pageshow', pageshowHandler)
+    pageshowHandler = null
   }
   if (beforeUnloadHandler) {
     window.removeEventListener('beforeunload', beforeUnloadHandler)

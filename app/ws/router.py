@@ -10,6 +10,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Optional
 
+import websockets.exceptions
+
 logger = logging.getLogger(__name__)
 
 
@@ -108,15 +110,25 @@ class MessageRouter:
             elapsed = (time.monotonic() - t0) * 1000
             logger.warning("WS <<< type=%s ERROR code=%s msg=%s elapsed=%.1fms",
                            msg_type, e.code, e.message, elapsed)
-            await self._transport.reply(ws, {
-                "type": "error",
-                "requestId": msg.get("requestId"),
-                "code": e.code,
-                "message": e.message,
-                "details": e.details
-            })
+            try:
+                await self._transport.reply(ws, {
+                    "type": "error",
+                    "requestId": msg.get("requestId"),
+                    "code": e.code,
+                    "message": e.message,
+                    "details": e.details
+                })
+            except websockets.exceptions.ConnectionClosed:
+                pass  # 客户端已断连，忽略响应发送失败
             return None
     
+        except websockets.exceptions.ConnectionClosed:
+            # 客户端断连（如 bfcache/page unload）时响应发送失败，属于正常行为
+            elapsed = (time.monotonic() - t0) * 1000
+            logger.debug("WS <<< type=%s client disconnected during response elapsed=%.1fms",
+                         msg_type, elapsed)
+            return None
+
         except Exception as e:
             elapsed = (time.monotonic() - t0) * 1000
             # 兜底：Handler bug 不应断开 WS 连接
