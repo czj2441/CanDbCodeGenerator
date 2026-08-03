@@ -54,8 +54,6 @@ a = Analysis(
         'app.io',
         'app.io.properties_io',
         'app.io.dbc_io',
-        'app.io.json_io',
-        'app.io.xml_io',
         'app.io.c_code_gen',
         'app.logging_config',
         'jinja2',

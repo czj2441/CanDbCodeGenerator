@@ -326,8 +326,6 @@ showToast(text, isError = false) {
 | `app/services/file_persistence.py` | 磁盘持久化（原子写入） |
 | `app/io/properties_io.py` | Properties 格式读写 |
 | `app/io/dbc_io.py` | DBC 格式导入导出 |
-| `app/io/json_io.py` | JSON 格式读写 |
-| `app/io/xml_io.py` | XML 格式读写 |
 | `app/io/c_code_gen.py` | C 代码生成（Jinja2 模板） |
 
 ---

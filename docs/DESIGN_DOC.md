@@ -104,12 +104,7 @@ CanMatrix Editor 的核心目标是：**以 Properties 作为主存储格式，�
 │  ┌─────────────────────────────────────┐            │
 │  │  app/io/  格式 IO 层                  │            │
 │  │  properties_io.py  dbc_io.py         │            │
-│  │  json_io.py  xml_io.py  c_code_gen.py│            │
-│  └─────────────────────────────────────┘            │
-│                                                      │
-│  ┌─────────────────────────────────────┐            │
-│  │  tools/cli.py — CLI 无头会话层        │            │
-│  │  CanMatrixSession + OpResult        │            │
+│  │  c_code_gen.py                       │            │
 │  └─────────────────────────────────────┘            │
 └──────────────────────────────────────────────────────┘
 ```
@@ -130,12 +125,8 @@ app/server/http_handler.py  (静态文件 + 工具端点)
 
 app/io/  (格式 IO 层)
   ├── properties_io.py  (Properties 读写)
-  ├── json_io.py        (JSON 读写)
-  ├── xml_io.py         (XML 读写)
   ├── dbc_io.py         (DBC 导入导出 via cantools)
   └── c_code_gen.py     (C 代码生成 via Jinja2)
-
-tools/cli.py  (CLI 无头会话层，使用 app/models/ 同一模型)
 ```
 
 ### 2.3 数据流
@@ -367,9 +358,9 @@ _SIGNAL_DEFAULTS = {
 
 **Web 运行时**的 DBC 导出走 `app/models/database.py` 的 `CanDatabase.to_dbc_str()`，手动构造 DBC 文本（不依赖 `app/io/dbc_io.py`），包含完整的 `NS_`、`BU_`、`BO_`、`SG_`、`CM_` 段。
 
-### 4.6 JSON/XML
+### 4.6 序列化格式小结
 
-`app/io/json_io.py` 和 `app/io/xml_io.py` 提供离线读写。Web 运行时的 JSON 序列化通过 `CanDatabase.to_dict()` / `from_dict()`，XML 仅离线 CLI 支持。
+Web 运行时的 JSON 序列化通过 `CanDatabase.to_dict()` / `from_dict()`，不依赖独立的 json_io 模块。
 
 
 ---
@@ -520,58 +511,10 @@ hello {session_id} → hello_ack → full_sync → 消息循环 → cleanup
 
 ---
 
-## 第 7 章：CLI 层设计
 
-### 7.1 CanMatrixSession
+## 第 7 章：前端架构
 
-`tools/cli.py` 提供 `CanMatrixSession` 类作为**无头（headless）会话**，镜像 Web GUI 的所有操作：
-
-```python
-class CanMatrixSession:
-    database: CanDatabase       # app/models/database.py 版本
-    current_filepath: str | None
-    _modified: bool
-```
-
-### 7.2 OpResult 模式
-
-所有操作返回 `OpResult` 对象：
-
-```python
-class OpResult:
-    success: bool
-    message: str
-    data: object | None
-
-    @staticmethod
-    def ok(msg, data) → OpResult
-    @staticmethod
-    def fail(msg) → OpResult
-```
-
-### 7.3 公开 API
-
-**文件操作**：`new_database(name)`, `open_file(path)`, `save(path?)`, `save_as(path, fmt)`, `export_dbc(path)`
-
-**报文操作**：`add_message(msg)`, `force_add_message(msg)`, `remove_message(msg_id)`, `update_message(msg_id, **kw)`, `get_message(msg_id)`, `list_messages()`
-
-**信号操作**：`add_signal(msg_id, sig)`, `remove_signal(msg_id, sig_name)`, `update_signal(msg_id, sig_name, **kw)`
-
-**查询**：`is_modified`, `message_count`, `total_signal_count()`, `summary()`
-
-### 7.4 CLI 与 Web 运行时的关系
-
-- `tools/cli.py` 使用 `app/models/database.py` 同一模型（有 UUID，有 RLock）
-- `app/server/lifecycle.py` 使用同一模型，通过 WS Handler 操作
-- `app/server/` 不依赖 `tools/cli.py`；`app/services/session_manager.py` 直接操作 CanDatabase
-- `cli.py` 仅供命令行脚本和测试使用
-
-
----
-
-## 第 8 章：前端架构
-
-### 8.1 技术栈
+### 7.1 技术栈
 
 | 技术 | 版本 | 用途 |
 |------|------|------|
@@ -580,7 +523,7 @@ class OpResult:
 | Vite | ^6.3.5 | 构建工具与开发服务器 |
 | 纯 CSS (OKLCH) | — | 样式（CSS 自定义属性实现暗/亮主题） |
 
-### 8.2 项目结构
+### 7.2 项目结构
 
 ```
 frontend/
@@ -624,7 +567,7 @@ frontend/
         └── LogPanel.vue        # 操作日志面板
 ```
 
-### 8.3 Pinia Store（7 Store 架构）
+### 7.3 Pinia Store（7 Store 架构）
 
 应用状态拆分为 7 个专职 Store：
 
@@ -647,7 +590,7 @@ frontend/
 - **主题切换**：dark/light 主题持久化到 localStorage
 - **国际化**：zh/en 切换
 
-### 8.4 SignalTable 组件
+### 7.4 SignalTable 组件
 
 核心工作区的可编辑信号表格：
 - 列：Name, Start Bit, Length, Byte Order, Factor, Offset, Min, Max, Unit, Comment
@@ -655,7 +598,7 @@ frontend/
 - 红色边框高亮有重叠/越界错误的信号
 - 行选择支持剪贴板操作
 
-### 8.5 构建与部署
+### 7.5 构建与部署
 
 - 开发模式：`cd frontend && npm run dev`（Vite 开发服务器 :5173，代理 API 到 :8080）
 - 生产构建：`npm run build` → 输出到 `dist/`
@@ -664,9 +607,9 @@ frontend/
 
 ---
 
-## 第 9 章：关键设计决策
+## 第 8 章：关键设计决策
 
-### 9.1 Properties 作为主存储格式
+### 8.1 Properties 作为主存储格式
 
 **决策**：以 Java Properties 为主存储格式，DBC 仅作为导入/导出格式。
 
@@ -675,7 +618,7 @@ frontend/
 - ✅ 注释以 `#` 书写，工程师可自由添加备注
 - ✅ O(n) 线性序列化性能（javaproperties 库）
 
-### 9.2 稀疏输出
+### 8.2 稀疏输出
 
 **决策**：保存时只输出非默认值字段。
 
@@ -683,7 +626,7 @@ frontend/
 - ✅ diff 精准，修改一个字段只显示一行变更
 - ⚠️ 反序列化时需回填默认值
 
-### 9.3 轻量级 B/S 架构
+### 8.3 轻量级 B/S 架构
 
 **决策**：浏览器前端 + Python HTTP/WebSocket 后端，不使用 Electron/PyQt/重量级 Web 框架。
 
@@ -692,7 +635,7 @@ frontend/
 - ✅ 依赖轻量：`cantools` + `javaproperties` + `websockets` + `Jinja2`
 - ⚠️ 后端仅绑定 localhost，不支持远程访问（这是设计意图）
 
-### 9.4 统一数据模型
+### 8.4 统一数据模型
 
 **决策**：`app/models/` 下使用统一的 CanDatabase 模型（含 UUID、RLock、信号验证）。
 
@@ -700,7 +643,7 @@ frontend/
 - Signal 含 UUID 用于前端-后端通信，Message 含完整信号列表
 - CanDatabase 含 `threading.RLock` 线程安全 + `modified` 标志 + 信号验证方法
 
-### 9.5 Per-Message 信号模型
+### 8.5 Per-Message 信号模型
 
 **决策**：信号是 per-message 定义，不维护全局信号注册表。
 
@@ -708,7 +651,7 @@ frontend/
 - ✅ 复制报文时通过深拷贝可完全独立复制信号定义
 - ⚠️ 同名信号跨报文的一致性需工程师手动保证（DBC 本身也无此保证）
 
-### 9.6 会话即文件
+### 8.6 会话即文件
 
 **决策**：每个编辑会话绑定一个磁盘文件，变更即时原子写入。
 
@@ -716,7 +659,7 @@ frontend/
 - ✅ 原子写入防止崩溃损坏
 - ✅ `localStorage` 仅存 `session_id`，不缓存业务数据
 
-### 9.7 服务端权威 + WS 广播同步
+### 8.7 服务端权威 + WS 广播同步
 
 **决策**：前端发 WS 请求等待服务端确认，通过广播事件同步更新 UI。
 
@@ -728,25 +671,24 @@ frontend/
 
 ---
 
-## 第 10 章：安全性设计
+## 第 9 章：安全性设计
 
-### 10.1 数据安全
+### 9.1 数据安全
 
 - **纯本地应用**：仅绑定 `localhost:8080`，不发起任何外部网络请求
 - **无遥测/无账号/无云服务**
 - **文件原子写入**：`.tmp` → `os.replace()` 防止崩溃损坏
 - **权限需求**：仅需对项目目录和 `.properties`/`.dbc` 文件的读写权限，无需管理员权限
 
-### 10.2 输入安全
+### 9.2 输入安全
 
 | 格式 | 解析器 | 安全性 |
 |------|--------|--------|
 | Properties | `javaproperties`（PyPI 纯 Python） | 无 C 扩展，无已知安全漏洞 |
 | JSON | `json`（stdlib） | 标准库，安全性极高 |
-| XML | `xml.etree.ElementTree`（stdlib） | 默认禁用外部实体（XXE 防护） |
 | DBC | `cantools.database.load_file()` | 成熟开源库，DBC 非可执行格式 |
 
-### 10.3 输入验证
+### 9.3 输入验证
 
 | 字段 | 后端验证 |
 |------|---------|
@@ -770,7 +712,7 @@ Jinja2>=3.1.0
 
 ---
 
-## 第 11 章：文件清单
+## 第 10 章：文件清单
 
 | 文件路径 | 职责 |
 |---------|------|
@@ -787,14 +729,11 @@ Jinja2>=3.1.0
 | `app/services/undo_engine.py` | 撤销/重做引擎（含孤儿栈） |
 | `app/io/properties_io.py` | Properties 读写（javaproperties 库，稀疏输出） |
 | `app/io/dbc_io.py` | DBC 导入/导出（via cantools） |
-| `app/io/json_io.py` | JSON 读写 |
-| `app/io/xml_io.py` | XML 读写（ElementTree + minidom 格式化） |
 | `app/io/c_code_gen.py` | C 代码生成（Jinja2 模板） |
 | `app/ws/server.py` | WebSocket 服务端（连接生命周期 + full_sync） |
 | `app/ws/transport.py` | WS I/O 封装（连接管理 + 广播 + 诊断） |
 | `app/ws/router.py` | 消息路由（type → handler 分发 + HandlerResult/HandlerError） |
 | `app/ws/handlers/*.py` | 业务 Handler（27 个，4 个业务域：信号/报文/文件/系统） |
-| `tools/cli.py` | CanMatrixSession + OpResult：CLI 无头会话层 |
 | `tools/desktop.py` | 桌面应用入口（pywebview） |
 | `tools/compute_version.py` | 版本号计算脚本 |
 | `requirements.txt` | Python 依赖声明 |

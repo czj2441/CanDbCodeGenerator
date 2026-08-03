@@ -149,8 +149,6 @@ canmatrix_editor/
 │   ├── io/                          格式 IO
 │   │   ├── properties_io.py         Properties 读写（主存储格式）
 │   │   ├── dbc_io.py                DBC 导入导出（cantools）
-│   │   ├── json_io.py               JSON 读写
-│   │   ├── xml_io.py                XML 读写
 │   │   └── c_code_gen.py            C 代码生成
 │   └── ws/                          WebSocket 全双工通信
 │       ├── server.py                WS 服务端（asyncio）
@@ -158,7 +156,6 @@ canmatrix_editor/
 │       ├── router.py                消息路由（type → handler）
 │       └── handlers/                业务 Handler（信号/报文/文件/系统）
 ├── tools/                           工具脚本
-│   ├── cli.py                       CLI 无头会话
 │   ├── desktop.py                   桌面应用入口（pywebview）
 │   └── compute_version.py           版本号计算
 ├── frontend/                        Vue 3 + Vite 前端（Web 编辑器）
