@@ -1,3 +1,10 @@
+/**
+ * ⚠️ 启动方式注意：本项目不使用 vite dev server 直接运行。
+ * 正确流程：执行 build.bat → 后端 python -m app.server.lifecycle 8080
+ * 原因：前端 WS 端口计算为 location.port + 1，只有后端在 8080 运行时
+ *       WS 端口才等于 8081，与后端 WS server 匹配。
+ *       直接运行 npm run dev (port 5173) 会导致 WS 端口不匹配。
+ */
 import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { resolve } from 'path'
