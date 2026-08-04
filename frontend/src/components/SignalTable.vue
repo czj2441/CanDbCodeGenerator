@@ -249,8 +249,14 @@ function onDocClick(e) {
 
 function handleRowMouseDown(sigName, sigIndex, event) {
   // ⚠️ 维护注意：新增交互元素类型（如自定义 datepicker/autocomplete）时，
-  // 需同步扩展下面的 INTERACTIVE_TAGS 集合，否则会被误判为“空白区域”触发 toggle。
+  // 需同步扩展下面的 INTERACTIVE_TAGS 集合，否则会被误判为"空白区域"触发 toggle。
   const INTERACTIVE_TAGS = new Set(['INPUT', 'SELECT'])
+
+  // 非左键：阻止输入框聚焦，不干扰多选状态（右键菜单由 contextmenu 事件处理）
+  if (event.button !== 0) {
+    if (INTERACTIVE_TAGS.has(event.target.tagName)) event.preventDefault()
+    return
+  }
   const isInteractive = INTERACTIVE_TAGS.has(event.target.tagName)
   const isCheckbox = event.target.type === 'checkbox'
 

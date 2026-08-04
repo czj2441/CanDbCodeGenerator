@@ -206,6 +206,12 @@ onUnmounted(() => {
 // ── 行操作 ──
 function handleRowMouseDown(msgId, msgIndex, event) {
   const INTERACTIVE_TAGS = new Set(['INPUT', 'SELECT'])
+
+  // 非左键：阻止输入框聚焦，不干扰多选状态（右键菜单由 contextmenu 事件处理）
+  if (event.button !== 0) {
+    if (INTERACTIVE_TAGS.has(event.target.tagName)) event.preventDefault()
+    return
+  }
   const isInteractive = INTERACTIVE_TAGS.has(event.target.tagName)
   const isCheckbox = event.target.type === 'checkbox'
 
