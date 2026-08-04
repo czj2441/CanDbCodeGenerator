@@ -54,6 +54,9 @@ export const useUiStore = defineStore('ui', {
     // 值描述表选中状态 + 外部跳转焦点
     selectedVtName: null,
     valueTableFocusName: '',
+    // 多选 keys 快照（供右键菜单判断多选状态）
+    signalMultiKeys: [],  // string[] — SignalTable
+    msgMultiKeys: [],     // number[] — MessageTable
     // 排序偏好（所有文件共享，localStorage 持久化）
     signalSortField: localStorage.getItem('canmatrix_sig_sort_field') || 'start_bit',
     signalSortDir: localStorage.getItem('canmatrix_sig_sort_dir') || 'asc',

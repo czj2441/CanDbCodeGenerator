@@ -88,9 +88,10 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted, onUnmounted } from 'vue'
+import { computed, ref, onMounted, onUnmounted, watch } from 'vue'
 import { useEditorStore } from '../stores/editor.js'
 import { useMessagesStore } from '../stores/messages.js'
+import { useClipboardStore } from '../stores/clipboard.js'
 import { useUiStore } from '../stores/uiStore.js'
 import { toHex, parseHex } from '../utils/format.js'
 import { t } from '../i18n.js'
@@ -114,6 +115,7 @@ const COLUMNS = [
 
 const store = useEditorStore()
 const messages = useMessagesStore()
+const clipboard = useClipboardStore()
 const ui = useUiStore()
 
 // ── 双击编辑状态 ──
@@ -162,6 +164,11 @@ const multiSelect = useMultiSelect(
   () => sortedMessages.value,
   { getKey: (m) => m.id }
 )
+
+// 同步多选 keys 到 uiStore（供右键菜单判断多选状态）
+watch(multiSelect.selectedKeys, (keys) => {
+  ui.msgMultiKeys = [...keys]
+})
 
 // ── 批量编辑 Modal ──
 const batchEditModalOpen = ref(false)
@@ -274,7 +281,25 @@ function onKeyDown(e) {
 
   if (!ctrl) return
 
-  if (e.key === 'a' && !isInput) {
+  if (e.key === 'c' && !isInput) {
+    e.preventDefault()
+    if (multiSelect.isMultiSelect.value) {
+      clipboard.copyMessages(multiSelect.getSelectedKeys())
+    } else if (store.selectedMsgId != null) {
+      clipboard.copyMessage()
+    }
+  } else if (e.key === 'x' && !isInput) {
+    e.preventDefault()
+    if (multiSelect.isMultiSelect.value) {
+      clipboard.cutMessages(multiSelect.getSelectedKeys())
+      multiSelect.clearSelection()
+    } else if (store.selectedMsgId != null) {
+      clipboard.cutMessage()
+    }
+  } else if (e.key === 'v' && !isInput) {
+    e.preventDefault()
+    clipboard.pasteMessages()
+  } else if (e.key === 'a' && !isInput) {
     e.preventDefault()
     multiSelect.toggleAll()
   } else if (e.key === 'z' && !isInput) {

@@ -386,26 +386,31 @@ const contextMenuItems = computed(() => {
   const target = ui.contextMenu.target
   const idx = ui.contextMenu.idx
   if (target === 'signal') {
+    const multiKeys = ui.signalMultiKeys
+    const isMulti = multiKeys.length > 1
     if (idx !== null) {
       return [
-        { label: t('ctx.copySignal'), action: () => clipboard.copySignal(idx) },
-        { label: t('ctx.cutSignal'), action: () => clipboard.cutSignal(idx) },
-        { label: t('ctx.pasteSignal'), action: () => clipboard.pasteSignal(), disabled: !clipboard.clipboard || clipboard.clipboard.type !== 'signal' },
-        { label: t('ctx.deleteSignal'), action: () => signals.deleteSignal(idx), danger: true },
+        { label: t('ctx.copySignal'), action: () => isMulti ? clipboard.copySignals(multiKeys) : clipboard.copySignal(idx) },
+        { label: t('ctx.cutSignal'), action: () => isMulti ? clipboard.cutSignals(multiKeys) : clipboard.cutSignal(idx) },
+        { label: t('ctx.pasteSignal'), action: () => clipboard.pasteSignals(), disabled: !clipboard.clipboard || clipboard.clipboard.type !== 'signal' },
+        { label: t('ctx.deleteSignal'), action: () => isMulti ? signals.batchDeleteSignals(multiKeys) : signals.deleteSignal(idx), danger: true },
       ]
     }
     // 空白区域
     return [
-      { label: t('ctx.pasteSignal'), action: () => clipboard.pasteSignal(), disabled: !clipboard.clipboard || clipboard.clipboard.type !== 'signal' },
+      { label: t('ctx.pasteSignal'), action: () => clipboard.pasteSignals(), disabled: !clipboard.clipboard || clipboard.clipboard.type !== 'signal' },
     ]
   }
   if (target === 'message') {
+    const multiKeys = ui.msgMultiKeys
+    const isMulti = multiKeys.length > 1
     const hasMsg = store.selectedMsgId != null
     return [
-      { label: t('ctx.copyMessage'), action: () => clipboard.copyMessage(), disabled: !hasMsg },
-      { label: t('ctx.pasteMessage'), action: () => clipboard.pasteMessage(), disabled: !clipboard.clipboard || clipboard.clipboard.type !== 'message' },
+      { label: t('ctx.copyMessage'), action: () => isMulti ? clipboard.copyMessages(multiKeys) : clipboard.copyMessage(), disabled: !isMulti && !hasMsg },
+      { label: t('ctx.cutMessage'), action: () => isMulti ? clipboard.cutMessages(multiKeys) : clipboard.cutMessage(), disabled: !isMulti && !hasMsg },
+      { label: t('ctx.pasteMessage'), action: () => clipboard.pasteMessages(), disabled: !clipboard.clipboard || clipboard.clipboard.type !== 'message' },
       { label: t('ctx.duplicateMessage'), action: () => clipboard.duplicateMessage(), disabled: !hasMsg },
-      { label: t('ctx.deleteMessage'), action: () => messages.deleteMessage(store.selectedMsgId), danger: true, disabled: !hasMsg },
+      { label: t('ctx.deleteMessage'), action: () => isMulti ? messages.batchDeleteMessages(multiKeys) : messages.deleteMessage(store.selectedMsgId), danger: true, disabled: !isMulti && !hasMsg },
     ]
   }
   return []

@@ -215,6 +215,11 @@ const multiSelect = useMultiSelect(
   { getKey: (sig) => sig.name }
 )
 
+// 同步多选 keys 到 uiStore（供右键菜单判断多选状态）
+watch(multiSelect.selectedKeys, (keys) => {
+  ui.signalMultiKeys = [...keys]
+})
+
 // ── 批量编辑 Modal ──
 const batchEditModalOpen = ref(false)
 
@@ -306,12 +311,22 @@ function onKeyDown(e) {
 
   if (e.key === 'c' && !isInput) {
     e.preventDefault()
-    if (ui.selectedSignalName) {
+    if (multiSelect.isMultiSelect.value) {
+      clipboard.copySignals(multiSelect.getSelectedKeys())
+    } else if (ui.selectedSignalName) {
       clipboard.copySignal(ui.selectedSignalName)
+    }
+  } else if (e.key === 'x' && !isInput) {
+    e.preventDefault()
+    if (multiSelect.isMultiSelect.value) {
+      clipboard.cutSignals(multiSelect.getSelectedKeys())
+      multiSelect.clearSelection()
+    } else if (ui.selectedSignalName) {
+      clipboard.cutSignal(ui.selectedSignalName)
     }
   } else if (e.key === 'v' && !isInput) {
     e.preventDefault()
-    clipboard.pasteSignal()
+    clipboard.pasteSignals()
   } else if (e.key === 'z' && !isInput) {
     e.preventDefault()
     undoRedo.undo()

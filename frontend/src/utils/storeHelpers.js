@@ -133,21 +133,54 @@ export function resetMessageIdGenerator() {
   _lastGeneratedMsgId = null
 }
 
+// ── 名称冲突解决（公共辅助） ──
+
+/**
+ * 在已有名称集合中查找第一个可用的名称。
+ * @param {Set<string>} existingNames - 已有名称集合
+ * @param {(i: number) => string} nameGen - 候选名称生成器，i 从 0 开始递增
+ * @returns {string} 第一个不在 existingNames 中的候选名称
+ */
+export function findAvailableName(existingNames, nameGen) {
+  let i = 0
+  let candidate
+  do {
+    candidate = nameGen(i)
+    i++
+  } while (existingNames.has(candidate))
+  return candidate
+}
+
+/**
+ * 生成粘贴副本名称：无冲突 → 原名，冲突 → _copy, _copy_2, _copy_3...
+ * @param {Set<string>} existingNames - 已有名称集合
+ * @param {string} originalName - 原始名称
+ * @returns {string}
+ */
+export function resolveCopyName(existingNames, originalName) {
+  return findAvailableName(existingNames, i => {
+    if (i === 0) return originalName
+    if (i === 1) return originalName + '_copy'
+    return `${originalName}_copy_${i}`
+  })
+}
+
 /**
  * 生成唯一信号名：扫描已有信号名，提取同名前缀的最大数字后缀并 +1。
  * @param {Object} signals - 当前报文的信号 dict
  * 例：已有 NewSignal, NewSignal2 → 返回 NewSignal3
  */
 export function generateSignalName(signals, baseName = 'NewSignal') {
-  const sigArray = Object.values(signals)
-  const existingNames = new Set(sigArray.map(s => s.name))
+  const existingNames = new Set(Object.values(signals).map(s => s.name))
+  // baseName 无冲突时直接返回
   if (!existingNames.has(baseName)) return baseName
-  let maxSuffix = 1
+  // 有冲突：提取同名前缀的最大数字后缀，从下一个可用编号开始
   const escaped = baseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const pattern = new RegExp(`^${escaped}(\\d+)$`)
+  let maxSuffix = 1
   for (const name of existingNames) {
     const m = name.match(pattern)
     if (m) maxSuffix = Math.max(maxSuffix, parseInt(m[1], 10))
   }
-  return `${baseName}${maxSuffix + 1}`
+  return findAvailableName(existingNames, i => `${baseName}${maxSuffix + 1 + i}`)
 }
