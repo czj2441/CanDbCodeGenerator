@@ -1,7 +1,7 @@
 """
 message_handlers.py — 报文相关 WS Handler
 
-EditMessage / AddMessage / DeleteMessage / DuplicateMessage / GetMessage / GetMessages
+EditMessage / AddMessage / DeleteMessage / DuplicateMessage / GetMessage / GetMessages / BatchEditMessages / BatchDeleteMessages
 """
 from __future__ import annotations
 
@@ -252,3 +252,197 @@ class GetMessagesHandler:
         with db.with_lock():
             messages = build_messages_summary(db)
         return HandlerResult(data=messages, session_id=sid)
+
+
+# 批量编辑时禁止的字段（唯一标识字段）
+_BATCH_EDIT_FORBIDDEN_FIELDS = {'id', 'name'}
+
+
+class BatchEditMessagesHandler:
+    """批量编辑多个报文的指定字段。
+
+    请求格式: { session_id, msg_ids: [int], fields: { field: value } }
+    """
+    def __init__(self, session_mgr):
+        self._sm = session_mgr
+
+    def __call__(self, data: dict) -> HandlerResult:
+        sid = data["session_id"]
+        session = self._sm.get(sid)
+        if not session:
+            raise HandlerError("SESSION_NOT_FOUND", "会话不存在")
+
+        msg_ids = data.get("msg_ids", [])
+        fields = data.get("fields", {})
+
+        if not msg_ids:
+            raise HandlerError("VALUE_INVALID", "msg_ids 不能为空")
+        if not fields:
+            raise HandlerError("VALUE_INVALID", "fields 不能为空")
+
+        # 禁止批量修改 id 和 name
+        for field in fields:
+            if field in _BATCH_EDIT_FORBIDDEN_FIELDS:
+                raise HandlerError("FIELD_NOT_EDITABLE",
+                                   f"字段 {field} 不允许批量编辑",
+                                   {"field": field})
+
+        db = session.db
+        with db.with_lock():
+            prev = []   # [{msgId: id, field: old_value, ...}, ...]
+            updated_msgs = []
+            errors = []
+
+            for msg_id in msg_ids:
+                msg = db.messages.get(msg_id)
+                if not msg:
+                    errors.append({"msg_id": msg_id, "error": "报文不存在"})
+                    continue
+
+                # 记录旧值
+                old_vals = {"msgId": msg_id}
+                for field in fields:
+                    if hasattr(msg, field):
+                        old_vals[field] = getattr(msg, field)
+
+                # 验证字段
+                ok, err, info = db.validate_message_fields(msg_id, fields)
+                if not ok:
+                    errors.append({"msg_id": msg_id, "error": err})
+                    continue
+
+                # 应用变更
+                db.update_message(msg_id, **fields)
+
+                prev.append(old_vals)
+                updated_msgs.append(db.get_message(msg_id))
+
+            if not updated_msgs:
+                raise HandlerError("VALUE_INVALID", "没有报文被更新",
+                                   {"errors": errors})
+
+            # 单个 undo 快照
+            self._sm.push_undo(session, {
+                "type": "batch_message_update",
+                "prev": prev,
+                "next": dict(fields),
+            })
+
+            new_version = db._bump_version()
+
+            # 逐报文发 message_updated 事件
+            events = []
+            for updated_msg in updated_msgs:
+                summary = {
+                    "id": updated_msg.id,
+                    "id_hex": f"0x{updated_msg.id:X}",
+                    "name": updated_msg.name,
+                    "dlc": updated_msg.dlc,
+                    "cycle_time": updated_msg.cycle_time,
+                    "sender": updated_msg.sender,
+                    "comment": updated_msg.comment,
+                    "is_fd": updated_msg.is_fd,
+                    "signal_count": len(updated_msg.signals),
+                }
+                events.append({
+                    "type": "message_updated",
+                    "data": {"message": summary},
+                    "data_version": new_version,
+                })
+            events.append({
+                "type": "status_changed",
+                "data": {"modified": True,
+                         "undo_count": len(session.undo_stack),
+                         "redo_count": len(session.redo_stack)},
+                "data_version": new_version,
+            })
+            # 批量操作涉及多个报文，全量校验
+            integrity_errors = db.full_validate()
+            events.append({
+                "type": "data_errors_changed",
+                "data": {"errors": integrity_errors},
+                "data_version": new_version,
+            })
+
+            return HandlerResult(
+                data={"updated": len(updated_msgs), "errors": errors},
+                events=events,
+                new_version=new_version,
+                session_id=sid,
+            )
+
+
+class BatchDeleteMessagesHandler:
+    """批量删除多个报文。
+
+    请求格式: { session_id, msg_ids: [int] }
+    """
+    def __init__(self, session_mgr):
+        self._sm = session_mgr
+
+    def __call__(self, data: dict) -> HandlerResult:
+        sid = data["session_id"]
+        session = self._sm.get(sid)
+        if not session:
+            raise HandlerError("SESSION_NOT_FOUND", "会话不存在")
+
+        msg_ids = data.get("msg_ids", [])
+
+        if not msg_ids:
+            raise HandlerError("VALUE_INVALID", "msg_ids 不能为空")
+
+        db = session.db
+        with db.with_lock():
+            deleted = []
+            errors = []
+
+            for msg_id in msg_ids:
+                msg = db.messages.get(msg_id)
+                if not msg:
+                    errors.append({"msg_id": msg_id, "error": "报文不存在"})
+                    continue
+                msg_data = msg.to_dict()
+                db.remove_message(msg_id)
+                deleted.append(msg_data)
+
+            if not deleted:
+                raise HandlerError("VALUE_INVALID", "没有报文被删除",
+                                   {"errors": errors})
+
+            # 单个 undo 快照
+            self._sm.push_undo(session, {
+                "type": "batch_message_delete",
+                "messages": deleted,
+            })
+
+            new_version = db._bump_version()
+
+            # 逐报文发 message_deleted 事件
+            events = []
+            for msg_data in deleted:
+                events.append({
+                    "type": "message_deleted",
+                    "data": {"msg_id": msg_data["id"]},
+                    "data_version": new_version,
+                })
+            events.append({
+                "type": "status_changed",
+                "data": {"modified": True,
+                         "undo_count": len(session.undo_stack),
+                         "redo_count": len(session.redo_stack)},
+                "data_version": new_version,
+            })
+            # 报文已删除，全量校验
+            integrity_errors = db.full_validate()
+            events.append({
+                "type": "data_errors_changed",
+                "data": {"errors": integrity_errors},
+                "data_version": new_version,
+            })
+
+            return HandlerResult(
+                data={"deleted": len(deleted), "errors": errors},
+                events=events,
+                new_version=new_version,
+                session_id=sid,
+            )

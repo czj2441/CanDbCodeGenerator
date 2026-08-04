@@ -6,6 +6,10 @@
       </div>
       <div class="toolbar">
         <button class="btn" @click="addMessage">{{ t('msgtable.add') }}</button>
+        <template v-if="multiSelect.isMultiSelect.value">
+          <button class="btn" @click="batchEditModalOpen = true">{{ t('multiselect.batchEdit') }} ({{ multiSelect.selectedCount.value }})</button>
+          <button class="btn btn-danger" @click="batchDeleteSelected">{{ t('multiselect.batchDelete') }}</button>
+        </template>
         <div class="col-toggle-wrap" ref="colToggleRef">
           <button class="btn" @click.stop="showColMenu = !showColMenu">{{ t('msgtable.columnSettings') }} ▾</button>
           <div v-if="showColMenu" class="col-dropdown" @click.stop>
@@ -31,29 +35,40 @@
         <thead>
           <tr>
             <th v-for="(col, ci) in visibleColumns" :key="col.key"
-                @click="col.sortable !== false ? onHeaderClick(col.sortField || col.key) : null"
-                :class="{ 'th-sortable': col.sortable !== false }">
-              <span class="th-label">{{ col.i18n ? t(col.i18n) : '' }}</span>
-              <span v-if="col.sortable !== false && getSortIconText(col.sortField || col.key)" class="sort-icon">{{ getSortIconText(col.sortField || col.key) }}</span>
-              <span v-if="ci < visibleColumns.length - 1"
+                @click="col.key !== '_cb' && col.sortable !== false ? onHeaderClick(col.sortField || col.key) : null"
+                :class="{ 'th-sortable': col.key !== '_cb' && col.sortable !== false }">
+              <template v-if="col.key === '_cb'">
+                <input type="checkbox" :checked="multiSelect.allSelected.value"
+                       :indeterminate.prop="multiSelect.someSelected.value"
+                       @change="multiSelect.toggleAll()" @click.stop>
+              </template>
+              <template v-else>
+                <span class="th-label">{{ col.i18n ? t(col.i18n) : '' }}</span>
+                <span v-if="col.sortable !== false && getSortIconText(col.sortField || col.key)" class="sort-icon">{{ getSortIconText(col.sortField || col.key) }}</span>
+              </template>
+              <span v-if="col.key !== '_cb' && ci < visibleColumns.length - 1"
                     class="resize-handle"
                     @mousedown.stop="startResize(ci, $event)"></span>
             </th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="m in sortedMessages" :key="m.id"
+          <tr v-for="(m, mIdx) in sortedMessages" :key="m.id"
               :data-msg-id="m.id"
-              :class="{ selected: store.selectedMsgId === m.id }"
-              @mousedown="selectRow(m.id)"
+              :class="{ selected: store.selectedMsgId === m.id, 'multi-selected': multiSelect.selectedKeys.value.has(m.id) }"
+              @mousedown="handleRowMouseDown(m.id, mIdx, $event)"
               @dblclick="jumpToSignals(m.id)">
             <td v-for="col in visibleColumns" :key="col.key">
-              <template v-if="col.key === 'msg_id'"><input class="mono" v-lazy-value="toHex(m.id)" @blur="e => update('id', parseHex(e.target.value))"></template>
-              <template v-else-if="col.key === 'msg_name'"><input v-lazy-value="m.name" @blur="e => update('name', e.target.value)"></template>
-              <template v-else-if="col.key === 'msg_dlc'"><input class="mono" type="number" v-lazy-value="m.dlc" @blur="e => update('dlc', parseInt(e.target.value))"></template>
-              <template v-else-if="col.key === 'msg_cycle'"><input class="mono" type="number" v-lazy-value="m.cycle_time" @blur="e => update('cycle_time', parseInt(e.target.value))"></template>
+              <template v-if="col.key === '_cb'">
+                <input type="checkbox" :checked="multiSelect.selectedKeys.value.has(m.id)"
+                       @click.stop @change="multiSelect.toggleCheckbox(m.id)">
+              </template>
+              <template v-else-if="col.key === 'msg_id'"><input class="mono" v-lazy-value="toHex(m.id)" @blur="e => update('id', parseHex(e.target.value))" :disabled="multiSelect.isMultiSelect.value" :readonly="!isCellEditable(m.id)"></template>
+              <template v-else-if="col.key === 'msg_name'"><input v-lazy-value="m.name" @blur="e => update('name', e.target.value)" :disabled="multiSelect.isMultiSelect.value" :readonly="!isCellEditable(m.id)"></template>
+              <template v-else-if="col.key === 'msg_dlc'"><input class="mono" type="number" v-lazy-value="m.dlc" @blur="e => update('dlc', parseInt(e.target.value))" :readonly="!isCellEditable(m.id)"></template>
+              <template v-else-if="col.key === 'msg_cycle'"><input class="mono" type="number" v-lazy-value="m.cycle_time" @blur="e => update('cycle_time', parseInt(e.target.value))" :readonly="!isCellEditable(m.id)"></template>
               <template v-else-if="col.key === 'msg_fd'">
-                <select :value="String(m.is_fd)" @change="e => update('is_fd', e.target.value === 'true')">
+                <select :value="String(m.is_fd)" @change="e => update('is_fd', e.target.value === 'true')" :disabled="!isCellEditable(m.id)">
                   <option value="false">CAN</option>
                   <option value="true">CAN FD</option>
                 </select>
@@ -65,6 +80,11 @@
       </table>
     </div>
   </div>
+
+  <BatchEditModal v-model:visible="batchEditModalOpen"
+    :fields="MSG_BATCH_EDIT_FIELDS"
+    :selected-count="multiSelect.selectedCount.value"
+    @apply="onBatchEditApply" />
 </template>
 
 <script setup>
@@ -78,8 +98,11 @@ import { vLazyValue } from '../directives/lazyValue.js'
 
 import { sortByField, toggleSort, getSortIcon } from '../utils/sortHelper.js'
 import { useColumnResize } from '../composables/useColumnResize.js'
+import { useMultiSelect } from '../composables/useMultiSelect.js'
+import BatchEditModal from './BatchEditModal.vue'
 
 const COLUMNS = [
+  { key: '_cb',         i18n: null,                toggleable: false, defaultPct: 2,  sortable: false },
   { key: 'msg_id',      i18n: 'msgtable.thId',      toggleable: false, defaultPct: 10, sortField: 'id' },
   { key: 'msg_name',    i18n: 'msgtable.thName',    toggleable: false, defaultPct: 18, sortField: 'name' },
   { key: 'msg_dlc',     i18n: 'msgtable.thDlc',     toggleable: true,  defaultPct: 6,  sortField: 'dlc' },
@@ -91,6 +114,12 @@ const COLUMNS = [
 const store = useEditorStore()
 const messages = useMessagesStore()
 const ui = useUiStore()
+
+// ── 双击编辑状态 ──
+const editingKey = ref(null) // msgId | null
+function isCellEditable(msgId) {
+  return editingKey.value === msgId
+}
 
 // ── 报文数量 + 排序后的报文数组 ──
 const messageCount = computed(() => Object.keys(store.messages).length)
@@ -127,6 +156,24 @@ const { normalizedPcts, startResize, consumeJustResized } = useColumnResize(tabl
   hiddenColumns: () => ui.msgHiddenColumns,
 })
 
+// ── 多选 ──
+const multiSelect = useMultiSelect(
+  () => sortedMessages.value,
+  { getKey: (m) => m.id }
+)
+
+// ── 批量编辑 Modal ──
+const batchEditModalOpen = ref(false)
+
+const MSG_BATCH_EDIT_FIELDS = [
+  { key: 'dlc',        i18n: 'msgtable.thDlc',    type: 'number', default: 8 },
+  { key: 'cycle_time', i18n: 'msgtable.thCycle',  type: 'number', default: 0 },
+  { key: 'is_fd',      i18n: 'msgtable.thFd',     type: 'select', default: false,
+    options: [{ value: false, label: 'CAN' }, { value: true, label: 'CAN FD' }] },
+  { key: 'sender',     i18n: 'msgtable.thSender',  type: 'text',   default: '' },
+  { key: 'comment',    i18n: 'msgtable.thComment', type: 'text',   default: '' },
+]
+
 function resetAll() {
   ui.resetMsgColumnVisibility()
   ui.resetMsgColumnWidths()
@@ -139,12 +186,47 @@ function onDocClick(e) {
   }
 }
 
-onMounted(() => document.addEventListener('click', onDocClick))
-onUnmounted(() => document.removeEventListener('click', onDocClick))
+onMounted(() => {
+  document.addEventListener('click', onDocClick)
+  window.addEventListener('keydown', onKeyDown)
+})
+onUnmounted(() => {
+  document.removeEventListener('click', onDocClick)
+  window.removeEventListener('keydown', onKeyDown)
+})
 
 // ── 行操作 ──
-function selectRow(id) {
-  messages.selectMessage(id)
+function handleRowMouseDown(msgId, msgIndex, event) {
+  const INTERACTIVE_TAGS = new Set(['INPUT', 'SELECT'])
+  const isInteractive = INTERACTIVE_TAGS.has(event.target.tagName)
+  const isCheckbox = event.target.type === 'checkbox'
+
+  // Checkbox 点击：不干扰多选状态，交给 @change 处理
+  if (isCheckbox) return
+
+  // Ctrl/Shift + Click → 多选（preventDefault 阻止浏览器聚焦 input，避免进入编辑状态）
+  if (event.ctrlKey || event.metaKey || event.shiftKey) {
+    multiSelect.handleRowClick(msgId, msgIndex, event)
+    editingKey.value = null
+    if (isInteractive) event.preventDefault()
+    return
+  }
+
+  // 普通点击：清空多选，走单选逻辑，同时将当前项加入 selectedKeys
+  multiSelect.clearSelection()
+
+  // 点击输入/选择元素 → 双击进入编辑模式
+  if (isInteractive) {
+    if (event.detail >= 2) {
+      editingKey.value = msgId
+    }
+    messages.selectMessage(msgId)
+    multiSelect.handleRowClick(msgId, msgIndex, {})
+  } else {
+    editingKey.value = null
+    messages.selectMessage(msgId)
+    multiSelect.handleRowClick(msgId, msgIndex, {})
+  }
 }
 
 function addMessage() {
@@ -155,8 +237,49 @@ function update(field, value) {
   messages.updateMessageField(field, value).catch(() => {})
 }
 
+function batchDeleteSelected() {
+  if (multiSelect.selectedCount.value === 0) return
+  messages.batchDeleteMessages(multiSelect.getSelectedKeys())
+  multiSelect.clearSelection()
+}
+
+function onBatchEditApply(fields) {
+  if (Object.keys(fields).length === 0) return
+  messages.batchUpdateMessages(multiSelect.getSelectedKeys(), fields)
+}
+
 function deleteMessage(id) {
   messages.deleteMessage(id)
+}
+
+function onKeyDown(e) {
+  const isInput = e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable
+  const ctrl = e.ctrlKey || e.metaKey
+
+  // Escape 退出编辑模式
+  if (e.key === 'Escape' && isInput && editingKey.value != null) {
+    editingKey.value = null
+    e.target.blur()
+    e.preventDefault()
+    return
+  }
+
+  // Delete 键批量删除
+  if (e.key === 'Delete' && !isInput && multiSelect.selectedCount.value > 1) {
+    e.preventDefault()
+    batchDeleteSelected()
+    return
+  }
+
+  if (!ctrl) return
+
+  if (e.key === 'a' && !isInput) {
+    e.preventDefault()
+    multiSelect.toggleAll()
+  } else if (e.key === 'z' && !isInput) {
+    e.preventDefault()
+    // undo handled by global shortcut
+  }
 }
 
 function jumpToSignals(id) {
@@ -349,6 +472,12 @@ function onCellKeyDown(e) {
   box-shadow: 0 0 0 1px color-mix(in oklch, var(--accent) 40%, transparent);
 }
 .message-table input.mono { font-family: var(--font-mono); }
+.message-table input:disabled,
+.message-table select:disabled {
+  opacity: 1;
+  cursor: pointer;
+}
+.message-table input[readonly] { cursor: pointer; }
 .message-table input[type="number"]::-webkit-inner-spin-button,
 .message-table input[type="number"]::-webkit-outer-spin-button {
   -webkit-appearance: none;
@@ -437,5 +566,29 @@ function onCellKeyDown(e) {
 }
 .message-table tr.selected td:first-child {
   border-left: 3px solid var(--accent);
+}
+
+/* 多选行高亮 */
+.message-table tr.multi-selected {
+  background: color-mix(in oklch, var(--accent) 20%, transparent) !important;
+}
+
+/* checkbox 列 */
+.message-table th input[type="checkbox"],
+.message-table td input[type="checkbox"] {
+  accent-color: var(--accent);
+  cursor: pointer;
+  width: 14px;
+  height: 14px;
+}
+
+/* 批量删除按钮 */
+.btn-danger {
+  background: color-mix(in oklch, var(--danger) 80%, oklch(0.3 0 0));
+  color: #fff;
+  border-color: transparent;
+}
+.btn-danger:hover {
+  background: color-mix(in oklch, var(--danger) 90%, oklch(0.2 0 0));
 }
 </style>

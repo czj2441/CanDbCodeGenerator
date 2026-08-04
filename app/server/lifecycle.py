@@ -83,6 +83,8 @@ def _register_all_handlers(ws_router, session_mgr, ws_transport=None):
         GetSnapshotDebugHandler,
         AddValueTableHandler, UpdateValueTableHandler, DeleteValueTableHandler,
         RenameValueTableHandler, GetValueTablesHandler,
+        BatchEditSignalsHandler, BatchDeleteSignalsHandler,
+        BatchEditMessagesHandler, BatchDeleteMessagesHandler,
     )
 
     ws_router.register("edit_signal", EditSignalHandler(session_mgr))
@@ -119,6 +121,10 @@ def _register_all_handlers(ws_router, session_mgr, ws_transport=None):
     ws_router.register("delete_value_table", DeleteValueTableHandler(session_mgr))
     ws_router.register("rename_value_table", RenameValueTableHandler(session_mgr))
     ws_router.register("get_value_tables", GetValueTablesHandler(session_mgr))
+    ws_router.register("batch_edit_signals", BatchEditSignalsHandler(session_mgr))
+    ws_router.register("batch_delete_signals", BatchDeleteSignalsHandler(session_mgr))
+    ws_router.register("batch_edit_messages", BatchEditMessagesHandler(session_mgr))
+    ws_router.register("batch_delete_messages", BatchDeleteMessagesHandler(session_mgr))
 
 
 def main() -> None:

@@ -11,6 +11,10 @@
       <div v-if="msg" class="toolbar">
         <button class="btn" @click="addSignal">{{ t('signal.add') }}</button>
         <button class="btn btn-accent" @click="ui.batchModalOpen = true">{{ t('signal.batch') }}</button>
+        <template v-if="multiSelect.isMultiSelect.value">
+          <button class="btn" @click="batchEditModalOpen = true">{{ t('multiselect.batchEdit') }} ({{ multiSelect.selectedCount.value }})</button>
+          <button class="btn btn-danger" @click="batchDeleteSelected">{{ t('multiselect.batchDelete') }}</button>
+        </template>
         <button class="btn" @click="ui.toggleLayoutView()">{{ t('layout.viewLayout') }}</button>
         <div class="col-toggle-wrap" ref="colToggleRef">
           <button class="btn" @click.stop="showColMenu = !showColMenu">{{ t('signal.columnSettings') }} ▾</button>
@@ -41,34 +45,45 @@
         <thead>
           <tr>
             <th v-for="(col, ci) in visibleColumns" :key="col.key"
-                @click="col.sortable !== false ? onHeaderClick(col.sortField || col.key) : null"
-                :class="{ 'th-sortable': col.sortable !== false }">
-              <span class="th-label">{{ col.i18n ? t(col.i18n) : '' }}</span>
-              <span v-if="col.sortable !== false && getSortIconText(col.sortField || col.key)" class="sort-icon">{{ getSortIconText(col.sortField || col.key) }}</span>
-              <span v-if="ci < visibleColumns.length - 1"
+                @click="col.key !== '_cb' && col.sortable !== false ? onHeaderClick(col.sortField || col.key) : null"
+                :class="{ 'th-sortable': col.key !== '_cb' && col.sortable !== false }">
+              <template v-if="col.key === '_cb'">
+                <input type="checkbox" :checked="multiSelect.allSelected.value"
+                       :indeterminate.prop="multiSelect.someSelected.value"
+                       @change="multiSelect.toggleAll()" @click.stop>
+              </template>
+              <template v-else>
+                <span class="th-label">{{ col.i18n ? t(col.i18n) : '' }}</span>
+                <span v-if="col.sortable !== false && getSortIconText(col.sortField || col.key)" class="sort-icon">{{ getSortIconText(col.sortField || col.key) }}</span>
+              </template>
+              <span v-if="col.key !== '_cb' && ci < visibleColumns.length - 1"
                     class="resize-handle"
                     @mousedown.stop="startResize(ci, $event)"></span>
             </th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="sig in sortedSignals" :key="sig.name" :data-sig-id="sig.name" :class="{ 'has-error': errorNames.has(sig.name), 'selected': selectedSigName === sig.name }" @mousedown="handleRowMouseDown(sig.name, $event)">
+          <tr v-for="(sig, sigIdx) in sortedSignals" :key="sig.name" :data-sig-id="sig.name" :class="{ 'has-error': errorNames.has(sig.name), 'selected': selectedSigName === sig.name, 'multi-selected': multiSelect.selectedKeys.value.has(sig.name) }" @mousedown="handleRowMouseDown(sig.name, sigIdx, $event)">
             <td v-for="col in visibleColumns" :key="col.key">
-              <template v-if="col.key === 'name'"><input v-lazy-value="sig.name" @blur="e => update(sig.name, 'name', e.target.value)"></template>
-              <template v-else-if="col.key === 'start'"><input class="mono" type="number" v-lazy-value="displayStartBit(sig)" @blur="e => updateStartBit(sig, parseInt(e.target.value)||0)"></template>
-              <template v-else-if="col.key === 'length'"><input class="mono" type="number" v-lazy-value="sig.length" @blur="e => update(sig.name, 'length', parseInt(e.target.value))"></template>
+              <template v-if="col.key === '_cb'">
+                <input type="checkbox" :checked="multiSelect.selectedKeys.value.has(sig.name)"
+                       @click.stop @change="multiSelect.toggleCheckbox(sig.name)">
+              </template>
+              <template v-else-if="col.key === 'name'"><input v-lazy-value="sig.name" @blur="e => update(sig.name, 'name', e.target.value)" :disabled="multiSelect.isMultiSelect.value" :readonly="!isCellEditable(sig.name)" data-field="name"></template>
+              <template v-else-if="col.key === 'start'"><input class="mono" type="number" v-lazy-value="displayStartBit(sig)" @blur="e => updateStartBit(sig, parseInt(e.target.value)||0)" :disabled="multiSelect.isMultiSelect.value" :readonly="!isCellEditable(sig.name)" data-field="start"></template>
+              <template v-else-if="col.key === 'length'"><input class="mono" type="number" v-lazy-value="sig.length" @blur="e => update(sig.name, 'length', parseInt(e.target.value))" :readonly="!isCellEditable(sig.name)" data-field="length"></template>
               <template v-else-if="col.key === 'order'">
-                <select :value="sig.byte_order" @change="e => updateByteOrder(sig, e)">
+                <select :value="sig.byte_order" @change="e => updateByteOrder(sig, e)" :disabled="!isCellEditable(sig.name)">
                   <option value="intel">Intel</option>
                   <option value="motorola">Motorola</option>
                 </select>
               </template>
-              <template v-else-if="col.key === 'factor'"><input class="mono" type="number" step="any" v-lazy-value="sig.factor" @blur="e => update(sig.name, 'factor', parseFloat(e.target.value))"></template>
-              <template v-else-if="col.key === 'offset'"><input class="mono" type="number" step="any" v-lazy-value="sig.offset" @blur="e => update(sig.name, 'offset', parseFloat(e.target.value))"></template>
-              <template v-else-if="col.key === 'min'"><input class="mono" type="number" step="any" v-lazy-value="sig.min_val" @blur="e => update(sig.name, 'min_val', parseFloat(e.target.value))"></template>
-              <template v-else-if="col.key === 'max'"><input class="mono" type="number" step="any" v-lazy-value="sig.max_val" @blur="e => update(sig.name, 'max_val', parseFloat(e.target.value))"></template>
-              <template v-else-if="col.key === 'unit'"><input v-lazy-value="sig.unit" @blur="e => update(sig.name, 'unit', e.target.value)"></template>
-              <template v-else-if="col.key === 'comment'"><input v-lazy-value="sig.comment" @blur="e => update(sig.name, 'comment', e.target.value)"></template>
+              <template v-else-if="col.key === 'factor'"><input class="mono" type="number" step="any" v-lazy-value="sig.factor" @blur="e => update(sig.name, 'factor', parseFloat(e.target.value))" :readonly="!isCellEditable(sig.name)" data-field="factor"></template>
+              <template v-else-if="col.key === 'offset'"><input class="mono" type="number" step="any" v-lazy-value="sig.offset" @blur="e => update(sig.name, 'offset', parseFloat(e.target.value))" :readonly="!isCellEditable(sig.name)" data-field="offset"></template>
+              <template v-else-if="col.key === 'min'"><input class="mono" type="number" step="any" v-lazy-value="sig.min_val" @blur="e => update(sig.name, 'min_val', parseFloat(e.target.value))" :readonly="!isCellEditable(sig.name)" data-field="min"></template>
+              <template v-else-if="col.key === 'max'"><input class="mono" type="number" step="any" v-lazy-value="sig.max_val" @blur="e => update(sig.name, 'max_val', parseFloat(e.target.value))" :readonly="!isCellEditable(sig.name)" data-field="max"></template>
+              <template v-else-if="col.key === 'unit'"><input v-lazy-value="sig.unit" @blur="e => update(sig.name, 'unit', e.target.value)" :readonly="!isCellEditable(sig.name)" data-field="unit"></template>
+              <template v-else-if="col.key === 'comment'"><input v-lazy-value="sig.comment" @blur="e => update(sig.name, 'comment', e.target.value)" :readonly="!isCellEditable(sig.name)" data-field="comment"></template>
               <template v-else-if="col.key === 'valTable'">
                 <span v-if="sig.value_table_name" class="vt-tag" @click.stop="ui.valueTableFocusName = sig.value_table_name; ui.switchCenterTab('valtables')">{{ sig.value_table_name }}</span>
                 <span v-else class="vt-none">-</span>
@@ -81,6 +96,11 @@
     </div>
 
   </div>
+
+  <BatchEditModal v-model:visible="batchEditModalOpen"
+    :fields="SIGNAL_BATCH_EDIT_FIELDS"
+    :selected-count="multiSelect.selectedCount.value"
+    @apply="onBatchEditApply" />
 </template>
 
 <script setup>
@@ -96,8 +116,11 @@ import { t } from '../i18n.js'
 import { vLazyValue } from '../directives/lazyValue.js'
 import { sortByField, toggleSort, getSortIcon } from '../utils/sortHelper.js'
 import { useColumnResize } from '../composables/useColumnResize.js'
+import { useMultiSelect } from '../composables/useMultiSelect.js'
+import BatchEditModal from './BatchEditModal.vue'
 
 const COLUMNS = [
+  { key: '_cb',     i18n: null,               toggleable: false, defaultPct: 2,  sortable: false },
   { key: 'name',    i18n: 'signal.thName',     toggleable: false, defaultPct: 14, sortField: 'name'  },
   { key: 'start',   i18n: 'signal.thStart',    toggleable: true,  defaultPct: 7,  sortField: 'start_bit' },
   { key: 'length',  i18n: 'signal.thLen',      toggleable: true,  defaultPct: 5,  sortField: 'length' },
@@ -118,6 +141,12 @@ const clipboard = useClipboardStore()
 const undoRedo = useUndoRedoStore()
 const ui = useUiStore()
 
+// ── 双击编辑状态 ──
+const editingKey = ref(null) // { sigName, field } | null
+function isCellEditable(sigName) {
+  return editingKey.value && editingKey.value.sigName === sigName
+}
+
 const msg = computed(() => store.selectedMessage)
 // ✅ 使用单一数据源：直接代理 ui.selectedSignalName，避免双写
 const selectedSigName = computed({
@@ -128,6 +157,8 @@ const selectedSigName = computed({
 // 切换报文时清除选中
 watch(msg, () => {
   ui.selectedSignalName = null
+  editingKey.value = null
+  multiSelect.clearSelection()
 })
 
 const errorNames = computed(() => {
@@ -178,6 +209,27 @@ const { normalizedPcts, startResize, consumeJustResized } = useColumnResize(tabl
   hiddenColumns: () => ui.hiddenColumns,
 })
 
+// ── 多选 ──
+const multiSelect = useMultiSelect(
+  () => sortedSignals.value,
+  { getKey: (sig) => sig.name }
+)
+
+// ── 批量编辑 Modal ──
+const batchEditModalOpen = ref(false)
+
+const SIGNAL_BATCH_EDIT_FIELDS = [
+  { key: 'length',   i18n: 'signal.thLen',    type: 'number', default: 8 },
+  { key: 'byte_order', i18n: 'signal.thOrder', type: 'select', default: 'motorola',
+    options: [{ value: 'intel', label: 'Intel' }, { value: 'motorola', label: 'Motorola' }] },
+  { key: 'factor',   i18n: 'signal.thFactor', type: 'number', default: 1.0 },
+  { key: 'offset',   i18n: 'signal.thOffset', type: 'number', default: 0.0 },
+  { key: 'min_val',  i18n: 'signal.thMin',    type: 'number', default: 0.0 },
+  { key: 'max_val',  i18n: 'signal.thMax',    type: 'number', default: 0.0 },
+  { key: 'unit',     i18n: 'signal.thUnit',   type: 'text',   default: '' },
+  { key: 'comment',  i18n: 'signal.thComment', type: 'text',  default: '' },
+]
+
 function resetAll() {
   ui.resetColumnVisibility()
   ui.resetColumnWidths()
@@ -190,26 +242,66 @@ function onDocClick(e) {
   }
 }
 
-function handleRowMouseDown(sigName, event) {
+function handleRowMouseDown(sigName, sigIndex, event) {
   // ⚠️ 维护注意：新增交互元素类型（如自定义 datepicker/autocomplete）时，
   // 需同步扩展下面的 INTERACTIVE_TAGS 集合，否则会被误判为“空白区域”触发 toggle。
   const INTERACTIVE_TAGS = new Set(['INPUT', 'SELECT'])
   const isInteractive = INTERACTIVE_TAGS.has(event.target.tagName)
+  const isCheckbox = event.target.type === 'checkbox'
 
+  // Checkbox 点击：不干扰多选状态，交给 @change 处理
+  if (isCheckbox) return
+
+  // Ctrl/Shift + Click → 多选（preventDefault 阻止浏览器聚焦 input，避免进入编辑状态）
+  if (event.ctrlKey || event.metaKey || event.shiftKey) {
+    multiSelect.handleRowClick(sigName, sigIndex, event)
+    editingKey.value = null
+    if (isInteractive) event.preventDefault()
+    return
+  }
+
+  // 普通点击：清空多选，走单选逻辑，同时将当前项加入 selectedKeys
+  multiSelect.clearSelection()
+
+  // 点击输入/选择元素 → 双击进入编辑模式
   if (isInteractive) {
-    // 点击交互元素：确保选中该信号（已选中则保持，不切换）
+    if (event.detail >= 2) {
+      editingKey.value = { sigName, field: event.target.dataset.field }
+    }
     if (ui.selectedSignalName !== sigName) {
       ui.selectedSignalName = sigName
     }
+    multiSelect.handleRowClick(sigName, sigIndex, {})
   } else {
-    // 点击空白区域：切换选中状态
-    ui.selectedSignalName = ui.selectedSignalName === sigName ? null : sigName
+    editingKey.value = null
+    if (ui.selectedSignalName === sigName) {
+      ui.selectedSignalName = null
+    } else {
+      ui.selectedSignalName = sigName
+      multiSelect.handleRowClick(sigName, sigIndex, {})
+    }
   }
 }
 
 function onKeyDown(e) {
   const isInput = e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable
   const ctrl = e.ctrlKey || e.metaKey
+
+  // Escape 退出编辑模式
+  if (e.key === 'Escape' && isInput && editingKey.value) {
+    editingKey.value = null
+    e.target.blur()
+    e.preventDefault()
+    return
+  }
+
+  // Delete 键批量删除
+  if (e.key === 'Delete' && !isInput && multiSelect.selectedCount.value > 1) {
+    e.preventDefault()
+    batchDeleteSelected()
+    return
+  }
+
   if (!ctrl) return
 
   if (e.key === 'c' && !isInput) {
@@ -223,6 +315,9 @@ function onKeyDown(e) {
   } else if (e.key === 'z' && !isInput) {
     e.preventDefault()
     undoRedo.undo()
+  } else if (e.key === 'a' && !isInput) {
+    e.preventDefault()
+    multiSelect.toggleAll()
   }
 }
 
@@ -247,6 +342,17 @@ function updateByteOrder(sig, e) {
   const oldOrder = sig.byte_order
   signals.updateSignal(sig.name, 'byte_order', e.target.value)
     .catch(() => { e.target.value = oldOrder })
+}
+
+function batchDeleteSelected() {
+  if (multiSelect.selectedCount.value === 0) return
+  signals.batchDeleteSignals(multiSelect.getSelectedKeys())
+  multiSelect.clearSelection()
+}
+
+function onBatchEditApply(fields) {
+  if (Object.keys(fields).length === 0) return
+  signals.batchUpdateSignals(multiSelect.getSelectedKeys(), fields)
 }
 
 /**
@@ -472,6 +578,12 @@ function onCellKeyDown(e) {
   box-shadow: 0 0 0 1px color-mix(in oklch, var(--accent) 40%, transparent);
 }
 .signal-table input.mono { font-family: var(--font-mono); }
+.signal-table input:disabled,
+.signal-table select:disabled {
+  opacity: 1;
+  cursor: pointer;
+}
+.signal-table input[readonly] { cursor: pointer; }
 /* 隐藏数值输入框的上下按钮 */
 .signal-table input[type="number"]::-webkit-inner-spin-button,
 .signal-table input[type="number"]::-webkit-outer-spin-button {
@@ -559,6 +671,30 @@ function onCellKeyDown(e) {
 }
 .signal-table tr.selected td:first-child {
   border-left: 3px solid var(--accent);
+}
+
+/* 多选行高亮 */
+.signal-table tr.multi-selected {
+  background: color-mix(in oklch, var(--accent) 20%, transparent) !important;
+}
+
+/* checkbox 列 */
+.signal-table th input[type="checkbox"],
+.signal-table td input[type="checkbox"] {
+  accent-color: var(--accent);
+  cursor: pointer;
+  width: 14px;
+  height: 14px;
+}
+
+/* 批量删除按钮 */
+.btn-danger {
+  background: color-mix(in oklch, var(--danger) 80%, oklch(0.3 0 0));
+  color: #fff;
+  border-color: transparent;
+}
+.btn-danger:hover {
+  background: color-mix(in oklch, var(--danger) 90%, oklch(0.2 0 0));
 }
 
 /* 冲突行高亮 */

@@ -332,6 +332,18 @@ const dict = {
     'toast.valueTableAdded': '值描述表 {name} 已添加',
     'toast.valueTableDeleted': '值描述表 {name} 已删除',
     'toast.valueTableRenamed': '值描述表 {old} 已重命名为 {new}',
+
+    // Multi-select / Batch edit
+    'multiselect.batchEdit': '批量编辑',
+    'multiselect.batchDelete': '批量删除',
+    'multiselect.selectedCount': '已选择 {count} 项',
+    'batchEdit.title': '批量编辑',
+    'batchEdit.apply': '应用',
+    'toast.batchUpdated': '已批量更新 {count} 项',
+    'toast.batchDeleted': '已批量删除 {count} 项',
+    'toast.batchPartialSuccess': '部分成功：{success} 项更新，{failed} 项失败',
+    'msgtable.thSender': '发送方',
+    'msgtable.thComment': '注释',
 }
 
 export function t(key, vars = {}) {

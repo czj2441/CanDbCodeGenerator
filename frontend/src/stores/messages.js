@@ -114,5 +114,43 @@ export const useMessagesStore = defineStore('messages', {
         throw e  // 重新抛出，让调用方（如 toggleIsFd）也能处理错误
       }
     },
+
+    /**
+     * 批量更新多个报文的指定字段（等待服务器模式）
+     */
+    async batchUpdateMessages(msgIds, fields) {
+      const editor = useEditorStore()
+      try {
+        const result = await editor._wsRequest('batch_edit_messages', {
+          msg_ids: msgIds,
+          fields: fields,
+        })
+        const updated = result?.updated || 0
+        const errors = result?.errors || []
+        if (errors.length > 0) {
+          useUiStore().showToast(t('toast.batchPartialSuccess', { success: updated, failed: errors.length }), true)
+        } else {
+          useUiStore().showToast(t('toast.batchUpdated', { count: updated }))
+        }
+      } catch (e) {
+        useUiStore().showToast(translateError(e), true)
+      }
+    },
+
+    /**
+     * 批量删除多个报文（等待服务器模式）
+     */
+    async batchDeleteMessages(msgIds) {
+      const editor = useEditorStore()
+      try {
+        const result = await editor._wsRequest('batch_delete_messages', {
+          msg_ids: msgIds,
+        })
+        const deleted = result?.deleted || 0
+        useUiStore().showToast(t('toast.batchDeleted', { count: deleted }))
+      } catch (e) {
+        useUiStore().showToast(translateError(e), true)
+      }
+    },
   },
 })

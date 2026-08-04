@@ -1,7 +1,7 @@
 """
 signal_handlers.py — 信号相关 WS Handler
 
-EditSignal / AddSignal / DeleteSignal / BatchAddSignals
+EditSignal / AddSignal / DeleteSignal / BatchAddSignals / BatchEditSignals / BatchDeleteSignals
 """
 from __future__ import annotations
 
@@ -270,3 +270,207 @@ class GetDataErrorsHandler:
         with db.with_lock():
             errors = db.full_validate()
         return HandlerResult(data=errors, session_id=sid)
+
+
+# 批量编辑时禁止的字段（唯一标识字段，批量修改会导致冲突）
+_BATCH_EDIT_FORBIDDEN_FIELDS = {'name', 'start_bit'}
+
+
+class BatchEditSignalsHandler:
+    """批量编辑多个信号的指定字段。
+
+    请求格式: { session_id, msg_id, sig_names: [str], fields: { field: value } }
+    """
+    def __init__(self, session_mgr):
+        self._sm = session_mgr
+
+    def __call__(self, data: dict) -> HandlerResult:
+        sid = data["session_id"]
+        session = self._sm.get(sid)
+        if not session:
+            raise HandlerError("SESSION_NOT_FOUND", "会话不存在")
+
+        msg_id = data["msg_id"]
+        sig_names = data.get("sig_names", [])
+        fields = data.get("fields", {})
+
+        if not sig_names:
+            raise HandlerError("VALUE_INVALID", "sig_names 不能为空")
+        if not fields:
+            raise HandlerError("VALUE_INVALID", "fields 不能为空")
+
+        # 验证字段白名单 + 禁止批量修改唯一标识字段
+        for field in fields:
+            if field not in EDITABLE_SIGNAL_FIELDS:
+                raise HandlerError("FIELD_NOT_EDITABLE", f"字段 {field} 不可编辑")
+            if field in _BATCH_EDIT_FORBIDDEN_FIELDS:
+                raise HandlerError("FIELD_NOT_EDITABLE",
+                                   f"字段 {field} 不允许批量编辑",
+                                   {"field": field})
+
+        db = session.db
+        with db.with_lock():
+            msg = db.messages.get(msg_id)
+            if not msg:
+                raise HandlerError("MESSAGE_NOT_FOUND", f"报文 {msg_id} 不存在")
+
+            prev = {}   # sig_name -> {field: old_value}
+            updated_sigs = []
+            errors = []
+
+            for sig_name in sig_names:
+                sig = msg.signals.get(sig_name)
+                if not sig:
+                    errors.append({"sig_name": sig_name, "error": "信号不存在"})
+                    continue
+
+                # 记录旧值
+                old_vals = {}
+                for field in fields:
+                    old_vals[field] = getattr(sig, field)
+
+                # 逐字段验证
+                try:
+                    _validate_signal_fields(fields, msg, sig_name)
+                except HandlerError as e:
+                    errors.append({"sig_name": sig_name, "error": e.message})
+                    continue
+
+                # value_table_name 引用校验
+                if 'value_table_name' in fields:
+                    try:
+                        _validate_value_table_ref(db, fields['value_table_name'])
+                    except HandlerError as e:
+                        errors.append({"sig_name": sig_name, "error": e.message})
+                        continue
+
+                # 验证信号约束（如 bit 范围重叠等）
+                test_dict = {**sig.to_dict(), **fields}
+                test_sig = Signal.from_dict(test_dict)
+                ok, err, info = db.validate_signal(msg, test_sig, exclude_name=sig_name)
+                if not ok:
+                    errors.append({"sig_name": sig_name, "error": err})
+                    continue
+
+                # 应用变更
+                for field, value in fields.items():
+                    setattr(sig, field, value)
+
+                prev[sig_name] = old_vals
+                updated_sigs.append(sig)
+
+            if not updated_sigs:
+                raise HandlerError("VALUE_INVALID", "没有信号被更新",
+                                   {"errors": errors})
+
+            # 单个 undo 快照
+            self._sm.push_undo(session, {
+                "type": "batch_signal_update",
+                "msgId": msg_id,
+                "prev": prev,
+                "next": dict(fields),
+            })
+
+            new_version = db._bump_version()
+
+            # 逐信号发 signal_updated 事件（复用前端现有处理逻辑）
+            events = []
+            for sig in updated_sigs:
+                events.append({
+                    "type": "signal_updated",
+                    "data": {"msg_id": msg_id, "signal": sig.to_dict(), "old_name": None},
+                    "data_version": new_version,
+                })
+            events.append({
+                "type": "status_changed",
+                "data": {"modified": True,
+                         "undo_count": len(session.undo_stack),
+                         "redo_count": len(session.redo_stack)},
+                "data_version": new_version,
+            })
+            push_data_errors(events, db, new_version, {msg_id})
+
+            return HandlerResult(
+                data={"updated": len(updated_sigs), "errors": errors},
+                events=events,
+                new_version=new_version,
+                session_id=sid,
+            )
+
+
+class BatchDeleteSignalsHandler:
+    """批量删除多个信号。
+
+    请求格式: { session_id, msg_id, sig_names: [str] }
+    """
+    def __init__(self, session_mgr):
+        self._sm = session_mgr
+
+    def __call__(self, data: dict) -> HandlerResult:
+        sid = data["session_id"]
+        session = self._sm.get(sid)
+        if not session:
+            raise HandlerError("SESSION_NOT_FOUND", "会话不存在")
+
+        msg_id = data["msg_id"]
+        sig_names = data.get("sig_names", [])
+
+        if not sig_names:
+            raise HandlerError("VALUE_INVALID", "sig_names 不能为空")
+
+        db = session.db
+        with db.with_lock():
+            msg = db.messages.get(msg_id)
+            if not msg:
+                raise HandlerError("MESSAGE_NOT_FOUND", f"报文 {msg_id} 不存在")
+
+            deleted = []
+            errors = []
+
+            for sig_name in sig_names:
+                sig = msg.signals.get(sig_name)
+                if not sig:
+                    errors.append({"sig_name": sig_name, "error": "信号不存在"})
+                    continue
+                sig_data = sig.to_dict()
+                if not db.remove_signal_from_message(msg_id, sig_name):
+                    errors.append({"sig_name": sig_name, "error": "删除失败"})
+                    continue
+                deleted.append({"name": sig_name, "data": sig_data})
+
+            if not deleted:
+                raise HandlerError("VALUE_INVALID", "没有信号被删除",
+                                   {"errors": errors})
+
+            # 单个 undo 快照
+            self._sm.push_undo(session, {
+                "type": "batch_signal_delete",
+                "msgId": msg_id,
+                "signals": deleted,
+            })
+
+            new_version = db._bump_version()
+
+            # 逐信号发 signal_deleted 事件
+            events = []
+            for item in deleted:
+                events.append({
+                    "type": "signal_deleted",
+                    "data": {"msg_id": msg_id, "signal_name": item["name"]},
+                    "data_version": new_version,
+                })
+            events.append({
+                "type": "status_changed",
+                "data": {"modified": True,
+                         "undo_count": len(session.undo_stack),
+                         "redo_count": len(session.redo_stack)},
+                "data_version": new_version,
+            })
+            push_data_errors(events, db, new_version, {msg_id})
+
+            return HandlerResult(
+                data={"deleted": len(deleted), "errors": errors},
+                events=events,
+                new_version=new_version,
+                session_id=sid,
+            )

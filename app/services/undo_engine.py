@@ -151,6 +151,20 @@ class UndoEngine:
         elif snap_type == "batch_signal_add":
             for sig in snap["signals"]:
                 self._delete_signal(session, snap["msgId"], sig["name"])
+        elif snap_type == "batch_signal_update":
+            # prev: {sigName: {field: old_val}, ...}, next: {field: value}
+            self._restore_batch_signal_update(session, snap["msgId"], snap, "prev")
+        elif snap_type == "batch_message_update":
+            # prev: [{msgId: id, field: old_val}, ...], next: {field: value}
+            self._restore_batch_message_update(session, snap, "prev")
+        elif snap_type == "batch_signal_delete":
+            # signals: [{name, data: sig.to_dict()}, ...]
+            for sig in snap["signals"]:
+                self._restore_signal(session, snap["msgId"], sig["data"])
+        elif snap_type == "batch_message_delete":
+            # messages: [msg.to_dict(), ...]
+            for msg_data in snap["messages"]:
+                self._restore_message(session, msg_data)
         elif snap_type == "database_update":
             self._restore_database_update(session, snap["prev"])
         elif snap_type == "value_table_add":
@@ -186,6 +200,17 @@ class UndoEngine:
         elif snap_type == "batch_signal_add":
             for sig in snap["signals"]:
                 self._restore_signal(session, snap["msgId"], sig["data"])
+        elif snap_type == "batch_signal_update":
+            # undo 的逆操作：用 next 重新应用变更
+            self._restore_batch_signal_update(session, snap["msgId"], snap, "next")
+        elif snap_type == "batch_message_update":
+            self._restore_batch_message_update(session, snap, "next")
+        elif snap_type == "batch_signal_delete":
+            for sig in snap["signals"]:
+                self._delete_signal(session, snap["msgId"], sig["name"])
+        elif snap_type == "batch_message_delete":
+            for msg_data in snap["messages"]:
+                self._delete_message(session, msg_data["id"])
         elif snap_type == "database_update":
             self._restore_database_update(session, snap["next"])
         elif snap_type == "value_table_add":
@@ -322,6 +347,68 @@ class UndoEngine:
                 continue  # 已在上面处理
             if hasattr(sig, key):
                 setattr(sig, key, value)
+
+    def _restore_batch_signal_update(self, session, msg_id: int, snap: dict, direction: str):
+        """恢复批量信号属性更新。
+
+        Args:
+            snap: 完整快照，含 prev ({sigName: {field: old_val}}) / next ({field: value})
+            direction: "prev"（undo）或 "next"（redo）
+        """
+        msg = session.db.messages.get(msg_id)
+        if not msg:
+            raise ValueError(f"Message {msg_id} not found")
+
+        if direction == "prev":
+            # undo: prev 是 {sigName: {field: old_val}, ...}，逐个恢复
+            for sig_name, field_vals in snap["prev"].items():
+                sig = msg.signals.get(sig_name)
+                if not sig:
+                    continue
+                for field, value in field_vals.items():
+                    if hasattr(sig, field):
+                        setattr(sig, field, value)
+        else:
+            # redo: next 是 {field: value}，对所有在 prev 中的信号应用
+            fields = snap["next"]
+            for sig_name in snap["prev"]:
+                sig = msg.signals.get(sig_name)
+                if not sig:
+                    continue
+                for field, value in fields.items():
+                    if hasattr(sig, field):
+                        setattr(sig, field, value)
+
+    def _restore_batch_message_update(self, session, snap: dict, direction: str):
+        """恢复批量报文属性更新。
+
+        Args:
+            snap: 完整快照，含 prev ([{msgId, field: old_val}, ...]) / next ({field: value})
+            direction: "prev"（undo）或 "next"（redo）
+        """
+        if direction == "prev":
+            # undo: prev 中每条含 msgId + 旧值
+            for entry in snap["prev"]:
+                msg_id = entry["msgId"]
+                msg = session.db.messages.get(msg_id)
+                if not msg:
+                    continue
+                for field, value in entry.items():
+                    if field == "msgId":
+                        continue
+                    if hasattr(msg, field):
+                        setattr(msg, field, value)
+        else:
+            # redo: next 是 {field: value}，对所有在 prev 中的报文应用
+            fields = snap["next"]
+            for entry in snap["prev"]:
+                msg_id = entry["msgId"]
+                msg = session.db.messages.get(msg_id)
+                if not msg:
+                    continue
+                for field, value in fields.items():
+                    if hasattr(msg, field):
+                        setattr(msg, field, value)
 
     def _restore_database_update(self, session, updates: dict):
         """恢复数据库级属性更新。"""

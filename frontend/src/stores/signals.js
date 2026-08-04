@@ -111,6 +111,58 @@ export const useSignalsStore = defineStore('signals', {
     },
 
     /**
+     * 批量更新多个信号的指定字段（等待服务器模式）
+     */
+    async batchUpdateSignals(sigNames, fields) {
+      const editor = useEditorStore()
+      if (editor.selectedMsgId == null) return
+      const msg = editor.messageCache[editor.selectedMsgId]
+      if (!msg) return
+
+      editor.isLoading = true
+      try {
+        const result = await editor._wsRequest('batch_edit_signals', {
+          msg_id: editor.selectedMsgId,
+          sig_names: sigNames,
+          fields: fields,
+        })
+        const updated = result?.updated || 0
+        const errors = result?.errors || []
+        if (errors.length > 0) {
+          useUiStore().showToast(t('toast.batchPartialSuccess', { success: updated, failed: errors.length }), true)
+        } else {
+          useUiStore().showToast(t('toast.batchUpdated', { count: updated }))
+        }
+      } catch (e) {
+        useUiStore().showToast(translateError(e), true)
+      } finally {
+        editor.isLoading = false
+      }
+    },
+
+    /**
+     * 批量删除多个信号（等待服务器模式）
+     */
+    async batchDeleteSignals(sigNames) {
+      const editor = useEditorStore()
+      if (editor.selectedMsgId == null) return
+
+      editor.isLoading = true
+      try {
+        const result = await editor._wsRequest('batch_delete_signals', {
+          msg_id: editor.selectedMsgId,
+          sig_names: sigNames,
+        })
+        const deleted = result?.deleted || 0
+        useUiStore().showToast(t('toast.batchDeleted', { count: deleted }))
+      } catch (e) {
+        useUiStore().showToast(translateError(e), true)
+      } finally {
+        editor.isLoading = false
+      }
+    },
+
+    /**
      * 批量添加信号（等待服务器模式）
      */
     async batchAddSignals({ nameTemplate, count, startNum, startBit, bitStep, length, byteOrder, factor, offset, minVal, maxVal, unit, commentTemplate }) {
