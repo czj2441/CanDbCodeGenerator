@@ -1,6 +1,9 @@
 import { defineStore } from 'pinia'
 import { useEditorStore } from './editor.js'
 
+// 信号表默认隐藏列（无 localStorage 记录时使用）
+const DEFAULT_SIGNAL_HIDDEN_COLS = ['unit', 'max', 'min', 'offset', 'factor']
+
 // ── Toast 队列（模块级闭包，避免 Pinia 深度代理） ──
 const MAX_VISIBLE_TOASTS = 5
 let _toastIdCounter = 0
@@ -38,10 +41,10 @@ export const useUiStore = defineStore('ui', {
     // 导出拦截时自动展开 DataErrorList
     expandDataErrors: false,
     // 列可见性 + 列宽（SignalTable）
-    hiddenColumns: JSON.parse(localStorage.getItem('canmatrix_hidden_cols') || '[]'),
+    hiddenColumns: JSON.parse(localStorage.getItem('canmatrix_hidden_cols') ?? JSON.stringify(DEFAULT_SIGNAL_HIDDEN_COLS)),
     columnWidths: JSON.parse(localStorage.getItem('canmatrix_col_widths') || '{}'),
     // 中间区域 Tab 状态
-    centerTab: 'signals',  // 'signals' | 'messages' | 'valtables'
+    centerTab: 'messages',  // 'signals' | 'messages' | 'valtables'
     // 列可见性 + 列宽（MessageTable，独立 key 前缀 msg_）
     msgHiddenColumns: JSON.parse(localStorage.getItem('canmatrix_msg_hidden_cols') || '[]'),
     msgColumnWidths: JSON.parse(localStorage.getItem('canmatrix_msg_col_widths') || '{}'),
@@ -217,8 +220,8 @@ export const useUiStore = defineStore('ui', {
       return !this.hiddenColumns.includes(key)
     },
     resetColumnVisibility() {
-      this.hiddenColumns = []
-      localStorage.setItem('canmatrix_hidden_cols', '[]')
+      this.hiddenColumns = [...DEFAULT_SIGNAL_HIDDEN_COLS]
+      localStorage.setItem('canmatrix_hidden_cols', JSON.stringify(DEFAULT_SIGNAL_HIDDEN_COLS))
     },
     // ── 列宽（百分比） ──
     setColumnWidths(widths) {
