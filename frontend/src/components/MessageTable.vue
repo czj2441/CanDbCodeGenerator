@@ -56,8 +56,7 @@
           <tr v-for="(m, mIdx) in sortedMessages" :key="m.id"
               :data-msg-id="m.id"
               :class="{ selected: store.selectedMsgId === m.id, 'multi-selected': multiSelect.selectedKeys.value.has(m.id) }"
-              @mousedown="handleRowMouseDown(m.id, mIdx, $event)"
-              @dblclick="jumpToSignals(m.id)">
+              @mousedown="handleRowMouseDown(m.id, mIdx, $event)">
             <td v-for="col in visibleColumns" :key="col.key">
               <template v-if="col.key === '_cb'">
                 <input type="checkbox" :checked="multiSelect.selectedKeys.value.has(m.id)"
@@ -73,6 +72,7 @@
                   <option value="true">CAN FD</option>
                 </select>
               </template>
+              <template v-else-if="col.key === 'msg_edit_signals'"><button class="btn btn-accent btn-sm" @click.stop="jumpToSignals(m.id)">{{ t('msgtable.editSignals') }}</button></template>
               <template v-else-if="col.key === 'msg_actions'"><button class="action-delete" @click.stop="deleteMessage(m.id)" title="删除">×</button></template>
             </td>
           </tr>
@@ -108,6 +108,7 @@ const COLUMNS = [
   { key: 'msg_dlc',     i18n: 'msgtable.thDlc',     toggleable: true,  defaultPct: 6,  sortField: 'dlc' },
   { key: 'msg_cycle',   i18n: 'msgtable.thCycle',   toggleable: true,  defaultPct: 8,  sortField: 'cycle_time' },
   { key: 'msg_fd',      i18n: 'msgtable.thFd',      toggleable: true,  defaultPct: 7,  sortable: false },
+  { key: 'msg_edit_signals', i18n: null,                 toggleable: false, defaultPct: 6,  sortable: false },
   { key: 'msg_actions', i18n: null,                 toggleable: false, defaultPct: 4,  sortable: false },
 ]
 
@@ -288,7 +289,7 @@ function jumpToSignals(id) {
 }
 
 // ── 方向键单元格导航 ──
-const NON_NAVIGABLE_COLS = new Set(['msg_actions'])
+const NON_NAVIGABLE_COLS = new Set(['msg_edit_signals', 'msg_actions'])
 
 function getCellPosition(el) {
   const td = el.closest('td')
@@ -501,6 +502,18 @@ function onCellKeyDown(e) {
   line-height: 1;
 }
 .action-delete:hover { color: oklch(0.75 0.15 25); }
+
+.btn-accent {
+  background: var(--accent);
+  color: oklch(0.12 0.01 155);
+  border-color: transparent;
+  font-weight: 600;
+}
+.btn-accent:hover { filter: brightness(1.1); }
+.btn-sm {
+  padding: 2px 8px;
+  font-size: 11px;
+}
 
 /* 拖拽手柄 */
 .resize-handle {

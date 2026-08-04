@@ -143,6 +143,7 @@ const dict = {
     'msgtable.columnSettings': '列设置',
     'msgtable.resetColumns': '重置全部',
     'msgtable.empty': '暂无报文。',
+    'msgtable.editSignals': '编辑信号',
 
     // MessagePanel
     'panel.msgEmpty': '未选择报文。<br>在「报文」标签页中选择一条报文以编辑其属性。',
