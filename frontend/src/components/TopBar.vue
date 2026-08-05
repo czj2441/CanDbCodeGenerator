@@ -1,39 +1,55 @@
 <template>
   <div class="topbar">
-    <button class="btn btn-icon btn-back" @click="$emit('back')" :title="t('topbar.back')">←</button>
-    <div class="topbar-logo">Can<span>Matrix</span></div>
-    <span class="topbar-filename">{{ store.currentFileName }}</span>
-    <select class="topbar-bus-type" v-model="store.busType" @change="setBusType($event.target.value)">
-      <option value="CAN">CAN</option>
-      <option value="CAN FD">CAN FD</option>
-    </select>
-    <span v-if="store.backendDirty" class="topbar-dirty-badge" :title="t('status.unsaved')">● {{ t('status.unsaved') }}</span>
-    <span class="topbar-spacer"></span>
-    <span class="topbar-divider"></span>
-    <button class="btn" @click="undoRedo.undo()" :disabled="!undoRedo.canUndo" title="撤销 (Ctrl+Z)">{{ t('topbar.undo') }}</button>
-    <button class="btn" @click="undoRedo.redo()" :disabled="!undoRedo.canRedo" title="重做 (Ctrl+Y)">{{ t('topbar.redo') || '重做' }}</button>
-    <span class="topbar-divider"></span>
-    <div class="export-wrapper" ref="exportWrapper">
-      <button class="btn btn-accent" @click="exportDropdownOpen = !exportDropdownOpen">{{ t('topbar.export') }} ▾</button>
+    <!-- 左侧：返回按钮 -->
+    <button class="btn-icon" @click="$emit('back')" :title="t('topbar.back')">
+      <ArrowLeft :size="18" />
+    </button>
+    <!-- Logo -->
+    <div class="topbar-logo">Can<span>DbCodeGenerator</span></div>
+    <!-- 编辑操作按钮组 -->
+    <div class="btn-group">
+      <button class="btn-icon" @click="undoRedo.undo()" :disabled="!undoRedo.canUndo" title="撤销 (Ctrl+Z)">
+        <Undo2 :size="16" />
+      </button>
+      <button class="btn-icon" @click="undoRedo.redo()" :disabled="!undoRedo.canRedo" title="重做 (Ctrl+Y)">
+        <Redo2 :size="16" />
+      </button>
+    </div>
+    <div class="export-wrapper btn-group" ref="exportWrapper">
+      <button class="btn-icon" :class="{ 'btn-warn': store.backendDirty }" @click="save" title="保存 (Ctrl+S)">
+        <Save :size="16" />
+      </button>
+      <button class="btn-icon" @click="onSaveAs" title="另存为">
+        <SaveAll :size="16" />
+      </button>
+      <button class="btn-icon" @click="exportDropdownOpen = !exportDropdownOpen" title="导出">
+        <Download :size="16" />
+        <ChevronDown :size="10" style="margin-left: 1px;" />
+      </button>
       <div v-if="exportDropdownOpen" class="export-menu">
         <button @click="exportFile('dbc'); exportDropdownOpen = false">DBC</button>
         <button @click="exportFile('properties'); exportDropdownOpen = false">Properties</button>
         <button @click="exportCcode(); exportDropdownOpen = false">C Code (.h + .c)</button>
       </div>
     </div>
-    <button class="btn" :class="{ 'btn-dirty': store.backendDirty }" @click="save" :disabled="!store.backendDirty" title="保存 (Ctrl+S)">{{ t('topbar.save') }}</button>
-    <button class="btn" @click="onSaveAs">{{ t('topbar.saveAs') }}</button>
-    <span class="topbar-divider"></span>
-    <span class="topbar-spacer"></span>
-    <button class="btn btn-icon" @click="ui.toggleTheme" title="切换主题">{{ ui.theme === 'dark' ? '☀' : '☾' }}</button>
-    <button
-      class="btn btn-icon"
-      :class="{ active: ui.showLogPanel }"
-      @click="ui.showLogPanel = !ui.showLogPanel"
-      :title="t('topbar.log')"
-    >
-      {{ ui.showLogPanel ? '📋' : '📄' }}
-    </button>
+    <!-- 中央区域：文件名 + 总线类型 + 脏标记 -->
+    <div class="topbar-center">
+      <span class="topbar-filename">{{ store.currentFileName }}</span>
+      <select class="topbar-bus-type" v-model="store.busType" @change="setBusType($event.target.value)">
+        <option value="CAN">CAN</option>
+        <option value="CAN FD">CAN FD</option>
+      </select>
+      <span v-if="store.backendDirty" class="topbar-dirty-badge" :title="t('status.unsaved')">● {{ t('status.unsaved') }}</span>
+    </div>
+    <div class="btn-group">
+      <button class="btn-icon" @click="ui.toggleTheme" title="切换主题">
+        <Moon v-if="ui.theme === 'dark'" :size="16" />
+        <Sun v-else :size="16" />
+      </button>
+      <button class="btn-icon" :class="{ active: ui.showLogPanel }" @click="ui.showLogPanel = !ui.showLogPanel" :title="t('topbar.log')">
+        <FileText :size="16" />
+      </button>
+    </div>
     <ConnectionStatus :status="connectionStatus" />
   </div>
 
@@ -78,6 +94,7 @@ import { useUiStore } from '../stores/uiStore.js'
 import { connectionStatus } from '../stores/connectionHealth.js'
 import { t } from '../i18n.js'
 import { getSessionId } from '../api/client.js'
+import { ArrowLeft, Undo2, Redo2, Download, ChevronDown, Save, SaveAll, Moon, Sun, FileText } from '@lucide/vue'
 import CcodePreviewModal from './CcodePreviewModal.vue'
 import ConnectionStatus from './ConnectionStatus.vue'
 
@@ -367,17 +384,17 @@ async function save() {
   letter-spacing: 0.2px;
 }
 
-.topbar-spacer { flex: 1; }
-
-.topbar-divider {
-  width: 1px;
-  height: 20px;
-  background: var(--border);
-  flex-shrink: 0;
+.topbar-center {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 0;
 }
 
-
-.btn {
+/* ── 确认对话框按钮 ── */
+.confirm-actions .btn {
   background: var(--bg-raised);
   border: 1px solid var(--border);
   color: var(--text);
@@ -387,19 +404,15 @@ async function save() {
   cursor: pointer;
   transition: var(--transition);
 }
-.btn:hover { background: var(--bg-hover); }
-.btn-back {
-  font-size: 18px;
-  padding: 5px 10px;
-  margin-right: 4px;
-}
-.btn-accent {
+.confirm-actions .btn:hover { background: var(--bg-hover); }
+.confirm-actions .btn-accent {
   background: var(--accent);
   color: oklch(0.12 0.01 155);
   border-color: transparent;
   font-weight: 600;
 }
-.btn-accent:hover { filter: brightness(1.1); }
+.confirm-actions .btn-accent:hover { filter: brightness(1.1); }
+.confirm-actions .btn-accent:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .confirm-overlay {
   position: fixed;
@@ -460,6 +473,7 @@ async function save() {
 
 .export-wrapper {
   position: relative;
+  overflow: visible !important;
 }
 
 .export-menu {
@@ -499,15 +513,6 @@ async function save() {
   font-weight: 600;
   animation: dirty-pulse 2s ease-in-out infinite;
   white-space: nowrap;
-}
-.btn-dirty {
-  background: var(--warn);
-  color: #fff;
-  border-color: transparent;
-  font-weight: 600;
-}
-.btn-dirty:hover {
-  background: color-mix(in oklch, var(--warn) 85%, black);
 }
 @keyframes dirty-pulse {
   0%, 100% { opacity: 1; }

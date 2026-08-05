@@ -938,4 +938,44 @@ body {
   transition: background 150ms;
 }
 .sidebar-resize:hover { background: var(--accent); }
+
+/* ── 公共图标按钮 & 按钮组 ── */
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  cursor: pointer;
+  transition: var(--transition);
+  padding: 0;
+  flex-shrink: 0;
+}
+.btn-icon:hover:not(:disabled) { background: var(--bg-hover); }
+.btn-icon:disabled { opacity: 0.35; cursor: not-allowed; }
+.btn-icon.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.btn-icon.btn-danger-icon { background: var(--danger); color: #fff; border-color: var(--danger); }
+.btn-icon.btn-danger-icon:hover:not(:disabled) { filter: brightness(1.1); }
+.btn-icon.btn-warn { background: var(--warn); color: #fff; border-color: var(--warn); }
+.btn-icon.btn-warn:hover:not(:disabled) { filter: brightness(1.1); }
+
+.btn-group {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.btn-group .btn-icon {
+  border: none;
+  border-right: 1px solid var(--border);
+  border-radius: 0;
+}
+.btn-group .btn-icon:last-child {
+  border-right: none;
+}
 </style>

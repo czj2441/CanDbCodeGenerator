@@ -3,23 +3,31 @@
     <div class="browser-header">
       <h2>{{ t('browser.title') }}</h2>
       <div class="header-actions">
-        <button class="new-file-btn" @click="createNew" :title="t('browser.newFileTooltip')">{{ t('browser.newFile') }}</button>
-        <button class="import-btn" @click="triggerImport" :title="t('browser.importFileTooltip')">{{ t('browser.importFile') }}</button>
+        <div class="btn-group">
+          <button class="btn-icon" @click="createNew" :title="t('browser.newFileTooltip')">
+            <FilePlus :size="16" />
+          </button>
+          <button class="btn-icon" @click="triggerImport" :title="t('browser.importFileTooltip')">
+            <Upload :size="16" />
+          </button>
+          <button 
+            v-if="selectedFiles.length > 0" 
+            class="btn-icon btn-danger-icon"
+            :disabled="deleting"
+            :title="t('browser.deleteSelectedTooltip')"
+            @click="confirmDelete"
+          >
+            <Trash2 :size="16" />
+          </button>
+        </div>
         <button 
-          v-if="selectedFiles.length > 0" 
-          class="delete-btn"
-          :disabled="deleting"
-          :title="t('browser.deleteSelectedTooltip')"
-          @click="confirmDelete"
-        >
-          {{ deleting ? t('browser.deleting') : `${t('browser.deleteSelected')} (${selectedFiles.length})` }}
-        </button>
-        <button 
-          class="debug-btn" 
+          class="debug-icon-btn" 
           :class="{ active: showDebug }"
           @click="showDebug = !showDebug; if (showDebug) loadSnapshotDebug()"
           title="Snapshot Debug"
-        >🔧</button>
+        >
+          <Wrench :size="14" />
+        </button>
       </div>
       <!-- 搜索工具栏 -->
       <div class="filter-bar">
@@ -306,6 +314,7 @@ import { useUiStore } from '../stores/uiStore.js'
 import { t } from '../i18n.js'
 import { WsSyncClient } from '../utils/ws-client.js'
 import { setConnectionStatus, connectionStatus } from '../stores/connectionHealth.js'
+import { FilePlus, Upload, Trash2, Wrench } from '@lucide/vue'
 import ConnectionStatus from './ConnectionStatus.vue'
 
 const manualVersion = typeof __MANUAL_VERSION__ !== 'undefined' ? __MANUAL_VERSION__ : 'dev'
@@ -722,54 +731,8 @@ onUnmounted(() => {
 
 .header-actions {
   display: flex;
-  gap: 12px;
+  gap: 8px;
   align-items: center;
-}
-
-.new-file-btn {
-  background: var(--accent);
-  color: #fff;
-  border: none;
-  padding: 8px 16px;
-  border-radius: var(--radius);
-  font-size: 13px;
-  cursor: pointer;
-  font-weight: 500;
-}
-.new-file-btn:hover {
-  opacity: 0.9;
-}
-
-.import-btn {
-  background: transparent;
-  color: var(--text);
-  border: 1px solid var(--border);
-  padding: 8px 16px;
-  border-radius: var(--radius);
-  font-size: 13px;
-  cursor: pointer;
-  font-weight: 500;
-}
-.import-btn:hover {
-  background: var(--bg-hover);
-}
-
-.delete-btn {
-  background: var(--danger);
-  color: #fff;
-  border: none;
-  padding: 8px 16px;
-  border-radius: var(--radius);
-  font-size: 13px;
-  cursor: pointer;
-  font-weight: 500;
-}
-.delete-btn:hover:not(:disabled) {
-  opacity: 0.9;
-}
-.delete-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 /* 表格容器 */
@@ -1168,18 +1131,22 @@ onUnmounted(() => {
 
 .filter-empty { padding: 48px 24px !important; }
 
-/* ── Snapshot Debug 面板 ── */
-.debug-btn {
+/* ── Snapshot Debug 按钮 ── */
+.debug-icon-btn {
+  opacity: 0.3;
   background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 4px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: 4px;
   cursor: pointer;
-  opacity: 0.5;
-  font-size: 14px;
+  color: var(--text-muted);
+  transition: opacity 150ms;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
-.debug-btn:hover { opacity: 1; }
-.debug-btn.active { opacity: 1; background: var(--bg-panel); border-color: var(--accent); }
+.debug-icon-btn:hover { opacity: 0.7; }
+.debug-icon-btn.active { opacity: 1; border-color: var(--accent); color: var(--accent); }
 
 .snapshot-debug {
   border-top: 1px solid var(--border);

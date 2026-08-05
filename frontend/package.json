@@ -4,11 +4,12 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "echo '\\n  ✘ Vite dev server 禁止独立启动\\n  请通过 build.bat / build.sh 启动项目\\n  临时解除约束: VITE_ALLOW_DEV_SERVER=1 npx vite\\n' && exit 1",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "echo '\\n  ✘ Vite preview 禁止使用\\n  请通过 build.bat / build.sh 启动项目\\n' && exit 1"
   },
   "dependencies": {
+    "@lucide/vue": "^1.28.0",
     "highlight.js": "^11.11.1",
     "konva": "^9.3.22",
     "pinia": "^3.0.2",
