@@ -124,6 +124,69 @@ export function toStorageStartBit(displayStartBit, length, byteOrder, maxBit = 6
 }
 
 /**
+ * 位号 → 锯齿遍历位置（Motorola walk 序，0..maxBit）
+ */
+export function bitToWalkPos(bit) {
+  const { row, col } = bitToGridCell(bit)
+  return row * 8 + col
+}
+
+/**
+ * 锯齿遍历位置 → 位号（bitToWalkPos 的逆）
+ */
+export function walkPosToBit(pos) {
+  return Math.floor(pos / 8) * 8 + (7 - (pos % 8))
+}
+
+/**
+ * 批量添加时逐个计算每个信号的存储 start_bit 与有效性。
+ *
+ * 统一网格模型（保证收敛：间隔一致、互不重叠，放不下的信号标记 invalid 跳过）：
+ *   Intel:    start_i = startBit + i * step（step = length + interval）
+ *   Motorola: 信号 i 占据 walk 槽位 [slotStart_i, slotStart_i + length - 1]，
+ *             其中 slotStart_i = walkPos(startBit) - (length - 1) + i * step；
+ *             MSB = walkPosToBit(slotStart_i)，LSB = walkPosToBit(slotStart_i + length - 1)。
+ *             槽位越界（起点 < 0 或终点 > maxBit）→ 标记 invalid 跳过，不中止整批。
+ *
+ * @param {{startBit: number, length: number, interval: number, byteOrder: string, count: number, maxBit?: number}} opts
+ * @returns {Array<{start_bit: number, display_start_bit: number, valid: boolean}>}
+ */
+export function computeBatchSignals({ startBit, length, interval, byteOrder, count, maxBit = 63 }) {
+  const step = length + (interval || 0)
+  const results = []
+
+  if (byteOrder === 'intel') {
+    for (let i = 0; i < count; i++) {
+      const sb = startBit + i * step
+      results.push({
+        start_bit: sb,
+        display_start_bit: sb,
+        valid: sb >= 0 && sb + length - 1 <= maxBit,
+      })
+    }
+    return results
+  }
+
+  const slotStart0 = bitToWalkPos(startBit) - (length - 1)
+  for (let i = 0; i < count; i++) {
+    const slotStart = slotStart0 + i * step
+    const slotEnd = slotStart + length - 1
+    if (slotStart < 0 || slotEnd > maxBit) {
+      const lsb = walkPosToBit(slotEnd)
+      results.push({ start_bit: lsb, display_start_bit: lsb, valid: false })
+      continue
+    }
+    const msb = walkPosToBit(slotStart)
+    results.push({
+      start_bit: msb,
+      display_start_bit: walkPosToBit(slotEnd),
+      valid: true,
+    })
+  }
+  return results
+}
+
+/**
  * Group a signal's occupied bits by byte row and find contiguous column runs.
  * Returns one rectangle descriptor per contiguous segment per row.
  *

@@ -3,7 +3,7 @@ import { t } from '../i18n.js'
 import { useUiStore } from './uiStore.js'
 import { useEditorStore } from './editor.js'
 import { translateError, findNextAvailableStartBit, generateSignalName } from '../utils/storeHelpers.js'
-import { getSignalBits, toStorageStartBit } from '../utils/signalLayout.js'
+import { computeBatchSignals } from '../utils/signalLayout.js'
 
 export const useSignalsStore = defineStore('signals', {
   actions: {
@@ -164,44 +164,35 @@ export const useSignalsStore = defineStore('signals', {
 
     /**
      * 批量添加信号（等待服务器模式）
-     * startBit 参数为 LSB（与信号列表显示一致），内部转为 MSB（存储格式）
+     * startBit 参数为 LSB（与信号列表显示一致），存储格式为 MSB（Motorola）
+     * interval 为信号间隔（相邻信号起点相差 length + interval）
+     * 无效/越界信号被跳过（标记 invalid），不中止整批
      */
-    async batchAddSignals({ nameTemplate, count, startNum, startBit, bitStep, length, byteOrder, factor, offset, minVal, maxVal, unit, commentTemplate }) {
+    async batchAddSignals({ nameTemplate, count, startNum, startBit, interval, length, byteOrder, factor, offset, minVal, maxVal, unit, commentTemplate }) {
       const editor = useEditorStore()
       if (editor.selectedMsgId == null) return
       const msg = editor.messageCache[editor.selectedMsgId]
       if (!msg) return
       const { expandTemplate } = await import('../utils/format.js')
-      const maxBits = msg.dlc * 8
+      const maxBit = msg.dlc * 8 - 1
 
-      // LSB → MSB 转换（Intel 下不变，Motorola 下转换）
-      const storageStartBit = toStorageStartBit(startBit, length, byteOrder, 63, -1)
-      if (storageStartBit < 0) {
-        useUiStore().showToast(`Invalid start bit ${startBit} for ${byteOrder} length ${length}`, true)
-        return
-      }
-
-      for (let i = 0; i < count; i++) {
-        const sb = storageStartBit + i * bitStep
-        const bits = getSignalBits(sb, length, byteOrder)
-        for (const b of bits) {
-          if (b < 0 || b >= maxBits) {
-            useUiStore().showToast(`Signal #${startNum + i} at bit ${sb} exceeds range [0, ${maxBits - 1}]`, true)
-            return
-          }
-        }
-      }
+      const layouts = computeBatchSignals({ startBit, length, interval, byteOrder, count, maxBit })
 
       const signals = []
       for (let i = 0; i < count; i++) {
+        if (!layouts[i].valid) continue
         const n = startNum + i
         const name = expandTemplate(nameTemplate, n)
         const comment = commentTemplate ? expandTemplate(commentTemplate, n) : ''
-        const sb = storageStartBit + i * bitStep
         signals.push({
-          name, start_bit: sb, length, byte_order: byteOrder,
+          name, start_bit: layouts[i].start_bit, length, byte_order: byteOrder,
           factor, offset, min_val: minVal, max_val: maxVal, unit, comment,
         })
+      }
+
+      if (signals.length === 0) {
+        useUiStore().showToast(t('toast.batchNoValid'), true)
+        return
       }
 
       editor.isLoading = true

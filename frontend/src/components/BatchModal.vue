@@ -28,8 +28,8 @@
                   <input class="mono" type="number" v-model.number="form.startBit" min="0" max="63">
                 </div>
                 <div class="field">
-                  <label>{{ t('batch.bitStep') }}</label>
-                  <input class="mono" type="number" v-model.number="form.bitStep" min="1" max="64">
+                  <label>{{ t('batch.interval') }}</label>
+                  <input class="mono" type="number" v-model.number="form.interval" min="0" max="64">
                 </div>
               </div>
               <div class="row">
@@ -61,7 +61,7 @@
               <div class="preview-label">{{ t('batch.previewTitle') }}</div>
               <div class="preview-canvas-wrap">
                 <BitLayoutCanvas
-                  :signals="previewSignals"
+                  :signals="canvasSignals"
                   :dlc="currentMsgDlc"
                 />
               </div>
@@ -77,9 +77,9 @@
                   </thead>
                   <tbody>
                     <tr v-for="(sig, idx) in previewSignals" :key="idx"
-                        :class="{ 'out-of-range': outOfRangeIndices.has(idx) }">
+                        :class="{ 'invalid': sig._invalid }">
                       <td class="mono">{{ sig.name }}</td>
-                      <td class="mono">{{ sig.display_start_bit }}</td>
+                      <td class="mono">{{ sig.display_start_bit }}<span v-if="sig._invalid" class="invalid-mark">{{ t('batch.invalid') }}</span></td>
                       <td class="mono">{{ sig.length }}</td>
                       <td>{{ sig.byte_order === 'intel' ? t('batch.intel') : t('batch.motorola') }}</td>
                     </tr>
@@ -104,7 +104,7 @@ import { useSignalsStore } from '../stores/signals.js'
 import { useEditorStore } from '../stores/editor.js'
 import { t } from '../i18n.js'
 import { expandTemplate } from '../utils/format.js'
-import { getSignalBits, toStorageStartBit } from '../utils/signalLayout.js'
+import { computeBatchSignals } from '../utils/signalLayout.js'
 import BitLayoutCanvas from './BitLayoutCanvas.vue'
 
 const signals = useSignalsStore()
@@ -117,7 +117,7 @@ const createDefaultForm = () => ({
   count: 8,
   startNum: 1,
   startBit: 0,
-  bitStep: 8,
+  interval: 0,
   length: 8,
   byteOrder: 'motorola',
   factor: 1.0,
@@ -146,45 +146,39 @@ const currentMsgDlc = computed(() => {
 })
 
 /** 预览信号列表（纯前端计算，不经过后端）
- *  用户输入的 startBit 为 LSB（与信号列表显示一致），预览需转为 MSB（存储格式）供 BitLayoutCanvas 渲染 */
+ *  用户输入的 startBit 为 LSB（与信号列表显示一致），存储格式为 MSB（Motorola）供 BitLayoutCanvas 渲染 */
 const previewSignals = computed(() => {
   const result = []
   const count = Math.max(0, Math.min(form.count || 0, 64))
   const length = form.length || 1
   const byteOrder = form.byteOrder || 'motorola'
+  const interval = form.interval || 0
+  const layouts = computeBatchSignals({
+    startBit: form.startBit || 0,
+    length,
+    interval,
+    byteOrder,
+    count,
+    maxBit: currentMsgDlc.value * 8 - 1,
+  })
   for (let i = 0; i < count; i++) {
     const n = (form.startNum || 0) + i
     const name = expandTemplate(form.nameTemplate || '', n)
-    const displaySb = (form.startBit || 0) + i * (form.bitStep || 0)
-    // LSB → MSB（Intel 下不变，Motorola 下转换）
-    const storageSb = toStorageStartBit(displaySb, length, byteOrder, 63, -1)
+    const layout = layouts[i]
     result.push({
       name,
-      start_bit: storageSb >= 0 ? storageSb : displaySb,
-      display_start_bit: displaySb,
+      start_bit: layout.start_bit,
+      display_start_bit: layout.display_start_bit,
       length,
       byte_order: byteOrder,
-      _invalid: storageSb < 0,
+      _invalid: !layout.valid,
     })
   }
   return result
 })
 
-/** 超出 DLC 范围的信号索引集合 */
-const outOfRangeIndices = computed(() => {
-  const maxBits = currentMsgDlc.value * 8
-  const indices = new Set()
-  previewSignals.value.forEach((sig, idx) => {
-    const bits = getSignalBits(sig.start_bit, sig.length, sig.byte_order)
-    for (const b of bits) {
-      if (b < 0 || b >= maxBits) {
-        indices.add(idx)
-        break
-      }
-    }
-  })
-  return indices
-})
+/** 画布只渲染有效信号 */
+const canvasSignals = computed(() => previewSignals.value.filter(sig => !sig._invalid))
 
 function close() {
   visible.value = false
@@ -302,9 +296,18 @@ async function create() {
 .preview-table .mono {
   font-family: var(--font-mono);
 }
-.preview-table tr.out-of-range td {
-  background: oklch(0.35 0.08 25 / 0.3);
-  color: oklch(0.75 0.15 25);
+.preview-table tr.invalid td {
+  background: oklch(0.32 0.14 15 / 0.35);
+  color: oklch(0.78 0.17 25);
+  text-decoration: line-through;
+}
+.invalid-mark {
+  margin-left: 6px;
+  font-size: 10px;
+  border: 1px solid oklch(0.65 0.18 25);
+  border-radius: 3px;
+  padding: 0 4px;
+  text-decoration: none;
 }
 
 .modal-footer {

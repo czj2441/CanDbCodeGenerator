@@ -190,7 +190,7 @@ const dict = {
     'batch.count': '数量',
     'batch.startNum': '起始序号',
     'batch.startBit': '起始位',
-    'batch.bitStep': '位步长',
+    'batch.interval': '信号间隔',
     'batch.length': '长度',
     'batch.byteOrder': '字节序',
     'batch.intel': '小端',
@@ -206,6 +206,7 @@ const dict = {
     'batch.create': '创建',
     'batch.previewTitle': '创建预览',
     'batch.preview': '预览',
+    'batch.invalid': '无效',
 
     // HistoryModal
     // ContextMenu
@@ -257,6 +258,7 @@ const dict = {
     'overlay.versionReload': '刷新页面',
     'toast.batchCreated': '已创建 {count} 个信号',
     'toast.batchFailed': '批量创建在第 #{idx} 个失败：{msg}',
+    'toast.batchNoValid': '没有可创建的有效信号',
     'toast.signalOutOfBounds': '信号 "{name}" 超出范围（DLC={dlc}，最大位 {max}）',
     'toast.signalOverlap': '信号 "{name}" 与 "{other}" 在位 {bits} 重叠',
     // Signal validation errors

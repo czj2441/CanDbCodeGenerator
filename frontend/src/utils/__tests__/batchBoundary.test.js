@@ -1,174 +1,223 @@
 /**
- * batchAddSignals 边界检查单元测试
+ * batchAddSignals 布局与收敛性单元测试
  *
- * 验证修复后的 Motorola/Intel 字节序边界检查逻辑：
- * - 使用 getSignalBits() 精确计算每个信号占用的 bit 集合
- * - 逐一检查是否越界 [0, maxBits)
+ * computeBatchSignals() 规则（保证收敛：间隔一致、互不重叠，放不下的信号跳过）：
+ *   1. 首个信号可换算 → 全部信号沿字节序原生方向推进 length + interval
+ *   2. 首个信号无法换算 → 首个及锚点前信号标记 invalid，找到首个可换算的后续信号作锚点，其后同样沿原生方向推进
+ *   3. 占用位超出 [0, maxBit] → 标记 invalid 跳过，不中止整批
  *
  * Run with: node --test src/utils/__tests__/batchBoundary.test.js
  */
 import { describe, it } from 'node:test'
 import assert from 'node:assert'
-import { getSignalBits } from '../signalLayout.js'
+import { computeBatchSignals, getSignalBits, bitToGridCell } from '../signalLayout.js'
 
-/**
- * 模拟 signals.js 中 batchAddSignals() 的边界检查逻辑
- * 返回 null 表示全部合法，否则返回第一个越界的信号信息
- *
- * @param {number} count - 信号数量
- * @param {number} startBit - 起始 bit
- * @param {number} bitStep - 信号间 bit 步长
- * @param {number} length - 每个信号长度
- * @param {string} byteOrder - 'intel' | 'motorola'
- * @param {number} dlc - 报文 DLC
- * @returns {{ index: number, sb: number, badBit: number } | null}
- */
-function checkBatchBoundary(count, startBit, bitStep, length, byteOrder, dlc) {
-  const maxBits = dlc * 8
-  for (let i = 0; i < count; i++) {
-    const sb = startBit + i * bitStep
-    const bits = getSignalBits(sb, length, byteOrder)
-    for (const b of bits) {
-      if (b < 0 || b >= maxBits) {
-        return { index: i, sb, badBit: b }
-      }
+function layout(count, startBit, interval, length, byteOrder, dlc) {
+  return computeBatchSignals({ startBit, length, interval, byteOrder, count, maxBit: dlc * 8 - 1 })
+}
+
+function walkPos(bit) {
+  const { row, col } = bitToGridCell(bit)
+  return row * 8 + col
+}
+
+function walkPosToBit(p) {
+  return Math.floor(p / 8) * 8 + (7 - (p % 8))
+}
+
+/** 收敛性断言：有效信号互不重叠、占用位在 [0,maxBit] 内、相邻间隔一致 */
+function assertConverged(layouts, length, interval, byteOrder, dlc) {
+  const maxBit = dlc * 8 - 1
+  const step = length + interval
+  const valids = layouts.filter(s => s.valid)
+  const all = new Set()
+  for (const s of valids) {
+    for (const b of getSignalBits(s.start_bit, length, byteOrder)) {
+      assert.ok(b >= 0 && b <= maxBit, `bit ${b} 超出 [0,${maxBit}]`)
+      assert.ok(!all.has(b), `bit ${b} 被重复占用`)
+      all.add(b)
     }
   }
-  return null
+  for (let i = 1; i < valids.length; i++) {
+    const gap = byteOrder === 'intel'
+      ? valids[i].start_bit - valids[i - 1].start_bit
+      : walkPos(valids[i].start_bit) - walkPos(valids[i - 1].start_bit)
+    assert.strictEqual(gap, step, `相邻有效信号间隔应为 ${step}，实际 ${gap}`)
+  }
 }
 
 // ── Intel 字节序测试 ──
 
-describe('Intel 字节序边界检查', () => {
-  it('正常批量添加 — 全部在范围内', () => {
-    // DLC=8 (64 bits), 8 个 8-bit 信号, startBit=0, bitStep=8
-    const result = checkBatchBoundary(8, 0, 8, 8, 'intel', 8)
-    assert.strictEqual(result, null, '8x8-bit signals should fit in 64-bit message')
+describe('Intel 字节序', () => {
+  it('8 个 8-bit interval=0 紧密连接，全部有效', () => {
+    const r = layout(8, 0, 0, 8, 'intel', 8)
+    assert.ok(r.every(x => x.valid))
+    assert.deepStrictEqual(r.map(x => x.start_bit), [0, 8, 16, 24, 32, 40, 48, 56])
   })
 
-  it('单个信号恰好在边界', () => {
-    // DLC=8 (64 bits), 1 个 8-bit 信号 at bit 56
-    const result = checkBatchBoundary(1, 56, 0, 8, 'intel', 8)
-    assert.strictEqual(result, null, 'signal at bit 56-63 should fit in 64-bit message')
+  it('单个信号恰好在边界 (56) — 有效', () => {
+    assert.strictEqual(layout(1, 56, 0, 8, 'intel', 8)[0].valid, true)
   })
 
-  it('单个信号超出边界 — 正确拒绝', () => {
-    // DLC=8 (64 bits), 1 个 8-bit 信号 at bit 57 (ends at 64, out of range)
-    const result = checkBatchBoundary(1, 57, 0, 8, 'intel', 8)
-    assert.ok(result !== null, 'signal at bit 57-64 should exceed 64-bit message')
-    assert.strictEqual(result.index, 0)
+  it('单个信号超出边界 (57) — 无效跳过', () => {
+    assert.strictEqual(layout(1, 57, 0, 8, 'intel', 8)[0].valid, false)
   })
 
-  it('批量中最后一个超出边界', () => {
-    // DLC=8 (64 bits), 9 个 8-bit 信号, startBit=0, bitStep=8
-    // 前 8 个占用 0-63, 第 9 个从 bit 64 开始越界
-    const result = checkBatchBoundary(9, 0, 8, 8, 'intel', 8)
-    assert.ok(result !== null, '9th signal should exceed boundary')
-    assert.strictEqual(result.index, 8, 'the 9th signal (index=8) should be the first bad one')
+  it('批量中最后一个超出边界 — 仅最后一个无效，其余创建', () => {
+    // 9 个 8-bit，前 8 个占 0-63，第 9 个从 64 越界
+    const r = layout(9, 0, 0, 8, 'intel', 8)
+    assert.ok(r.slice(0, 8).every(x => x.valid))
+    assert.strictEqual(r[8].valid, false)
   })
 
-  it('count=1 单信号合法', () => {
-    const result = checkBatchBoundary(1, 0, 8, 1, 'intel', 1)
-    assert.strictEqual(result, null)
+  it('count=1 单信号', () => {
+    assert.strictEqual(layout(1, 0, 0, 1, 'intel', 1)[0].valid, true)
+    assert.strictEqual(layout(1, 8, 0, 1, 'intel', 1)[0].valid, false)
   })
 
-  it('count=1 单信号越界', () => {
-    const result = checkBatchBoundary(1, 8, 8, 1, 'intel', 1)
-    assert.ok(result !== null, 'bit 8 exceeds 8-bit message (DLC=1)')
+  it('间隔=8 — 间隔 8 bit', () => {
+    const r = layout(3, 0, 8, 8, 'intel', 8)
+    assert.ok(r.every(x => x.valid))
+    assert.deepStrictEqual(r.map(x => x.start_bit), [0, 16, 32])
+  })
+
+  it('length=64 填满整个报文', () => {
+    assert.strictEqual(layout(1, 0, 0, 64, 'intel', 8)[0].valid, true)
   })
 })
 
 // ── Motorola 字节序测试 ──
 
-describe('Motorola 字节序边界检查', () => {
-  it('正常批量添加 — 全部在范围内', () => {
-    // DLC=8 (64 bits), 8 个 8-bit Motorola 信号
-    // MSB=7,15,23,31,39,47,55,63 → 各填满一个字节
-    const result = checkBatchBoundary(8, 7, 8, 8, 'motorola', 8)
-    assert.strictEqual(result, null, '8 Motorola 8-bit signals from MSB=7 step=8 should fit')
+describe('Motorola 字节序', () => {
+  it('8 个 8-bit interval=0 — 每字节一条', () => {
+    const r = layout(8, 0, 0, 8, 'motorola', 8)
+    assert.ok(r.every(x => x.valid))
+    assert.deepStrictEqual(r.map(x => x.start_bit), [7, 15, 23, 31, 39, 47, 55, 63])
+    assert.deepStrictEqual(r.map(x => x.display_start_bit), [0, 8, 16, 24, 32, 40, 48, 56])
   })
 
-  it('线性计算会误报的场景 — Motorola 实际合法', () => {
-    // DLC=2 (16 bits), Motorola, startBit=7, bitStep=8, length=8, count=2
-    // 线性计算: lastEnd = 7 + (2-1)*8 + 8 = 23 > 16 → 误报越界
-    // 实际: Signal 0 MSB=7 → bits {7,6,5,4,3,2,1,0} 全部在 [0,16)
-    //       Signal 1 MSB=15 → bits {15,14,13,12,11,10,9,8} 全部在 [0,16)
-    const result = checkBatchBoundary(2, 7, 8, 8, 'motorola', 2)
-    assert.strictEqual(result, null,
-      'Motorola MSB=7 and MSB=15 with length=8 should both fit in 16-bit message')
+  it('DLC=2 两个 8-bit 均合法', () => {
+    const r = layout(2, 0, 0, 8, 'motorola', 2)
+    assert.ok(r.every(x => x.valid))
+    assert.deepStrictEqual(r.map(x => x.start_bit), [7, 15])
   })
 
-  it('另一个线性误报场景 — 跨字节 Motorola', () => {
-    // DLC=4 (32 bits), Motorola, startBit=15, bitStep=16, length=16, count=2
-    // 线性计算: lastEnd = 15 + (2-1)*16 + 16 = 47 > 32 → 误报
-    // 实际: Signal 0 MSB=15 → 16 bits 填满 Byte2+Byte3 → {15..8, 23..16}
-    //       Signal 1 MSB=31 → 16 bits 填满 Byte4+Byte5 → 但 DLC=4 只有 32 bits
-    // MSB=31 的 16-bit Motorola: 31→30→...→24→39→38→...→32 → bit 39 超出!
-    // 所以这个应该被正确拒绝
-    const result = checkBatchBoundary(2, 15, 16, 16, 'motorola', 4)
-    assert.ok(result !== null,
-      'Second signal MSB=31 length=16 should exceed 32-bit (DLC=4) message')
-    assert.strictEqual(result.index, 1)
+  it('跨字节 16-bit 越界 — 第二个信号无效跳过，不中止整批', () => {
+    // DLC=4，LSB=16/len=16：信号1 MSB=15 填 Byte1-2；信号2 MSB=31 → 位 39 越界
+    const r = layout(2, 16, 0, 16, 'motorola', 4)
+    assert.strictEqual(r[0].valid, true)
+    assert.strictEqual(r[1].valid, false)
   })
 
-  it('Motorola 真实越界 — 正确拒绝', () => {
-    // DLC=1 (8 bits), Motorola, startBit=7, length=16, count=1
-    // MSB=7 走 16 步: 7→6→5→4→3→2→1→0→15→14→13→12→11→10→9→8
-    // bit 15,14,...,8 超出 [0,8) 范围
-    const result = checkBatchBoundary(1, 7, 0, 16, 'motorola', 1)
-    assert.ok(result !== null, '16-bit Motorola signal in 8-bit message should exceed')
-    assert.strictEqual(result.index, 0)
+  it('真实越界 — 16-bit 信号放不进 DLC=1', () => {
+    assert.strictEqual(layout(1, 8, 0, 16, 'motorola', 1)[0].valid, false)
+    assert.strictEqual(layout(1, 8, 0, 16, 'motorola', 2)[0].valid, true)
+    assert.strictEqual(layout(1, 16, 0, 16, 'motorola', 2)[0].valid, false)
   })
 
-  it('Motorola 跨字节边界合法 — 16-bit 信号填满两个字节', () => {
-    // DLC=2 (16 bits), Motorola, startBit=15, length=16, count=1
-    // MSB=15 → 15→14→...→8→23→22→...→16 → bit 23 超出!
-    // 实际上 Motorola 16-bit 需要 MSB=7 才能填满 Byte0+Byte1
-    // MSB=7: 7→6→...→0→15→14→...→8 ✓
-    const resultOK = checkBatchBoundary(1, 7, 0, 16, 'motorola', 2)
-    assert.strictEqual(resultOK, null, 'MSB=7 length=16 should fit in 16-bit message')
-
-    const resultBad = checkBatchBoundary(1, 15, 0, 16, 'motorola', 2)
-    assert.ok(resultBad !== null, 'MSB=15 length=16 should exceed 16-bit message')
+  it('count=1 单信号', () => {
+    assert.strictEqual(layout(1, 0, 0, 8, 'motorola', 1)[0].valid, true)
+    assert.strictEqual(layout(1, 9, 0, 8, 'motorola', 1)[0].valid, false)
   })
 
-  it('count=1 单信号 Motorola 合法', () => {
-    // DLC=1, Motorola, MSB=7, length=8 → 填满一个字节
-    const result = checkBatchBoundary(1, 7, 0, 8, 'motorola', 1)
-    assert.strictEqual(result, null)
-  })
-
-  it('count=1 单信号 Motorola 越界', () => {
-    // DLC=1, Motorola, MSB=0, length=8
-    // MSB=0 → 0→15→14→13→12→11→10→9 → bit 15 超出 [0,8)
-    const result = checkBatchBoundary(1, 0, 0, 8, 'motorola', 1)
-    assert.ok(result !== null, 'MSB=0 length=8 should exceed 8-bit message')
+  it('间隔=8 — 空一个字节', () => {
+    const r = layout(3, 0, 8, 8, 'motorola', 8)
+    assert.ok(r.every(x => x.valid))
+    assert.deepStrictEqual(r.map(x => x.start_bit), [7, 23, 39])
   })
 })
 
-// ── 边界情况 ──
+// ── 已知问题场景 ──
 
-describe('边界情况', () => {
-  it('count=0 — 无信号，不触发检查', () => {
-    const result = checkBatchBoundary(0, 0, 8, 8, 'intel', 8)
-    assert.strictEqual(result, null, '0 signals should always pass')
+describe('已知问题场景', () => {
+  it('Motorola 间隔=1 起始位 0 — 第二信号 MSB=14、LSB=23', () => {
+    const r = layout(2, 0, 1, 8, 'motorola', 8)
+    assert.ok(r.every(x => x.valid))
+    assert.strictEqual(r[0].start_bit, 7)
+    assert.strictEqual(r[1].start_bit, 14)
+    assert.strictEqual(r[1].display_start_bit, 23)
   })
 
-  it('length=1 单 bit 信号', () => {
-    const result = checkBatchBoundary(64, 0, 1, 1, 'intel', 8)
-    assert.strictEqual(result, null, '64 single-bit signals should fit in 64-bit message')
+  it('Motorola 间隔=2 起始位 15 — 沿锯齿推进，间隔一致', () => {
+    const r = layout(4, 15, 2, 8, 'motorola', 8)
+    assert.ok(r.every(x => x.valid))
+    assert.deepStrictEqual(r.map(x => x.start_bit), [6, 12, 18, 24])
+    assert.deepStrictEqual(r.map(x => x.display_start_bit), [15, 21, 27, 33])
   })
 
-  it('length=64 填满整个报文', () => {
-    // Intel: startBit=0, length=64, DLC=8 → 恰好填满
-    const result = checkBatchBoundary(1, 0, 0, 64, 'intel', 8)
-    assert.strictEqual(result, null, '64-bit Intel signal should fill 64-bit message')
+  it('Motorola 间隔=4 起始位 2 — 统一网格：首无效，PTA02/03 MSB=13/17', () => {
+    // slotStart0 = walkPos(2)-7 = -2；step=12
+    // slot1=[10,17]→MSB13/LSB22；slot2=[22,29]→MSB17/LSB26；slot3=[34,41]→MSB37/LSB46；slot4=[46,53]→MSB41/LSB50
+    const r = layout(8, 2, 4, 8, 'motorola', 8)
+    assert.strictEqual(r[0].valid, false)
+    assert.strictEqual(r[0].display_start_bit, 2)
+    assert.deepStrictEqual(r.slice(1, 5).map(x => x.valid), [true, true, true, true])
+    assert.deepStrictEqual(r.slice(1, 5).map(x => x.start_bit), [13, 17, 37, 41])
+    assert.deepStrictEqual(r.slice(1, 5).map(x => x.display_start_bit), [22, 26, 46, 50])
+    assert.strictEqual(r[5].valid, false)
+    assert.strictEqual(r[6].valid, false)
+    assert.strictEqual(r[7].valid, false)
   })
 
-  it('DLC=1 小报文 Motorola', () => {
-    // DLC=1 (8 bits), Motorola, MSB=3, length=4
-    // 3→2→1→0 ✓ 全部在 [0,8)
-    const result = checkBatchBoundary(1, 3, 0, 4, 'motorola', 1)
-    assert.strictEqual(result, null)
+  it('Motorola 间隔=4 起始位 4 — 统一网格：PTA02 MSB=15/LSB=8', () => {
+    // slotStart0 = walkPos(4)-7 = -4；step=12
+    // slot1=[8,15]→MSB15/LSB8（用户确认）；slot2=[20,27]→MSB19/LSB28；slot3=[32,39]→MSB39/LSB32；slot4=[44,51]→MSB43/LSB52；slot5=[56,63]→MSB63/LSB56
+    const r = layout(8, 4, 4, 8, 'motorola', 8)
+    assert.strictEqual(r[0].valid, false)
+    assert.strictEqual(r[0].display_start_bit, 4)
+    assert.deepStrictEqual(r.slice(1, 6).map(x => x.valid), [true, true, true, true, true])
+    assert.deepStrictEqual(r.slice(1, 6).map(x => x.start_bit), [15, 19, 39, 43, 63])
+    assert.deepStrictEqual(r.slice(1, 6).map(x => x.display_start_bit), [8, 28, 32, 52, 56])
+    assert.strictEqual(r[1].start_bit, 15, 'PTA02 MSB 应为 15')
+    assert.strictEqual(r[1].display_start_bit, 8, 'PTA02 LSB 应为 8')
+    assert.strictEqual(r[6].valid, false)
+    assert.strictEqual(r[7].valid, false)
   })
+
+  it('Motorola 首信号无效（LSB=3, interval=0）— 锚点后平铺', () => {
+    const r = layout(8, 3, 0, 8, 'motorola', 8)
+    assert.strictEqual(r[0].valid, false)
+    assert.strictEqual(r[0].display_start_bit, 3)
+    assert.ok(r.slice(1).every(x => x.valid))
+    assert.strictEqual(r[1].start_bit, 2)
+    assert.strictEqual(r[1].display_start_bit, 11)
+    assert.deepStrictEqual(r.slice(1).map(x => x.start_bit), [2, 10, 18, 26, 34, 42, 50])
+    assert.deepStrictEqual(r.slice(1).map(x => x.display_start_bit), [11, 19, 27, 35, 43, 51, 59])
+  })
+
+  it('全无效批次（count=1 且首个无效）', () => {
+    const r = layout(1, 3, 0, 8, 'motorola', 8)
+    assert.strictEqual(r[0].valid, false)
+  })
+})
+
+// ── 10 组随机有效用例收敛性 ──
+
+describe('10 组随机有效用例收敛性', () => {
+  let seed = 20260805
+  const rnd = () => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0
+    return seed / 4294967296
+  }
+  const randInt = (a, b) => a + Math.floor(rnd() * (b - a + 1))
+  const dlcs = [1, 2, 4, 8]
+
+  for (let t = 0; t < 10; t++) {
+    const dlc = dlcs[randInt(0, 3)]
+    const totalBits = dlc * 8
+    const byteOrder = rnd() < 0.5 ? 'intel' : 'motorola'
+    const length = randInt(1, Math.min(16, totalBits))
+    const interval = randInt(0, 8)
+    const count = randInt(1, 8)
+    // 保证首个信号有效（有效用例）：起始位取一个合法槽位的 LSB
+    const startBit = byteOrder === 'intel'
+      ? randInt(0, totalBits - length)
+      : walkPosToBit(randInt(0, totalBits - length) + length - 1)
+
+    it(`用例${t + 1}: dlc=${dlc} ${byteOrder} len=${length} interval=${interval} count=${count} startBit=${startBit}`, () => {
+      const r = layout(count, startBit, interval, length, byteOrder, dlc)
+      assert.strictEqual(r[0].valid, true, '首个信号应有效')
+      assertConverged(r, length, interval, byteOrder, dlc)
+    })
+  }
 })
