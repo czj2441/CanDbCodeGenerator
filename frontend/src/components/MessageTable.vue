@@ -212,8 +212,19 @@ function handleRowMouseDown(msgId, msgIndex, event) {
     if (INTERACTIVE_TAGS.has(event.target.tagName)) event.preventDefault()
     return
   }
-  const isInteractive = INTERACTIVE_TAGS.has(event.target.tagName)
-  const isCheckbox = event.target.type === 'checkbox'
+
+  // 点击 td 空白区域时，解析到单元格内的编辑元素，扩大可点击区域
+  let targetEl = event.target
+  let isInteractive = INTERACTIVE_TAGS.has(targetEl.tagName)
+  if (!isInteractive && (targetEl.tagName === 'TD' || targetEl.tagName === 'TH')) {
+    const editor = targetEl.querySelector('input:not([type="checkbox"]), select')
+    if (editor) {
+      targetEl = editor
+      isInteractive = true
+    }
+  }
+
+  const isCheckbox = targetEl.type === 'checkbox'
 
   // Checkbox 点击：不干扰多选状态，交给 @change 处理
   if (isCheckbox) return

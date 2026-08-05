@@ -73,7 +73,7 @@
               <template v-else-if="col.key === 'start'"><input class="mono" type="number" v-lazy-value="displayStartBit(sig)" @blur="e => updateStartBit(sig, parseInt(e.target.value)||0)" :disabled="multiSelect.isMultiSelect.value" :readonly="!isCellEditable(sig.name)" data-field="start"></template>
               <template v-else-if="col.key === 'length'"><input class="mono" type="number" v-lazy-value="sig.length" @blur="e => update(sig.name, 'length', parseInt(e.target.value))" :readonly="!isCellEditable(sig.name)" data-field="length"></template>
               <template v-else-if="col.key === 'order'">
-                <select :value="sig.byte_order" @change="e => updateByteOrder(sig, e)">
+                <select :value="sig.byte_order" @change="e => updateByteOrder(sig, e)" data-field="order">
                   <option value="intel">Intel</option>
                   <option value="motorola">Motorola</option>
                 </select>
@@ -85,7 +85,7 @@
               <template v-else-if="col.key === 'unit'"><input v-lazy-value="sig.unit" @blur="e => update(sig.name, 'unit', e.target.value)" :readonly="!isCellEditable(sig.name)" data-field="unit"></template>
               <template v-else-if="col.key === 'comment'"><input v-lazy-value="sig.comment" @blur="e => update(sig.name, 'comment', e.target.value)" :readonly="!isCellEditable(sig.name)" data-field="comment"></template>
               <template v-else-if="col.key === 'valTable'">
-                <select :value="sig.value_table_name || ''" @change="e => updateValueTableRef(sig.name, e.target.value)">
+                <select :value="sig.value_table_name || ''" @change="e => updateValueTableRef(sig.name, e.target.value)" data-field="valTable">
                   <option value="">-</option>
                   <option v-for="name in valueTableNames" :key="name" :value="name">{{ name }}</option>
                 </select>
@@ -262,8 +262,19 @@ function handleRowMouseDown(sigName, sigIndex, event) {
     if (INTERACTIVE_TAGS.has(event.target.tagName)) event.preventDefault()
     return
   }
-  const isInteractive = INTERACTIVE_TAGS.has(event.target.tagName)
-  const isCheckbox = event.target.type === 'checkbox'
+
+  // 点击 td 空白区域时，解析到单元格内的编辑元素，扩大可点击区域
+  let targetEl = event.target
+  let isInteractive = INTERACTIVE_TAGS.has(targetEl.tagName)
+  if (!isInteractive && (targetEl.tagName === 'TD' || targetEl.tagName === 'TH')) {
+    const editor = targetEl.querySelector('input:not([type="checkbox"]), select')
+    if (editor) {
+      targetEl = editor
+      isInteractive = true
+    }
+  }
+
+  const isCheckbox = targetEl.type === 'checkbox'
 
   // Checkbox 点击：不干扰多选状态，交给 @change 处理
   if (isCheckbox) return
@@ -282,7 +293,7 @@ function handleRowMouseDown(sigName, sigIndex, event) {
   // 点击输入/选择元素 → 双击进入编辑模式
   if (isInteractive) {
     if (event.detail >= 2) {
-      editingKey.value = { sigName, field: event.target.dataset.field }
+      editingKey.value = { sigName, field: targetEl.dataset.field }
     }
     if (ui.selectedSignalName !== sigName) {
       ui.selectedSignalName = sigName
