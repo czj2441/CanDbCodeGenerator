@@ -1,6 +1,5 @@
 <template>
-  <div v-if="ui.showLogPanel" class="log-panel" :style="{ height: panelHeight + 'px' }">
-    <div class="log-resize" @mousedown="startResize"></div>
+  <div class="log-panel">
     <div class="log-header">
       <span class="log-title">{{ t('log.title') }}</span>
       <div class="log-actions">
@@ -28,16 +27,10 @@
 <script setup>
 import { ref, watch, nextTick, computed } from 'vue'
 import { useEditorStore } from '../stores/editor.js'
-import { useUiStore } from '../stores/uiStore.js'
 import { t } from '../i18n.js'
 
 const store = useEditorStore()
-const ui = useUiStore()
 const logBody = ref(null)
-const panelHeight = ref(160)
-let isResizing = false
-let startY = 0
-let startHeight = 0
 
 const typeLabels = computed(() => ({
   undo: t('log.type.undo'),
@@ -51,26 +44,6 @@ const typeLabels = computed(() => ({
 
 function typeLabel(type) {
   return typeLabels.value[type] || type
-}
-
-function startResize(e) {
-  isResizing = true
-  startY = e.clientY
-  startHeight = panelHeight.value
-  document.addEventListener('mousemove', onResize)
-  document.addEventListener('mouseup', stopResize)
-}
-
-function onResize(e) {
-  if (!isResizing) return
-  const delta = startY - e.clientY
-  panelHeight.value = Math.max(60, Math.min(400, startHeight + delta))
-}
-
-function stopResize() {
-  isResizing = false
-  document.removeEventListener('mousemove', onResize)
-  document.removeEventListener('mouseup', stopResize)
 }
 
 // 新日志自动滚动到顶部
@@ -87,22 +60,9 @@ watch(() => store.logEntries.length, () => {
 .log-panel {
   display: flex;
   flex-direction: column;
-  border-top: 1px solid var(--border);
   background: var(--bg-panel);
-  flex-shrink: 0;
   overflow: hidden;
-}
-
-.log-resize {
-  height: 4px;
-  background: var(--border);
-  cursor: row-resize;
-  flex-shrink: 0;
-  transition: background 150ms;
-}
-
-.log-resize:hover {
-  background: var(--accent);
+  height: 100%;
 }
 
 .log-header {

@@ -72,7 +72,7 @@
                   <option value="true">CAN FD</option>
                 </select>
               </template>
-              <template v-else-if="col.key === 'msg_edit_signals'"><button class="btn btn-accent btn-sm" @click.stop="jumpToSignals(m.id)">{{ t('msgtable.editSignals') }}</button></template>
+              <template v-else-if="col.key === 'msg_edit_signals'"><button class="vt-tag" @click.stop="jumpToSignals(m.id)">{{ t('msgtable.editSignals') }}</button></template>
               <template v-else-if="col.key === 'msg_actions'"><button class="action-delete" @click.stop="deleteMessage(m.id)" title="删除">×</button></template>
             </td>
           </tr>
@@ -534,17 +534,26 @@ function onCellKeyDown(e) {
 }
 .action-delete:hover { color: oklch(0.75 0.15 25); }
 
-.btn-accent {
-  background: var(--accent);
-  color: oklch(0.12 0.01 155);
-  border-color: transparent;
-  font-weight: 600;
-}
-.btn-accent:hover { filter: brightness(1.1); }
 .btn-sm {
   padding: 2px 8px;
   font-size: 11px;
 }
+
+/* 编辑信号按钮 - 复用信号表值描述标签样式 */
+.vt-tag {
+  display: inline-block;
+  background: color-mix(in oklch, var(--accent) 15%, transparent);
+  color: var(--accent);
+  border: none;
+  border-radius: 3px;
+  padding: 1px 6px;
+  font-size: 11px;
+  cursor: pointer;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.vt-tag:hover { background: color-mix(in oklch, var(--accent) 25%, transparent); }
 
 /* 拖拽手柄 */
 .resize-handle {

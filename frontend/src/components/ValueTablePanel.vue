@@ -175,7 +175,7 @@ function commitEntries() {
 
 <style scoped>
 .panel {
-  width: 280px;
+  width: 100%;
   background: var(--bg-panel);
   display: flex;
   flex-direction: column;

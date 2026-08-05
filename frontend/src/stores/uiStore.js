@@ -40,6 +40,13 @@ export const useUiStore = defineStore('ui', {
     showLogPanel: false,
     // 导出拦截时自动展开 DataErrorList
     expandDataErrors: false,
+    // 底部面板标签页（'errors' | 'log' | null）
+    // '' = 用户显式关闭（跨刷新保持关闭），null = 首次访问（默认打开 errors）
+    bottomTab: (() => { const v = localStorage.getItem('canmatrix_bottom_tab'); return v !== null ? (v || null) : 'errors' })(),
+    // 右侧边栏宽度
+    sidebarWidth: parseInt(localStorage.getItem('canmatrix_sidebar_width')) || 280,
+    // 底部面板高度
+    bottomPanelHeight: parseInt(localStorage.getItem('canmatrix_bottom_height')) || 160,
     // 列可见性 + 列宽（SignalTable）
     hiddenColumns: JSON.parse(localStorage.getItem('canmatrix_hidden_cols') ?? JSON.stringify(DEFAULT_SIGNAL_HIDDEN_COLS)),
     columnWidths: JSON.parse(localStorage.getItem('canmatrix_col_widths') || '{}'),
@@ -205,6 +212,20 @@ export const useUiStore = defineStore('ui', {
     toggleLayoutView() {
       this.layoutViewMode = !this.layoutViewMode
       this.selectedSignalName = null
+    },
+
+    // ── 底部面板 / 侧栏 ──
+    setBottomTab(tab) {
+      this.bottomTab = this.bottomTab === tab ? null : tab
+      localStorage.setItem('canmatrix_bottom_tab', this.bottomTab || '')
+    },
+    setSidebarWidth(w) {
+      this.sidebarWidth = w
+      localStorage.setItem('canmatrix_sidebar_width', String(w))
+    },
+    setBottomPanelHeight(h) {
+      this.bottomPanelHeight = h
+      localStorage.setItem('canmatrix_bottom_height', String(h))
     },
 
     // ── Tab 切换 ──
