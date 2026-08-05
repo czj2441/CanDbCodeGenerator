@@ -3,7 +3,7 @@ import { t } from '../i18n.js'
 import { useUiStore } from './uiStore.js'
 import { useEditorStore } from './editor.js'
 import { translateError, findNextAvailableStartBit, generateSignalName } from '../utils/storeHelpers.js'
-import { getSignalBits } from '../utils/signalLayout.js'
+import { getSignalBits, toStorageStartBit } from '../utils/signalLayout.js'
 
 export const useSignalsStore = defineStore('signals', {
   actions: {
@@ -164,6 +164,7 @@ export const useSignalsStore = defineStore('signals', {
 
     /**
      * 批量添加信号（等待服务器模式）
+     * startBit 参数为 LSB（与信号列表显示一致），内部转为 MSB（存储格式）
      */
     async batchAddSignals({ nameTemplate, count, startNum, startBit, bitStep, length, byteOrder, factor, offset, minVal, maxVal, unit, commentTemplate }) {
       const editor = useEditorStore()
@@ -172,8 +173,16 @@ export const useSignalsStore = defineStore('signals', {
       if (!msg) return
       const { expandTemplate } = await import('../utils/format.js')
       const maxBits = msg.dlc * 8
+
+      // LSB → MSB 转换（Intel 下不变，Motorola 下转换）
+      const storageStartBit = toStorageStartBit(startBit, length, byteOrder, 63, -1)
+      if (storageStartBit < 0) {
+        useUiStore().showToast(`Invalid start bit ${startBit} for ${byteOrder} length ${length}`, true)
+        return
+      }
+
       for (let i = 0; i < count; i++) {
-        const sb = startBit + i * bitStep
+        const sb = storageStartBit + i * bitStep
         const bits = getSignalBits(sb, length, byteOrder)
         for (const b of bits) {
           if (b < 0 || b >= maxBits) {
@@ -188,7 +197,7 @@ export const useSignalsStore = defineStore('signals', {
         const n = startNum + i
         const name = expandTemplate(nameTemplate, n)
         const comment = commentTemplate ? expandTemplate(commentTemplate, n) : ''
-        const sb = startBit + i * bitStep
+        const sb = storageStartBit + i * bitStep
         signals.push({
           name, start_bit: sb, length, byte_order: byteOrder,
           factor, offset, min_val: minVal, max_val: maxVal, unit, comment,

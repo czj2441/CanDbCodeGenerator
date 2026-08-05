@@ -204,6 +204,8 @@ const dict = {
     'batch.commentHint': '例如：ADC 通道 {n} 原始值',
     'batch.cancel': '取消',
     'batch.create': '创建',
+    'batch.previewTitle': '创建预览',
+    'batch.preview': '预览',
 
     // HistoryModal
     // ContextMenu

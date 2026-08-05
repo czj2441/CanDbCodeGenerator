@@ -5,60 +5,87 @@
         <div class="modal-panel">
           <div class="modal-header">{{ t('batch.title') }}</div>
           <div class="modal-body">
-            <div class="field">
-              <label>{{ t('batch.nameTemplate') }}</label>
-              <input class="mono" v-model="form.nameTemplate" spellcheck="false">
-              <div class="hint">{{ t('batch.nameHint') }}</div>
-            </div>
-            <div class="row">
+            <!-- 左侧：表单 -->
+            <div class="form-side">
               <div class="field">
-                <label>{{ t('batch.count') }}</label>
-                <input class="mono" type="number" v-model.number="form.count" min="1" max="64">
+                <label>{{ t('batch.nameTemplate') }}</label>
+                <input class="mono" v-model="form.nameTemplate" spellcheck="false">
+                <div class="hint">{{ t('batch.nameHint') }}</div>
+              </div>
+              <div class="row">
+                <div class="field">
+                  <label>{{ t('batch.count') }}</label>
+                  <input class="mono" type="number" v-model.number="form.count" min="1" max="64">
+                </div>
+                <div class="field">
+                  <label>{{ t('batch.startNum') }}</label>
+                  <input class="mono" type="number" v-model.number="form.startNum" min="0">
+                </div>
+              </div>
+              <div class="row">
+                <div class="field">
+                  <label>{{ t('batch.startBit') }}</label>
+                  <input class="mono" type="number" v-model.number="form.startBit" min="0" max="63">
+                </div>
+                <div class="field">
+                  <label>{{ t('batch.bitStep') }}</label>
+                  <input class="mono" type="number" v-model.number="form.bitStep" min="1" max="64">
+                </div>
+              </div>
+              <div class="row">
+                <div class="field">
+                  <label>{{ t('batch.length') }}</label>
+                  <input class="mono" type="number" v-model.number="form.length" min="1" max="64">
+                </div>
+                <div class="field">
+                  <label>{{ t('batch.byteOrder') }}</label>
+                  <select v-model="form.byteOrder">
+                    <option value="intel">{{ t('batch.intel') }}</option>
+                    <option value="motorola">{{ t('batch.motorola') }}</option>
+                  </select>
+                </div>
               </div>
               <div class="field">
-                <label>{{ t('batch.startNum') }}</label>
-                <input class="mono" type="number" v-model.number="form.startNum" min="0">
-              </div>
-            </div>
-            <div class="row">
-              <div class="field">
-                <label>{{ t('batch.startBit') }}</label>
-                <input class="mono" type="number" v-model.number="form.startBit" min="0" max="63">
+                <label>{{ t('batch.unit') }}</label>
+                <input v-model="form.unit">
               </div>
               <div class="field">
-                <label>{{ t('batch.bitStep') }}</label>
-                <input class="mono" type="number" v-model.number="form.bitStep" min="1" max="64">
+                <label>{{ t('batch.commentTemplate') }}</label>
+                <input v-model="form.commentTemplate" spellcheck="false">
+                <div class="hint">{{ t('batch.commentHint') }}</div>
               </div>
             </div>
-            <div class="row">
-              <div class="field">
-                <label>{{ t('batch.length') }}</label>
-                <input class="mono" type="number" v-model.number="form.length" min="1" max="64">
+
+            <!-- 右侧：预览 -->
+            <div class="preview-side">
+              <div class="preview-label">{{ t('batch.previewTitle') }}</div>
+              <div class="preview-canvas-wrap">
+                <BitLayoutCanvas
+                  :signals="previewSignals"
+                  :dlc="currentMsgDlc"
+                />
               </div>
-              <div class="field">
-                <label>{{ t('batch.byteOrder') }}</label>
-                <select v-model="form.byteOrder">
-                  <option value="intel">{{ t('batch.intel') }}</option>
-                  <option value="motorola">{{ t('batch.motorola') }}</option>
-                </select>
+              <div class="preview-table-wrap">
+                <table class="preview-table">
+                  <thead>
+                    <tr>
+                      <th>{{ t('signal.thName') }}</th>
+                      <th>{{ t('signal.thStart') }}</th>
+                      <th>{{ t('signal.thLen') }}</th>
+                      <th>{{ t('signal.thOrder') }}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(sig, idx) in previewSignals" :key="idx"
+                        :class="{ 'out-of-range': outOfRangeIndices.has(idx) }">
+                      <td class="mono">{{ sig.name }}</td>
+                      <td class="mono">{{ sig.start_bit }}</td>
+                      <td class="mono">{{ sig.length }}</td>
+                      <td>{{ sig.byte_order === 'intel' ? t('batch.intel') : t('batch.motorola') }}</td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
-            </div>
-            <div class="row">
-              <div class="field"><label>{{ t('batch.factor') }}</label><input class="mono" type="number" step="any" v-model.number="form.factor"></div>
-              <div class="field"><label>{{ t('batch.offset') }}</label><input class="mono" type="number" step="any" v-model.number="form.offset"></div>
-            </div>
-            <div class="row">
-              <div class="field"><label>{{ t('batch.min') }}</label><input class="mono" type="number" step="any" v-model.number="form.minVal"></div>
-              <div class="field"><label>{{ t('batch.max') }}</label><input class="mono" type="number" step="any" v-model.number="form.maxVal"></div>
-            </div>
-            <div class="field">
-              <label>{{ t('batch.unit') }}</label>
-              <input v-model="form.unit">
-            </div>
-            <div class="field">
-              <label>{{ t('batch.commentTemplate') }}</label>
-              <input v-model="form.commentTemplate" spellcheck="false">
-              <div class="hint">{{ t('batch.commentHint') }}</div>
             </div>
           </div>
           <div class="modal-footer">
@@ -72,11 +99,16 @@
 </template>
 
 <script setup>
-import { reactive, watch } from 'vue'
+import { computed, reactive, watch } from 'vue'
 import { useSignalsStore } from '../stores/signals.js'
+import { useEditorStore } from '../stores/editor.js'
 import { t } from '../i18n.js'
+import { expandTemplate } from '../utils/format.js'
+import { getSignalBits, toStorageStartBit } from '../utils/signalLayout.js'
+import BitLayoutCanvas from './BitLayoutCanvas.vue'
 
 const signals = useSignalsStore()
+const editor = useEditorStore()
 
 const visible = defineModel('visible', { type: Boolean, default: false })
 
@@ -105,6 +137,54 @@ watch(visible, (newVal) => {
   }
 })
 
+// ── 预览计算 ──
+
+/** 当前报文的 DLC（字节数），默认 8 */
+const currentMsgDlc = computed(() => {
+  const msg = editor.selectedMessage
+  return msg?.dlc || 8
+})
+
+/** 预览信号列表（纯前端计算，不经过后端）
+ *  用户输入的 startBit 为 LSB（与信号列表显示一致），预览需转为 MSB（存储格式）供 BitLayoutCanvas 渲染 */
+const previewSignals = computed(() => {
+  const result = []
+  const count = Math.max(0, Math.min(form.count || 0, 64))
+  const length = form.length || 1
+  const byteOrder = form.byteOrder || 'motorola'
+  for (let i = 0; i < count; i++) {
+    const n = (form.startNum || 0) + i
+    const name = expandTemplate(form.nameTemplate || '', n)
+    const displaySb = (form.startBit || 0) + i * (form.bitStep || 0)
+    // LSB → MSB（Intel 下不变，Motorola 下转换）
+    const storageSb = toStorageStartBit(displaySb, length, byteOrder, 63, -1)
+    result.push({
+      name,
+      start_bit: storageSb >= 0 ? storageSb : displaySb,
+      length,
+      byte_order: byteOrder,
+      _invalid: storageSb < 0,
+    })
+  }
+  return result
+})
+
+/** 超出 DLC 范围的信号索引集合 */
+const outOfRangeIndices = computed(() => {
+  const maxBits = currentMsgDlc.value * 8
+  const indices = new Set()
+  previewSignals.value.forEach((sig, idx) => {
+    const bits = getSignalBits(sig.start_bit, sig.length, sig.byte_order)
+    for (const b of bits) {
+      if (b < 0 || b >= maxBits) {
+        indices.add(idx)
+        break
+      }
+    }
+  })
+  return indices
+})
+
 function close() {
   visible.value = false
 }
@@ -131,8 +211,8 @@ async function create() {
   background: var(--bg-panel);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  width: 520px;
-  max-width: 92vw;
+  width: 900px;
+  max-width: 94vw;
   max-height: 90vh;
   display: flex;
   flex-direction: column;
@@ -147,9 +227,83 @@ async function create() {
 }
 
 .modal-body {
-  padding: 14px 18px;
-  overflow-y: auto;
+  display: flex;
   flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ── 左侧表单 ── */
+.form-side {
+  flex: 1;
+  padding: 14px 16px 14px 18px;
+  overflow-y: auto;
+  border-right: 1px solid var(--border);
+}
+
+/* ── 右侧预览 ── */
+.preview-side {
+  width: 380px;
+  min-width: 300px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 14px 18px 14px 16px;
+}
+
+.preview-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.preview-canvas-wrap {
+  flex: 0 0 auto;
+  max-height: 280px;
+  overflow: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin-bottom: 8px;
+}
+
+.preview-table-wrap {
+  flex: 1;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.preview-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+.preview-table th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--border);
+  padding: 4px 6px;
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-muted);
+  z-index: 1;
+}
+.preview-table td {
+  padding: 3px 6px;
+  border-bottom: 1px solid color-mix(in oklch, var(--border) 40%, transparent);
+  color: var(--text);
+}
+.preview-table .mono {
+  font-family: var(--font-mono);
+}
+.preview-table tr.out-of-range td {
+  background: oklch(0.35 0.08 25 / 0.3);
+  color: oklch(0.75 0.15 25);
 }
 
 .modal-footer {

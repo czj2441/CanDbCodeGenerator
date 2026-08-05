@@ -333,4 +333,37 @@ export function gridCellToPixel(row, col, { labelWidth, headerH, cellSize }) {
   return { x, y }
 }
 
+/**
+ * Compute the cell map for a list of signals (pure function, no Vue/Konva dependency).
+ * Extracted from SignalLayoutVisualizer cellMap computed.
+ *
+ * @param {Array<{name: string, start_bit: number, length: number, byte_order: string}>} signals
+ * @param {Object<string, number>} [overrides] - Override start_bit for specific signals by name
+ * @returns {{ cells: Array<{bit, row, col, name, color, isStartBit, byteOrder, startBit, length}>, overlapBits: Set<number> }}
+ */
+export function computeCellMap(signals, overrides = {}) {
+  const allCells = []
+  const bitOwner = {}
+  const overlapBits = new Set()
+  const maxRenderBit = 511
+  for (const sig of signals) {
+    const color = getSignalColorByName(sig.name)
+    const effectiveStartBit = overrides[sig.name] ?? sig.start_bit
+    const bits = getSignalBits(effectiveStartBit, sig.length, sig.byte_order)
+    for (const bit of bits) {
+      if (bit < 0 || bit > maxRenderBit) continue
+      const { row, col } = bitToGridCell(bit)
+      allCells.push({
+        bit, row, col, name: sig.name, color,
+        isStartBit: bit === effectiveStartBit,
+        byteOrder: sig.byte_order,
+        startBit: effectiveStartBit,
+        length: sig.length,
+      })
+      if (bit in bitOwner) overlapBits.add(bit)
+      else bitOwner[bit] = sig.name
+    }
+  }
+  return { cells: allCells, overlapBits }
+}
 
