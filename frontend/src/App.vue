@@ -499,7 +499,6 @@ const contextMenuItems = computed(() => {
       { label: t('ctx.copyMessage'), action: () => isMulti ? clipboard.copyMessages(multiKeys) : clipboard.copyMessage(), disabled: !isMulti && !hasMsg },
       { label: t('ctx.cutMessage'), action: () => isMulti ? clipboard.cutMessages(multiKeys) : clipboard.cutMessage(), disabled: !isMulti && !hasMsg },
       { label: t('ctx.pasteMessage'), action: () => clipboard.pasteMessages(), disabled: !clipboard.clipboard || clipboard.clipboard.type !== 'message' },
-      { label: t('ctx.duplicateMessage'), action: () => clipboard.duplicateMessage(), disabled: !hasMsg },
       { label: t('ctx.deleteMessage'), action: () => isMulti ? messages.batchDeleteMessages(multiKeys) : messages.deleteMessage(store.selectedMsgId), danger: true, disabled: !isMulti && !hasMsg },
     ]
   }

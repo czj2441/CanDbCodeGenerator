@@ -10,7 +10,7 @@ from .signal_handlers import (
 # Message handlers
 from .message_handlers import (
     EditMessageHandler, AddMessageHandler, DeleteMessageHandler,
-    DuplicateMessageHandler, GetMessageHandler, GetMessagesHandler,
+    GetMessageHandler, GetMessagesHandler,
     BatchEditMessagesHandler, BatchDeleteMessagesHandler,
 )
 
@@ -42,7 +42,7 @@ __all__ = [
     'BatchEditSignalsHandler', 'BatchDeleteSignalsHandler',
     # Message
     'EditMessageHandler', 'AddMessageHandler', 'DeleteMessageHandler',
-    'DuplicateMessageHandler', 'GetMessageHandler', 'GetMessagesHandler',
+    'GetMessageHandler', 'GetMessagesHandler',
     'BatchEditMessagesHandler', 'BatchDeleteMessagesHandler',
     # File
     'SaveHandler', 'NewFileHandler', 'ImportFileHandler', 'DownloadFileHandler',

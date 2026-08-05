@@ -237,24 +237,5 @@ export const useClipboardStore = defineStore('clipboard', {
       }
     },
 
-    // ── 保留的方法 ──
-
-    /**
-     * 复制报文（走后端 duplicate_message 端点）
-     */
-    async duplicateMessage() {
-      const editor = useEditorStore()
-      const orig = editor.selectedMessage
-      if (!orig) return
-      const maxId = generateMessageId(editor.messages)
-      try {
-        await editor._wsRequest('duplicate_message', { msg_id: orig.id, new_id: maxId })
-        editor.selectedMsgId = maxId
-        useUiStore().showToast(t('toast.messageDuplicated'))
-        editor.addLogEntry('copy', `复制报文: 0x${orig.id.toString(16).toUpperCase()} ${orig.name}`)
-      } catch (e) {
-        useUiStore().showToast(e.message, true)
-      }
-    },
   },
 })

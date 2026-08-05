@@ -217,7 +217,6 @@ const dict = {
     'ctx.copyMessage': '复制报文',
     'ctx.cutMessage': '剪切报文',
     'ctx.pasteMessage': '粘贴报文',
-    'ctx.duplicateMessage': '复制报文',
     'ctx.deleteMessage': '删除报文',
 
     // Toast messages
@@ -234,7 +233,6 @@ const dict = {
     'toast.signalCopied': '信号已复制',
     'toast.signalCut': '信号已剪切',
     'toast.messageCopied': '报文已复制',
-    'toast.messageDuplicated': '报文已复制',
     'toast.signalsCopied': '已复制 {count} 个信号',
     'toast.signalsCut': '已剪切 {count} 个信号',
     'toast.signalsPasted': '已粘贴 {count} 个信号',

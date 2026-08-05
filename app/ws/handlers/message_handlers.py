@@ -1,7 +1,7 @@
 """
 message_handlers.py — 报文相关 WS Handler
 
-EditMessage / AddMessage / DeleteMessage / DuplicateMessage / GetMessage / GetMessages / BatchEditMessages / BatchDeleteMessages
+EditMessage / AddMessage / DeleteMessage / GetMessage / GetMessages / BatchEditMessages / BatchDeleteMessages
 """
 from __future__ import annotations
 
@@ -174,51 +174,6 @@ class DeleteMessageHandler:
             return HandlerResult(data={"deleted": f"0x{msg_id:X}"}, events=events,
                                  new_version=new_version, session_id=sid)
 
-
-class DuplicateMessageHandler:
-    def __init__(self, session_mgr):
-        self._sm = session_mgr
-
-    def __call__(self, data: dict) -> HandlerResult:
-        sid = data["session_id"]
-        session = self._sm.get(sid)
-        if not session:
-            raise HandlerError("SESSION_NOT_FOUND", "会话不存在")
-        msg_id = data["msg_id"]
-        new_id = data.get("new_id")
-
-        db = session.db
-        with db.with_lock():
-            orig = db.messages.get(msg_id)
-            if not orig:
-                raise HandlerError("MESSAGE_NOT_FOUND", f"报文 {msg_id} 不存在")
-            if new_id is None:
-                max_id = max(db.messages.keys()) if db.messages else 0
-                new_id = max_id + 0x10
-            new_name = orig.name + "_copy"
-            msg_data = orig.to_dict()
-            msg_data["id"] = new_id
-            msg_data["name"] = new_name
-            msg = Message.from_dict(msg_data)
-            msg.id = new_id
-            if not db.add_message(msg):
-                raise HandlerError("CONFLICT", f"报文 0x{new_id:X} 已存在")
-            self._sm.push_undo(session, {"type": "message_add", "msgId": new_id, "data": msg.to_dict()})
-            new_version = db._bump_version()
-            summary = {"id": new_id, "id_hex": f"0x{new_id:X}", "name": msg.name,
-                       "dlc": msg.dlc, "cycle_time": msg.cycle_time,
-                       "sender": msg.sender, "comment": msg.comment,
-                       "is_fd": msg.is_fd,
-                       "signal_count": len(msg.signals)}
-            events = [
-                {"type": "message_added", "data": {"message": summary}, "data_version": new_version},
-                {"type": "status_changed", "data": {"modified": True,
-                 "undo_count": len(session.undo_stack), "redo_count": len(session.redo_stack)},
-                 "data_version": new_version},
-            ]
-            push_data_errors(events, db, new_version, {new_id})
-            return HandlerResult(data=msg.to_dict(), events=events,
-                                 new_version=new_version, session_id=sid)
 
 
 class GetMessageHandler:
