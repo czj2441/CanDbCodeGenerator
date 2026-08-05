@@ -67,7 +67,7 @@
               <template v-else-if="col.key === 'msg_dlc'"><input class="mono" type="number" v-lazy-value="m.dlc" @blur="e => update('dlc', parseInt(e.target.value))" :readonly="!isCellEditable(m.id)"></template>
               <template v-else-if="col.key === 'msg_cycle'"><input class="mono" type="number" v-lazy-value="m.cycle_time" @blur="e => update('cycle_time', parseInt(e.target.value))" :readonly="!isCellEditable(m.id)"></template>
               <template v-else-if="col.key === 'msg_fd'">
-                <select :value="String(m.is_fd)" @change="e => update('is_fd', e.target.value === 'true')" :disabled="!isCellEditable(m.id)">
+                <select :value="String(m.is_fd)" @change="e => update('is_fd', e.target.value === 'true')">
                   <option value="false">CAN</option>
                   <option value="true">CAN FD</option>
                 </select>
@@ -504,8 +504,7 @@ function onCellKeyDown(e) {
   box-shadow: 0 0 0 1px color-mix(in oklch, var(--accent) 40%, transparent);
 }
 .message-table input.mono { font-family: var(--font-mono); }
-.message-table input:disabled,
-.message-table select:disabled {
+.message-table input:disabled {
   opacity: 1;
   cursor: pointer;
 }

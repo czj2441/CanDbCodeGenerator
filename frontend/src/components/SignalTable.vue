@@ -73,7 +73,7 @@
               <template v-else-if="col.key === 'start'"><input class="mono" type="number" v-lazy-value="displayStartBit(sig)" @blur="e => updateStartBit(sig, parseInt(e.target.value)||0)" :disabled="multiSelect.isMultiSelect.value" :readonly="!isCellEditable(sig.name)" data-field="start"></template>
               <template v-else-if="col.key === 'length'"><input class="mono" type="number" v-lazy-value="sig.length" @blur="e => update(sig.name, 'length', parseInt(e.target.value))" :readonly="!isCellEditable(sig.name)" data-field="length"></template>
               <template v-else-if="col.key === 'order'">
-                <select :value="sig.byte_order" @change="e => updateByteOrder(sig, e)" :disabled="!isCellEditable(sig.name)">
+                <select :value="sig.byte_order" @change="e => updateByteOrder(sig, e)">
                   <option value="intel">Intel</option>
                   <option value="motorola">Motorola</option>
                 </select>
@@ -85,8 +85,10 @@
               <template v-else-if="col.key === 'unit'"><input v-lazy-value="sig.unit" @blur="e => update(sig.name, 'unit', e.target.value)" :readonly="!isCellEditable(sig.name)" data-field="unit"></template>
               <template v-else-if="col.key === 'comment'"><input v-lazy-value="sig.comment" @blur="e => update(sig.name, 'comment', e.target.value)" :readonly="!isCellEditable(sig.name)" data-field="comment"></template>
               <template v-else-if="col.key === 'valTable'">
-                <span v-if="sig.value_table_name" class="vt-tag" @click.stop="ui.valueTableFocusName = sig.value_table_name; ui.switchCenterTab('valtables')">{{ sig.value_table_name }}</span>
-                <span v-else class="vt-none">-</span>
+                <select :value="sig.value_table_name || ''" @change="e => updateValueTableRef(sig.name, e.target.value)">
+                  <option value="">-</option>
+                  <option v-for="name in valueTableNames" :key="name" :value="name">{{ name }}</option>
+                </select>
               </template>
               <template v-else-if="col.key === 'actions'"><button class="action-delete" @click.stop="signals.deleteSignal(sig.name)" title="删除">×</button></template>
             </td>
@@ -140,6 +142,9 @@ const signals = useSignalsStore()
 const clipboard = useClipboardStore()
 const undoRedo = useUndoRedoStore()
 const ui = useUiStore()
+
+// ── 值描述表名称列表 ──
+const valueTableNames = computed(() => Object.keys(store.valueTables).sort())
 
 // ── 双击编辑状态 ──
 const editingKey = ref(null) // { sigName, field } | null
@@ -363,6 +368,10 @@ function updateByteOrder(sig, e) {
   const oldOrder = sig.byte_order
   signals.updateSignal(sig.name, 'byte_order', e.target.value)
     .catch(() => { e.target.value = oldOrder })
+}
+
+function updateValueTableRef(sigName, value) {
+  signals.updateSignal(sigName, 'value_table_name', value || '').catch(() => {})
 }
 
 function batchDeleteSelected() {
@@ -599,8 +608,7 @@ function onCellKeyDown(e) {
   box-shadow: 0 0 0 1px color-mix(in oklch, var(--accent) 40%, transparent);
 }
 .signal-table input.mono { font-family: var(--font-mono); }
-.signal-table input:disabled,
-.signal-table select:disabled {
+.signal-table input:disabled {
   opacity: 1;
   cursor: pointer;
 }
@@ -747,20 +755,4 @@ function onCellKeyDown(e) {
   animation: highlight-flash-anim 0.6s ease-in-out 3;
 }
 
-/* ── 值描述表标签 ── */
-.vt-tag {
-  display: inline-block;
-  background: color-mix(in oklch, var(--accent) 15%, transparent);
-  color: var(--accent);
-  border-radius: 3px;
-  padding: 1px 6px;
-  font-size: 11px;
-  cursor: pointer;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.vt-tag:hover { background: color-mix(in oklch, var(--accent) 25%, transparent); }
-.vt-none { color: var(--text-muted); }
 </style>
