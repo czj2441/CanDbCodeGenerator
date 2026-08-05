@@ -503,7 +503,7 @@ function onCellKeyDown(e) {
 </script>
 
 <style scoped>
-.signal-area { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.signal-area { display: flex; flex-direction: column; flex: 1; min-height: 0; user-select: none; }
 
 .center-header {
   display: flex;

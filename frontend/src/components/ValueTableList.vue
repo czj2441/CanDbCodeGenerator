@@ -218,7 +218,7 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.valtable-area { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.valtable-area { display: flex; flex-direction: column; flex: 1; min-height: 0; user-select: none; }
 
 .center-header {
   display: flex;

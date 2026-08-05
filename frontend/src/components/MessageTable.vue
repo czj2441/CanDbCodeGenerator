@@ -409,7 +409,7 @@ function onCellKeyDown(e) {
 </script>
 
 <style scoped>
-.message-area { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.message-area { display: flex; flex-direction: column; flex: 1; min-height: 0; user-select: none; }
 
 .center-header {
   display: flex;
