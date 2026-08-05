@@ -79,7 +79,7 @@
                     <tr v-for="(sig, idx) in previewSignals" :key="idx"
                         :class="{ 'out-of-range': outOfRangeIndices.has(idx) }">
                       <td class="mono">{{ sig.name }}</td>
-                      <td class="mono">{{ sig.start_bit }}</td>
+                      <td class="mono">{{ sig.display_start_bit }}</td>
                       <td class="mono">{{ sig.length }}</td>
                       <td>{{ sig.byte_order === 'intel' ? t('batch.intel') : t('batch.motorola') }}</td>
                     </tr>
@@ -161,6 +161,7 @@ const previewSignals = computed(() => {
     result.push({
       name,
       start_bit: storageSb >= 0 ? storageSb : displaySb,
+      display_start_bit: displaySb,
       length,
       byte_order: byteOrder,
       _invalid: storageSb < 0,
