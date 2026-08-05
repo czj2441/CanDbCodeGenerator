@@ -40,6 +40,9 @@ const typeLabels = computed(() => ({
   delete: t('log.type.delete'),
   batch: t('log.type.batch'),
   info: t('log.type.info'),
+  copy: t('log.type.copy'),
+  cut: t('log.type.cut'),
+  paste: t('log.type.paste'),
 }))
 
 function typeLabel(type) {

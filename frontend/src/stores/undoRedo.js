@@ -21,9 +21,13 @@ export const useUndoRedoStore = defineStore('undoRedo', {
     async undo() {
       const editor = useEditorStore()
       try {
-        await editor._wsRequest('undo')
-        useUiStore().showToast('撤销成功', false)
-        editor.addLogEntry('undo', '撤销操作')
+        const result = await editor._wsRequest('undo')
+        const desc = result?.action_desc || '未知操作'
+        const msg = `撤销: ${desc}`
+        useUiStore().showToast(msg, false)
+        editor.addLogEntry('undo', msg)
+        this.undoCount = result?.undo_count ?? this.undoCount
+        this.redoCount = result?.redo_count ?? this.redoCount
       } catch (e) {
         console.error('[STORE] undo() failed:', e)
         useUiStore().showToast(e.message || '撤销失败', true)
@@ -36,9 +40,13 @@ export const useUndoRedoStore = defineStore('undoRedo', {
     async redo() {
       const editor = useEditorStore()
       try {
-        await editor._wsRequest('redo')
-        useUiStore().showToast('重做成功', false)
-        editor.addLogEntry('redo', '重做操作')
+        const result = await editor._wsRequest('redo')
+        const desc = result?.action_desc || '未知操作'
+        const msg = `重做: ${desc}`
+        useUiStore().showToast(msg, false)
+        editor.addLogEntry('redo', msg)
+        this.undoCount = result?.undo_count ?? this.undoCount
+        this.redoCount = result?.redo_count ?? this.redoCount
       } catch (e) {
         console.error('[STORE] redo() failed:', e)
         useUiStore().showToast(e.message || '重做失败', true)

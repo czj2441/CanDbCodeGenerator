@@ -52,7 +52,7 @@ export const useSignalsStore = defineStore('signals', {
       try {
         await editor._wsRequest('add_signal', { msg_id: editor.selectedMsgId, signal: fullData })
         useUiStore().showToast(t('toast.signalAdded'))
-        editor.addLogEntry('signal_add', `添加信号: name=${fullData.name}, start_bit=${fullData.start_bit}, length=${fullData.length}`)
+        editor.addLogEntry('add', `添加信号: name=${fullData.name}, start_bit=${fullData.start_bit}, length=${fullData.length}`)
       } catch (e) {
         useUiStore().showToast(translateError(e), true)
       }
@@ -74,6 +74,9 @@ export const useSignalsStore = defineStore('signals', {
         editor._defaultSignalLength = value
       }
 
+      // 记录旧值用于日志
+      const oldVal = sig[field]
+
       try {
         await editor._wsRequest('edit_signal', {
           msg_id: editor.selectedMsgId,
@@ -81,6 +84,7 @@ export const useSignalsStore = defineStore('signals', {
           field: field,
           value: value
         })
+        editor.addLogEntry('update', `信号 ${sigName}.${field}: ${oldVal} → ${value}`)
       } catch (e) {
         // 后端拒绝时，用后端返回的权威值覆盖缓存中的对应字段
         if (e.details && field in e.details) {
@@ -105,6 +109,7 @@ export const useSignalsStore = defineStore('signals', {
       try {
         await editor._wsRequest('delete_signal', { msg_id: editor.selectedMsgId, sig_name: sigName })
         useUiStore().showToast(t('toast.signalDeleted'))
+        editor.addLogEntry('delete', `删除信号: ${sigName}`)
       } catch (e) {
         useUiStore().showToast(translateError(e), true)
       }
@@ -133,6 +138,7 @@ export const useSignalsStore = defineStore('signals', {
         } else {
           useUiStore().showToast(t('toast.batchUpdated', { count: updated }))
         }
+        editor.addLogEntry('batch', `批量更新 ${updated} 个信号: ${Object.keys(fields).join(', ')}`)
       } catch (e) {
         useUiStore().showToast(translateError(e), true)
       } finally {
@@ -155,6 +161,7 @@ export const useSignalsStore = defineStore('signals', {
         })
         const deleted = result?.deleted || 0
         useUiStore().showToast(t('toast.batchDeleted', { count: deleted }))
+        editor.addLogEntry('batch', `批量删除 ${deleted} 个信号`)
       } catch (e) {
         useUiStore().showToast(translateError(e), true)
       } finally {
@@ -206,6 +213,7 @@ export const useSignalsStore = defineStore('signals', {
           console.warn('[STORE] batchAddSignals() 部分信号创建失败:', result.errors)
         }
         useUiStore().showToast(t('toast.batchCreated', { count: created }))
+        editor.addLogEntry('batch', `批量添加 ${created} 个信号`)
       } catch (e) {
         useUiStore().showToast(t('toast.batchFailed', { idx: 1, msg: e.message }), true)
       } finally {

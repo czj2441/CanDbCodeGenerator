@@ -11,6 +11,59 @@ from app.ws.router import HandlerResult, HandlerError
 from ._common import pure_file_name as _pure_file_name, build_undo_redo_events, build_messages_summary
 
 
+def _build_action_desc(snap: dict) -> str:
+    """根据撤销/重做快照生成操作描述。"""
+    t = snap.get("type", "")
+    try:
+        if t == "message_add":
+            msg_id = snap.get("msgId", 0)
+            name = snap.get("data", {}).get("name", "")
+            return f"添加报文 0x{msg_id:X} {name}"
+        elif t == "message_delete":
+            msg_id = snap.get("data", {}).get("id", 0)
+            return f"删除报文 0x{msg_id:X}"
+        elif t == "message_update":
+            fields = ", ".join(k for k in snap.get("next", {}) if k != "id")
+            return f"修改报文 {fields}"
+        elif t == "signal_add":
+            return f"添加信号 {snap.get('sigName', snap.get('data', {}).get('name', ''))}"
+        elif t == "signal_delete":
+            return f"删除信号 {snap.get('data', {}).get('name', '')}"
+        elif t == "signal_update":
+            sig = snap.get("sigName", "")
+            fields = ", ".join(k for k in snap.get("next", {}) if k != "name")
+            return f"修改信号 {sig}.{fields}"
+        elif t == "batch_signal_add":
+            count = len(snap.get("signals", []))
+            return f"批量添加 {count} 个信号"
+        elif t == "batch_signal_delete":
+            count = len(snap.get("signals", []))
+            return f"批量删除 {count} 个信号"
+        elif t == "batch_signal_update":
+            count = len(snap.get("prev", {}))
+            return f"批量修改 {count} 个信号"
+        elif t == "batch_message_update":
+            count = len(snap.get("prev", []))
+            return f"批量修改 {count} 个报文"
+        elif t == "batch_message_delete":
+            count = len(snap.get("messages", []))
+            return f"批量删除 {count} 个报文"
+        elif t == "database_update":
+            return "修改数据库属性"
+        elif t == "value_table_add":
+            return f"新增值描述表 {snap.get('name', '')}"
+        elif t == "value_table_remove":
+            return f"删除值描述表 {snap.get('name', '')}"
+        elif t == "value_table_update":
+            return f"更新值描述表 {snap.get('name', '')}"
+        elif t == "value_table_rename":
+            return f"重命名值描述表 {snap.get('old_name', '')} → {snap.get('new_name', '')}"
+        else:
+            return "未知操作"
+    except Exception:
+        return "未知操作"
+
+
 class UndoHandler:
     def __init__(self, session_mgr):
         self._sm = session_mgr
@@ -28,8 +81,13 @@ class UndoHandler:
                 raise HandlerError("UNDO_FAILED", result.get("message", "撤销失败"))
             events, new_version, _ = build_undo_redo_events(session, db, "undo_applied")
 
+        # undo 成功后，snap 已转移到 redo_stack 顶部
+        snap = session.redo_stack[-1] if session.redo_stack else {}
+        action_desc = _build_action_desc(snap)
+
         return HandlerResult(data={"undo_count": len(session.undo_stack),
-                                   "redo_count": len(session.redo_stack)},
+                                   "redo_count": len(session.redo_stack),
+                                   "action_desc": action_desc},
                              events=events, new_version=new_version, session_id=sid)
 
 
@@ -50,8 +108,13 @@ class RedoHandler:
                 raise HandlerError("REDO_FAILED", result.get("message", "重做失败"))
             events, new_version, _ = build_undo_redo_events(session, db, "redo_applied")
 
+        # redo 成功后，snap 已转移到 undo_stack 顶部
+        snap = session.undo_stack[-1] if session.undo_stack else {}
+        action_desc = _build_action_desc(snap)
+
         return HandlerResult(data={"undo_count": len(session.undo_stack),
-                                   "redo_count": len(session.redo_stack)},
+                                   "redo_count": len(session.redo_stack),
+                                   "action_desc": action_desc},
                              events=events, new_version=new_version, session_id=sid)
 
 

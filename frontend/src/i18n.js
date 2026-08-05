@@ -298,6 +298,9 @@ const dict = {
     'log.type.info': '信息',
     'log.type.drag': '拖拽',
     'log.type.layout': '布局',
+    'log.type.copy': '复制',
+    'log.type.cut': '剪切',
+    'log.type.paste': '粘贴',
 
     // CcodePreview
     'ccode_preview.title': '代码预览',

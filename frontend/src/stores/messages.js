@@ -61,6 +61,7 @@ export const useMessagesStore = defineStore('messages', {
           editor.selectedMsgId = result.id
         }
         useUiStore().showToast(t('toast.messageAdded'))
+        editor.addLogEntry('add', `添加报文: 0x${id.toString(16).toUpperCase()} ${name}`)
       } catch (e) {
         useUiStore().showToast(translateError(e), true)
       }
@@ -74,6 +75,7 @@ export const useMessagesStore = defineStore('messages', {
       try {
         await editor._wsRequest('delete_message', { msg_id: id })
         useUiStore().showToast(t('toast.messageDeleted'))
+        editor.addLogEntry('delete', `删除报文: 0x${id.toString(16).toUpperCase()}`)
       } catch (e) {
         useUiStore().showToast(translateError(e), true)
       }
@@ -88,6 +90,10 @@ export const useMessagesStore = defineStore('messages', {
       const msg = editor.messageCache[editor.selectedMsgId]
       if (!msg) return
 
+      // 记录旧值用于日志
+      const oldVal = msg[field]
+      const msgName = msg.name || '0x' + editor.selectedMsgId.toString(16).toUpperCase()
+
       try {
         const result = await editor._wsRequest('edit_message', {
           msg_id: editor.selectedMsgId,
@@ -100,6 +106,7 @@ export const useMessagesStore = defineStore('messages', {
         if (result) {
           editor.messageCache[editor.selectedMsgId] = result
         }
+        editor.addLogEntry('update', `报文 ${msgName}.${field}: ${oldVal} → ${value}`)
       } catch (e) {
         // 后端拒绝时，用后端返回的权威值覆盖缓存中的对应字段
         if (e.details && field in e.details) {
@@ -132,6 +139,7 @@ export const useMessagesStore = defineStore('messages', {
         } else {
           useUiStore().showToast(t('toast.batchUpdated', { count: updated }))
         }
+        editor.addLogEntry('batch', `批量更新 ${updated} 个报文: ${Object.keys(fields).join(', ')}`)
       } catch (e) {
         useUiStore().showToast(translateError(e), true)
       }
@@ -148,6 +156,7 @@ export const useMessagesStore = defineStore('messages', {
         })
         const deleted = result?.deleted || 0
         useUiStore().showToast(t('toast.batchDeleted', { count: deleted }))
+        editor.addLogEntry('batch', `批量删除 ${deleted} 个报文`)
       } catch (e) {
         useUiStore().showToast(translateError(e), true)
       }

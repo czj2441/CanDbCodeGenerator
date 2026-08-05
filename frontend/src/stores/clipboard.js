@@ -37,8 +37,9 @@ export const useClipboardStore = defineStore('clipboard', {
     /**
      * 复制信号到剪贴板（支持批量）
      * @param {string[]} sigNames
+     * @param {boolean} skipLog - 内部调用时跳过日志（如 cut 操作）
      */
-    copySignals(sigNames) {
+    copySignals(sigNames, skipLog = false) {
       const editor = useEditorStore()
       const msg = editor.selectedMessage
       if (!msg || !sigNames.length) return
@@ -47,6 +48,9 @@ export const useClipboardStore = defineStore('clipboard', {
         .filter(Boolean)
         .map(sig => JSON.parse(JSON.stringify(sig)))
       this._copyToClipboard('signal', items, 'toast.signalCopied', 'toast.signalsCopied')
+      if (!skipLog) {
+        editor.addLogEntry('copy', `复制信号: ${sigNames.join(', ')}`)
+      }
     },
 
     /**
@@ -61,8 +65,10 @@ export const useClipboardStore = defineStore('clipboard', {
      * @param {string[]} sigNames
      */
     async cutSignals(sigNames) {
-      this.copySignals(sigNames)
+      this.copySignals(sigNames, true)  // skipLog=true，避免与 cut 日志重复
       if (!this.clipboard) return
+      const editor = useEditorStore()
+      editor.addLogEntry('cut', `剪切信号: ${sigNames.join(', ')}`)
       const signals = useSignalsStore()
       await signals.batchDeleteSignals(sigNames)
       const ui = useUiStore()
@@ -118,6 +124,7 @@ export const useClipboardStore = defineStore('clipboard', {
 
       const ui = useUiStore()
       ui.showToast(t('toast.signalsPasted', { count: successCount }))
+      editor.addLogEntry('paste', `粘贴信号: ${successCount}个`)
     },
 
     // ── 报文方法 ──
@@ -126,8 +133,9 @@ export const useClipboardStore = defineStore('clipboard', {
      * 复制报文到剪贴板（支持批量）
      * cache miss 时通过 get_message 预加载完整数据
      * @param {number[]} msgIds
+     * @param {boolean} skipLog - 内部调用时跳过日志（如 cut 操作）
      */
-    async copyMessages(msgIds) {
+    async copyMessages(msgIds, skipLog = false) {
       const editor = useEditorStore()
       if (!msgIds.length) return
 
@@ -147,6 +155,10 @@ export const useClipboardStore = defineStore('clipboard', {
       }
 
       this._copyToClipboard('message', items, 'toast.messageCopied', 'toast.messagesCopied')
+      if (!skipLog) {
+        const idStr = msgIds.map(id => '0x' + id.toString(16).toUpperCase()).join(', ')
+        editor.addLogEntry('copy', `复制报文: ${idStr}`)
+      }
     },
 
     /**
@@ -163,8 +175,11 @@ export const useClipboardStore = defineStore('clipboard', {
      * @param {number[]} msgIds
      */
     async cutMessages(msgIds) {
-      await this.copyMessages(msgIds)
+      await this.copyMessages(msgIds, true)  // skipLog=true，避免与 cut 日志重复
       if (!this.clipboard) return
+      const editor = useEditorStore()
+      const idStr = msgIds.map(id => '0x' + id.toString(16).toUpperCase()).join(', ')
+      editor.addLogEntry('cut', `剪切报文: ${idStr}`)
       const messages = useMessagesStore()
       await messages.batchDeleteMessages(msgIds)
       const ui = useUiStore()
@@ -217,6 +232,8 @@ export const useClipboardStore = defineStore('clipboard', {
 
       if (successCount > 0) {
         useUiStore().showToast(t('toast.messagesPasted', { count: successCount }))
+        const editor = useEditorStore()
+        editor.addLogEntry('paste', `粘贴报文: ${successCount}个`)
       }
     },
 
@@ -234,6 +251,7 @@ export const useClipboardStore = defineStore('clipboard', {
         await editor._wsRequest('duplicate_message', { msg_id: orig.id, new_id: maxId })
         editor.selectedMsgId = maxId
         useUiStore().showToast(t('toast.messageDuplicated'))
+        editor.addLogEntry('copy', `复制报文: 0x${orig.id.toString(16).toUpperCase()} ${orig.name}`)
       } catch (e) {
         useUiStore().showToast(e.message, true)
       }

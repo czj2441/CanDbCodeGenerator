@@ -19,6 +19,7 @@ export const useFileOperationsStore = defineStore('fileOperations', {
         await editor._wsRequest('save', {}, 120000)
         editor.saveStatus = 'saved'
         editor._startSaveFadeTimer()
+        editor.addLogEntry('info', '保存文件')
         return true
       } catch (e) {
         console.error('Failed to save session:', e)
@@ -92,6 +93,7 @@ export const useFileOperationsStore = defineStore('fileOperations', {
         editor._dataVersion = 0
         undoRedo.clearUndoStack()
         useUiStore().showToast(t('toast.saveAs', { name: data.file_name }))
+        editor.addLogEntry('info', `另存为: ${data.file_name}`)
       } catch (e) {
         if (e.code === 'FILE_NAME_EXISTS') {
           useUiStore().showToast(t('toast.saveAsExistsError'), true)
@@ -139,6 +141,7 @@ export const useFileOperationsStore = defineStore('fileOperations', {
         editor.currentFileName = data.file_name || filename
         editor.busType = data.bus_type || 'CAN'
         editor._dataVersion = 0
+        editor.addLogEntry('info', `导入文件: ${filename}`)
 
         return data
       } catch (e) {
@@ -174,6 +177,7 @@ export const useFileOperationsStore = defineStore('fileOperations', {
         editor._defaultSignalLength = 8
         editor._dataVersion = 0
         undoRedo.clearUndoStack()
+        editor.addLogEntry('info', `新建文件: ${name}`)
         return sid
       } catch (e) {
         editor._resetOnSessionFailure()
