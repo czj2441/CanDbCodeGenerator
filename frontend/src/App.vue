@@ -18,17 +18,41 @@
       </div>
       <div class="main">
         <div class="center">
+          <!-- 主内容区（flex:1） -->
           <template v-if="ui.centerTab === 'signals'">
             <SignalLayoutVisualizer v-if="ui.layoutViewMode" />
             <SignalTable v-else />
           </template>
           <MessageTable v-else-if="ui.centerTab === 'messages'" />
           <ValueTableList v-else-if="ui.centerTab === 'valtables'" />
-          <DataErrorList />
-          <LogPanel />
+
+          <!-- 底部面板内容区（选中 Tab 时显示） -->
+          <div v-if="ui.bottomTab" class="bottom-panel" :style="{ height: ui.bottomPanelHeight + 'px' }">
+            <div class="bottom-resize" @mousedown="startBottomResize"></div>
+            <div class="bottom-panel-content">
+              <DataErrorList v-if="ui.bottomTab === 'errors'" />
+              <LogPanel v-else-if="ui.bottomTab === 'log'" />
+            </div>
+          </div>
+          <!-- 底部标签栏（始终可见，在底部） -->
+          <div class="bottom-tabs">
+            <button class="bottom-tab-btn" :class="{ active: ui.bottomTab === 'errors' }"
+                    @click="ui.setBottomTab('errors')">
+              ⚠ {{ t('dataErrors.title') }} ({{ errorCount }})
+            </button>
+            <button v-if="ui.showLogPanel" class="bottom-tab-btn" :class="{ active: ui.bottomTab === 'log' }"
+                    @click="ui.setBottomTab('log')">
+              {{ t('log.title') }}
+            </button>
+          </div>
         </div>
-        <ValueTablePanel v-if="ui.centerTab === 'valtables'" />
-        <MessagePanel v-else />
+
+        <!-- 右侧边栏（带 resize） -->
+        <div class="sidebar-wrap" :style="{ width: ui.sidebarWidth + 'px' }">
+          <div class="sidebar-resize" @mousedown="startSidebarResize"></div>
+          <ValueTablePanel v-if="ui.centerTab === 'valtables'" />
+          <MessagePanel v-else />
+        </div>
       </div>
       <StatusBar /> 
       <!-- 离线编辑遮罩：覆盖编辑区域，不遮挡 TopBar -->
@@ -104,7 +128,9 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, onUnmounted, computed, watchEffect, nextTick } from 'vue'
+// ⚠️ 禁止直接通过 vite dev server 访问，必须先启动后端 (build.bat → python -m app.server.lifecycle 8080)
+// 详见 vite.config.js 顶部说明
+import { ref, reactive, onMounted, onUnmounted, computed, watchEffect, watch, nextTick } from 'vue'
 import { useEditorStore } from './stores/editor.js'
 import { useFileOperationsStore } from './stores/fileOperations.js'
 import { useClipboardStore } from './stores/clipboard.js'
@@ -137,6 +163,66 @@ const clipboard = useClipboardStore()
 const signals = useSignalsStore()
 const messages = useMessagesStore()
 const ui = useUiStore()
+
+// 错误计数（底部标签栏显示）
+const errorCount = computed(() => (store.dataErrors || []).length)
+
+// ── 底部面板 resize ──
+let _bottomResize = null
+function startBottomResize(e) {
+  if (e.button !== 0) return
+  e.preventDefault()
+  _bottomResize = { startY: e.clientY, startH: ui.bottomPanelHeight }
+  document.addEventListener('mousemove', onBottomResize)
+  document.addEventListener('mouseup', stopBottomResize)
+  document.body.style.cursor = 'row-resize'
+  document.body.style.userSelect = 'none'
+}
+function onBottomResize(e) {
+  if (!_bottomResize) return
+  const delta = _bottomResize.startY - e.clientY
+  ui.bottomPanelHeight = Math.max(60, Math.min(400, _bottomResize.startH + delta))
+}
+function stopBottomResize() {
+  _bottomResize = null
+  document.removeEventListener('mousemove', onBottomResize)
+  document.removeEventListener('mouseup', stopBottomResize)
+  document.body.style.cursor = ''
+  document.body.style.userSelect = ''
+  ui.setBottomPanelHeight(ui.bottomPanelHeight)
+}
+
+// ── 右侧边栏 resize ──
+let _sidebarResize = null
+function startSidebarResize(e) {
+  if (e.button !== 0) return
+  e.preventDefault()
+  _sidebarResize = { startX: e.clientX, startW: ui.sidebarWidth }
+  document.addEventListener('mousemove', onSidebarResize)
+  document.addEventListener('mouseup', stopSidebarResize)
+  document.body.style.cursor = 'col-resize'
+  document.body.style.userSelect = 'none'
+}
+function onSidebarResize(e) {
+  if (!_sidebarResize) return
+  const delta = _sidebarResize.startX - e.clientX
+  ui.sidebarWidth = Math.max(200, Math.min(500, _sidebarResize.startW + delta))
+}
+function stopSidebarResize() {
+  _sidebarResize = null
+  document.removeEventListener('mousemove', onSidebarResize)
+  document.removeEventListener('mouseup', stopSidebarResize)
+  document.body.style.cursor = ''
+  document.body.style.userSelect = ''
+  ui.setSidebarWidth(ui.sidebarWidth)
+}
+
+// showLogPanel 关闭时自动取消选中 log 标签（必须通过 setBottomTab 保持 localStorage 同步）
+watch(() => ui.showLogPanel, (show) => {
+  if (!show && ui.bottomTab === 'log') {
+    ui.setBottomTab('log')  // toggle off → null, 同时写入 localStorage
+  }
+})
 
 // 浏览器标题栏动态脏标记
 watchEffect(() => {
@@ -283,6 +369,10 @@ onUnmounted(() => {
   // 清理拖拽监听（若组件卸载时正在拖拽）
   window.removeEventListener('mousemove', _onVmDragMove)
   window.removeEventListener('mouseup', _onVmDragEnd)
+  document.removeEventListener('mousemove', onBottomResize)
+  document.removeEventListener('mouseup', stopBottomResize)
+  document.removeEventListener('mousemove', onSidebarResize)
+  document.removeEventListener('mouseup', stopSidebarResize)
 })
 
 // 打开文件
@@ -783,4 +873,69 @@ body {
 
 .fade-enter-active, .fade-leave-active { transition: opacity 150ms; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
+
+/* ── 底部面板 ── */
+.bottom-panel {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.bottom-panel-content {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+.bottom-resize {
+  height: 4px;
+  background: var(--border);
+  cursor: row-resize;
+  flex-shrink: 0;
+  transition: background 150ms;
+}
+.bottom-resize:hover { background: var(--accent); }
+.bottom-tabs {
+  display: flex;
+  gap: 0;
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
+  flex-shrink: 0;
+}
+.bottom-tab-btn {
+  padding: 4px 12px;
+  background: transparent;
+  border: none;
+  border-top: 2px solid transparent;
+  color: var(--text-dim);
+  font-size: 11px;
+  cursor: pointer;
+  transition: color 150ms, border-color 150ms;
+}
+.bottom-tab-btn:hover { color: var(--text); background: var(--bg-hover); }
+.bottom-tab-btn.active {
+  color: var(--accent);
+  border-top-color: var(--accent);
+  font-weight: 600;
+}
+
+/* ── 右侧边栏 resize ── */
+.sidebar-wrap {
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+.sidebar-resize {
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 4px;
+  background: var(--border);
+  cursor: col-resize;
+  z-index: 10;
+  transition: background 150ms;
+}
+.sidebar-resize:hover { background: var(--accent); }
 </style>

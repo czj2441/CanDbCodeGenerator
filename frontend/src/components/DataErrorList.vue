@@ -1,13 +1,12 @@
 <template>
-  <div class="data-error-list" :class="{ collapsed: isCollapsed }">
-    <div class="error-list-header" @click="isCollapsed = !isCollapsed">
+  <div class="data-error-list">
+    <div class="error-list-header">
       <span class="error-list-title">
         ⚠ {{ t('dataErrors.title') }} ({{ totalCount }})
       </span>
-      <span class="collapse-icon">{{ isCollapsed ? '▸' : '▾' }}</span>
     </div>
 
-    <div v-if="!isCollapsed && totalCount > 0" class="error-list-body">
+    <div v-if="totalCount > 0" class="error-list-body">
       <div v-for="group in groupedErrors" :key="group.msg_id" class="error-group">
         <div class="group-header" @click="toggleGroup(group.msg_id)">
           <span class="expand-icon">{{ group.expanded ? '▼' : '▶' }}</span>
@@ -43,12 +42,10 @@ const editor = useEditorStore()
 const messages = useMessagesStore()
 const ui = useUiStore()
 
-const isCollapsed = ref(true)  // 默认折叠
-
-// 导出被拦截时自动展开错误面板
+// 导出被拦截时自动切换到错误标签页
 watch(() => ui.expandDataErrors, (val) => {
   if (val) {
-    isCollapsed.value = false
+    ui.bottomTab = 'errors'
     ui.expandDataErrors = false
   }
 })
@@ -137,38 +134,21 @@ async function navigateToError(err) {
 
 <style scoped>
 .data-error-list {
-  flex-shrink: 0;
-  max-height: 200px;
   overflow-y: auto;
-  border-top: 1px solid var(--border);
   font-size: 12px;
-}
-.data-error-list.collapsed {
-  max-height: unset;
-  overflow-y: hidden;
 }
 
 .error-list-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   padding: 4px 10px;
-  cursor: pointer;
-  user-select: none;
   background: var(--bg-panel);
   color: var(--text-dim);
   font-weight: 600;
 }
-.error-list-header:hover {
-  background: var(--bg-hover);
-}
 
 .error-list-title {
   font-size: 12px;
-}
-.collapse-icon {
-  font-size: 10px;
-  color: var(--text-muted);
 }
 
 .error-list-body {
