@@ -79,8 +79,8 @@
         </template>
       </v-layer>
 
-      <!-- 信号着色层 -->
-      <v-layer>
+      <!-- 信号着色层（拖动时禁用 hit detection，避免大量无用 pointerleave 事件） -->
+      <v-layer :config="{ listening: !dragging }">
         <!-- 着色方格 -->
         <v-rect
           v-for="cell in coloredCells" :key="'c-' + cell.name + '-' + cell.bit"
@@ -206,6 +206,10 @@ const props = defineProps({
   startBitOverrides: {
     type: Object,
     default: () => ({}),
+  },
+  dragging: {
+    type: Boolean,
+    default: false,
   },
 })
 

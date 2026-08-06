@@ -20,6 +20,7 @@
           :dlc="dlcBytes"
           :start-bit-overrides="dragOverrides"
           :highlight-names="selectedSignalSet"
+          :dragging="isDragging"
           interactive
           @cell-mousedown="onCellMouseDown"
           @cell-click="onCellClick"
@@ -103,6 +104,7 @@ onUnmounted(() => {
   if (resizeObserver) resizeObserver.disconnect()
   window.removeEventListener('mousemove', handleGlobalMouseMove, true)
   window.removeEventListener('mouseup', handleGlobalMouseUp, true)
+  if (_pendingRafId != null) { cancelAnimationFrame(_pendingRafId); _pendingRafId = null }
 })
 
 // ── 拖拽 overrides → BitLayoutCanvas props ──
@@ -132,6 +134,11 @@ const dragState = ref(null)
 const previewStartBit = ref(null)
 const isProcessingDrop = ref(false)
 const hasMoved = ref(false)
+const isDragging = computed(() => !!dragState.value && hasMoved.value)
+
+// rAF 节流：确保每帧最多处理一次 mousemove，避免拖动时主线程被大量事件压垂
+let _pendingRafId = null
+let _pendingMouseEvent = null
 
 /** 坐标 → 网格位置 */
 function clientToGrid(clientX, clientY) {
@@ -189,14 +196,27 @@ function onCellClick(cell) {
 
 function handleGlobalMouseMove(e) {
   if (!dragState.value) return
+  _pendingMouseEvent = { clientX: e.clientX, clientY: e.clientY }
+  if (_pendingRafId != null) return  // 已有 rAF 在排程，跳过
+  _pendingRafId = requestAnimationFrame(() => {
+    _pendingRafId = null
+    const evt = _pendingMouseEvent
+    _pendingMouseEvent = null
+    if (!dragState.value || !evt) return
+    _processMouseMove(evt.clientX, evt.clientY)
+  })
+}
+
+/** rAF 节流后的实际处理逻辑 */
+function _processMouseMove(clientX, clientY) {
   const ds = dragState.value
-  const grid = clientToGrid(e.clientX, e.clientY)
+  const grid = clientToGrid(clientX, clientY)
   if (!grid) return
 
   const stageNode = layoutCanvasRef.value?.stageNode
   if (stageNode) {
     const rect = stageNode.container().getBoundingClientRect()
-    const stageY = e.clientY - rect.top
+    const stageY = clientY - rect.top
     const rawRow = Math.floor((stageY - headerH) / cellSize.value)
     if (rawRow >= totalRows.value) {
       dragExtraRows.value = Math.max(dragExtraRows.value, rawRow - rows.value + 2)
@@ -224,6 +244,10 @@ function handleGlobalMouseMove(e) {
 function processDrop(clientX, clientY) {
   if (!dragState.value || isProcessingDrop.value) return
   isProcessingDrop.value = true
+
+  // 取消未执行的 rAF，避免 drop 后残留的 mousemove 处理
+  if (_pendingRafId != null) { cancelAnimationFrame(_pendingRafId); _pendingRafId = null }
+  _pendingMouseEvent = null
 
   const ds = dragState.value
   dragState.value = null
