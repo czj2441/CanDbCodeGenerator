@@ -7,13 +7,21 @@ def pure_file_name(session) -> str:
     return os.path.basename(session.file_path)
 
 
+def _single_message_summary(m) -> dict:
+    """构建单条报文摘要 dict。"""
+    return {
+        "id": m.id, "id_hex": f"0x{m.id:X}", "name": m.name,
+        "dlc": m.dlc, "cycle_time": m.cycle_time,
+        "is_fd": m.is_fd, "sender": m.sender, "comment": m.comment,
+        "signal_count": len(m.signals),
+        "total_signal_bits": sum(s.length for s in m.signals.values()),
+    }
+
+
 def build_messages_summary(db) -> dict[str, dict]:
     """构建报文摘要 dict（keyed by msg_id），供 full_sync / undo / redo / get_messages 复用。"""
     return {
-        str(mid): {"id": mid, "id_hex": f"0x{mid:X}", "name": m.name,
-                    "dlc": m.dlc, "cycle_time": m.cycle_time,
-                    "is_fd": m.is_fd, "sender": m.sender, "comment": m.comment,
-                    "signal_count": len(m.signals)}
+        str(mid): _single_message_summary(m)
         for mid, m in sorted(db.messages.items())
     }
 

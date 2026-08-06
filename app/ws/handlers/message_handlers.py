@@ -8,7 +8,7 @@ from __future__ import annotations
 from app.models import Message
 from app.services import FileNameExistsError
 from app.ws.router import HandlerResult, HandlerError
-from ._common import push_data_errors, build_messages_summary
+from ._common import push_data_errors, build_messages_summary, _single_message_summary
 
 
 def _parse_id(s) -> int | None:
@@ -66,12 +66,7 @@ class EditMessageHandler:
                                          "prev": prev, "next": nxt})
             new_version = db._bump_version()
             updated_msg = db.get_message(msg_id)
-            evt_data = {"message": {
-                "id": msg_id, "id_hex": f"0x{msg_id:X}", "name": updated_msg.name,
-                "dlc": updated_msg.dlc, "cycle_time": updated_msg.cycle_time,
-                "sender": updated_msg.sender, "comment": updated_msg.comment,
-                "is_fd": updated_msg.is_fd,
-                "signal_count": len(updated_msg.signals)}}
+            evt_data = {"message": _single_message_summary(updated_msg)}
             if new_id != original_msg_id:
                 evt_data["old_id"] = original_msg_id
             events = [
@@ -124,11 +119,7 @@ class AddMessageHandler:
                 raise HandlerError("CONFLICT", f"报文 0x{msg_id:X} 已存在")
             self._sm.push_undo(session, {"type": "message_add", "msgId": msg_id, "data": msg.to_dict()})
             new_version = db._bump_version()
-            summary = {"id": msg_id, "id_hex": f"0x{msg_id:X}", "name": msg.name,
-                       "dlc": msg.dlc, "cycle_time": msg.cycle_time,
-                       "sender": msg.sender, "comment": msg.comment,
-                       "is_fd": msg.is_fd,
-                       "signal_count": len(msg.signals)}
+            summary = _single_message_summary(msg)
             events = [
                 {"type": "message_added", "data": {"message": summary}, "data_version": new_version},
                 {"type": "status_changed", "data": {"modified": True,
@@ -288,17 +279,7 @@ class BatchEditMessagesHandler:
             # 逐报文发 message_updated 事件
             events = []
             for updated_msg in updated_msgs:
-                summary = {
-                    "id": updated_msg.id,
-                    "id_hex": f"0x{updated_msg.id:X}",
-                    "name": updated_msg.name,
-                    "dlc": updated_msg.dlc,
-                    "cycle_time": updated_msg.cycle_time,
-                    "sender": updated_msg.sender,
-                    "comment": updated_msg.comment,
-                    "is_fd": updated_msg.is_fd,
-                    "signal_count": len(updated_msg.signals),
-                }
+                summary = _single_message_summary(updated_msg)
                 events.append({
                     "type": "message_updated",
                     "data": {"message": summary},

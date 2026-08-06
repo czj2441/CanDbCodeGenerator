@@ -72,6 +72,14 @@
                   <option value="true">CAN FD</option>
                 </select>
               </template>
+              <template v-else-if="col.key === 'msg_sender'"><input v-lazy-value="m.sender" @blur="e => isCellEditable(m.id) && update(m.id, 'sender', e.target.value)" :disabled="multiSelect.isMultiSelect.value" :readonly="!isCellEditable(m.id)"></template>
+              <template v-else-if="col.key === 'msg_bit_usage'">
+                <div class="bit-bar-cell">
+                  <div class="bit-bar"><div class="bit-bar-fill" :class="bitUsageClass(m)" :style="{ width: bitUsagePct(m) + '%' }"></div></div>
+                  <span class="bit-bar-text">{{ m.total_signal_bits || 0 }}/{{ m.dlc * 8 }} bit</span>
+                </div>
+              </template>
+              <template v-else-if="col.key === 'msg_comment'"><input v-lazy-value="m.comment" @blur="e => isCellEditable(m.id) && update(m.id, 'comment', e.target.value)" :disabled="multiSelect.isMultiSelect.value" :readonly="!isCellEditable(m.id)"></template>
               <template v-else-if="col.key === 'msg_edit_signals'"><button class="vt-tag" @click.stop="jumpToSignals(m.id)">{{ t('msgtable.editSignals') }}</button></template>
               <template v-else-if="col.key === 'msg_actions'"><button class="action-delete" @click.stop="deleteMessage(m.id)" title="删除">×</button></template>
             </td>
@@ -104,13 +112,16 @@ import BatchEditModal from './BatchEditModal.vue'
 
 const COLUMNS = [
   { key: '_cb',         i18n: null,                toggleable: false, defaultPct: 2,  sortable: false },
-  { key: 'msg_id',      i18n: 'msgtable.thId',      toggleable: false, defaultPct: 10, sortField: 'id' },
-  { key: 'msg_name',    i18n: 'msgtable.thName',    toggleable: false, defaultPct: 18, sortField: 'name' },
-  { key: 'msg_dlc',     i18n: 'msgtable.thDlc',     toggleable: true,  defaultPct: 6,  sortField: 'dlc' },
-  { key: 'msg_cycle',   i18n: 'msgtable.thCycle',   toggleable: true,  defaultPct: 8,  sortField: 'cycle_time' },
-  { key: 'msg_fd',      i18n: 'msgtable.thFd',      toggleable: true,  defaultPct: 7,  sortable: false },
-  { key: 'msg_edit_signals', i18n: null,                 toggleable: false, defaultPct: 6,  sortable: false },
-  { key: 'msg_actions', i18n: null,                 toggleable: false, defaultPct: 4,  sortable: false },
+  { key: 'msg_id',      i18n: 'msgtable.thId',      toggleable: false, defaultPct: 9,  sortField: 'id' },
+  { key: 'msg_name',    i18n: 'msgtable.thName',    toggleable: false, defaultPct: 15, sortField: 'name' },
+  { key: 'msg_sender',  i18n: 'msgtable.thSender',  toggleable: true,  defaultPct: 8,  sortField: 'sender' },
+  { key: 'msg_dlc',     i18n: 'msgtable.thDlc',     toggleable: true,  defaultPct: 5,  sortField: 'dlc' },
+  { key: 'msg_cycle',   i18n: 'msgtable.thCycle',   toggleable: true,  defaultPct: 7,  sortField: 'cycle_time' },
+  { key: 'msg_fd',      i18n: 'msgtable.thFd',      toggleable: true,  defaultPct: 6,  sortable: false },
+  { key: 'msg_bit_usage', i18n: 'msgtable.thBitUsage', toggleable: true, defaultPct: 10, sortable: false },
+  { key: 'msg_comment', i18n: 'msgtable.thComment', toggleable: true,  defaultPct: 12, sortField: 'comment' },
+  { key: 'msg_edit_signals', i18n: null,                 toggleable: false, defaultPct: 5,  sortable: false },
+  { key: 'msg_actions', i18n: null,                 toggleable: false, defaultPct: 3,  sortable: false },
 ]
 
 const store = useEditorStore()
@@ -131,6 +142,16 @@ const sortedMessages = computed(() => {
   const arr = Object.values(store.messages)
   return sortByField(arr, ui.msgSortField, ui.msgSortDir)
 })
+
+// ── 位使用率计算 ──
+function bitUsagePct(m) {
+  const max = (m.dlc || 0) * 8
+  return max > 0 ? ((m.total_signal_bits || 0) / max) * 100 : 0
+}
+function bitUsageClass(m) {
+  const pct = bitUsagePct(m)
+  return pct > 100 ? 'danger' : pct >= 80 ? 'warn' : 'ok'
+}
 
 function onHeaderClick(field) {
   if (consumeJustResized()) return
@@ -323,7 +344,7 @@ function jumpToSignals(id) {
 }
 
 // ── 方向键单元格导航 ──
-const NON_NAVIGABLE_COLS = new Set(['msg_edit_signals', 'msg_actions'])
+const NON_NAVIGABLE_COLS = new Set(['msg_edit_signals', 'msg_actions', 'msg_bit_usage'])
 
 function getCellPosition(el) {
   const td = el.closest('td')
@@ -455,5 +476,35 @@ function onCellKeyDown(e) {
 }
 .btn-danger:hover {
   background: color-mix(in oklch, var(--danger) 90%, oklch(0.2 0 0));
+}
+
+/* 位使用率进度条 */
+.bit-bar-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.bit-bar {
+  flex: 1;
+  min-width: 30px;
+  height: 6px;
+  background: var(--bg-raised);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.bit-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width var(--transition);
+}
+.bit-bar-fill.ok { background: var(--accent); }
+.bit-bar-fill.warn { background: var(--warn); }
+.bit-bar-fill.danger { background: var(--danger); }
+.bit-bar-text {
+  font-size: 10px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 </style>

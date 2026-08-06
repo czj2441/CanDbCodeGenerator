@@ -187,11 +187,11 @@ const totalBits = computed(() => {
   return Object.values(msg.value.signals).reduce((sum, s) => sum + (s.length || 0), 0)
 })
 const maxBits = computed(() => (msg.value?.dlc || 0) * 8)
-const bitUsagePct = computed(() => maxBits.value > 0 ? Math.min(100, (totalBits.value / maxBits.value) * 100) : 0)
+const bitUsagePct = computed(() => maxBits.value > 0 ? (totalBits.value / maxBits.value) * 100 : 0)
 const bitUsageClass = computed(() => {
   const pct = bitUsagePct.value
-  if (pct >= 100) return 'danger'
-  if (pct >= 75) return 'warn'
+  if (pct > 100) return 'danger'
+  if (pct >= 80) return 'warn'
   return 'ok'
 })
 

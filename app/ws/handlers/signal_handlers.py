@@ -112,8 +112,10 @@ class EditSignalHandler:
                 "prev": {field: old_val}, "next": {field: value}
             })
             new_version = db._bump_version()
+            total_bits = sum(s.length for s in msg.signals.values())
             events = [
-                {"type": "signal_updated", "data": {"msg_id": msg_id, "signal": sig.to_dict(), "old_name": old_name},
+                {"type": "signal_updated", "data": {"msg_id": msg_id, "signal": sig.to_dict(), "old_name": old_name,
+                                                     "total_signal_bits": total_bits},
                  "data_version": new_version},
                 {"type": "status_changed", "data": {"modified": True,
                  "undo_count": len(session.undo_stack), "redo_count": len(session.redo_stack)},
@@ -152,8 +154,10 @@ class AddSignalHandler:
             self._sm.push_undo(session, {"type": "signal_add", "msgId": msg_id,
                                      "sigName": sig.name, "data": sig.to_dict()})
             new_version = db._bump_version()
+            total_bits = sum(s.length for s in msg.signals.values())
             events = [
-                {"type": "signal_added", "data": {"msg_id": msg_id, "signal": sig.to_dict()},
+                {"type": "signal_added", "data": {"msg_id": msg_id, "signal": sig.to_dict(),
+                                                    "total_signal_bits": total_bits},
                  "data_version": new_version},
                 {"type": "status_changed", "data": {"modified": True,
                  "undo_count": len(session.undo_stack), "redo_count": len(session.redo_stack)},
@@ -189,8 +193,10 @@ class DeleteSignalHandler:
                 raise HandlerError("SIGNAL_NOT_FOUND", "删除失败")
             self._sm.push_undo(session, {"type": "signal_delete", "msgId": msg_id, "data": sig_data})
             new_version = db._bump_version()
+            total_bits = sum(s.length for s in msg.signals.values())
             events = [
-                {"type": "signal_deleted", "data": {"msg_id": msg_id, "signal_name": sig_name},
+                {"type": "signal_deleted", "data": {"msg_id": msg_id, "signal_name": sig_name,
+                                                      "total_signal_bits": total_bits},
                  "data_version": new_version},
                 {"type": "status_changed", "data": {"modified": True,
                  "undo_count": len(session.undo_stack), "redo_count": len(session.redo_stack)},
@@ -244,9 +250,11 @@ class BatchAddSignalsHandler:
             self._sm.push_undo(session, {"type": "batch_signal_add", "msgId": msg_id,
                                      "signals": [{"name": s.name, "data": s.to_dict()} for s in created]})
             new_version = db._bump_version()
+            total_bits = sum(s.length for s in msg.signals.values())
             events = []
             for sig in created:
-                events.append({"type": "signal_added", "data": {"msg_id": msg_id, "signal": sig.to_dict()},
+                events.append({"type": "signal_added", "data": {"msg_id": msg_id, "signal": sig.to_dict(),
+                                                                  "total_signal_bits": total_bits},
                                "data_version": new_version})
             events.append({"type": "status_changed", "data": {"modified": True,
                            "undo_count": len(session.undo_stack), "redo_count": len(session.redo_stack)},
@@ -374,11 +382,13 @@ class BatchEditSignalsHandler:
             new_version = db._bump_version()
 
             # 逐信号发 signal_updated 事件（复用前端现有处理逻辑）
+            total_bits = sum(s.length for s in msg.signals.values())
             events = []
             for sig in updated_sigs:
                 events.append({
                     "type": "signal_updated",
-                    "data": {"msg_id": msg_id, "signal": sig.to_dict(), "old_name": None},
+                    "data": {"msg_id": msg_id, "signal": sig.to_dict(), "old_name": None,
+                             "total_signal_bits": total_bits},
                     "data_version": new_version,
                 })
             events.append({
@@ -452,11 +462,13 @@ class BatchDeleteSignalsHandler:
             new_version = db._bump_version()
 
             # 逐信号发 signal_deleted 事件
+            total_bits = sum(s.length for s in msg.signals.values())
             events = []
             for item in deleted:
                 events.append({
                     "type": "signal_deleted",
-                    "data": {"msg_id": msg_id, "signal_name": item["name"]},
+                    "data": {"msg_id": msg_id, "signal_name": item["name"],
+                             "total_signal_bits": total_bits},
                     "data_version": new_version,
                 })
             events.append({

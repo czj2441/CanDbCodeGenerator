@@ -275,7 +275,7 @@ export const useEditorStore = defineStore('editor', {
 
         case 'signal_updated': {
           WsFrontendDiag.count('signal_updated')
-          const { msg_id, signal, old_name } = msg.data
+          const { msg_id, signal, old_name, total_signal_bits } = msg.data
           const cache = this.messageCache[msg_id]
           if (cache && cache.signals) {
             if (old_name && old_name !== signal.name) {
@@ -283,11 +283,17 @@ export const useEditorStore = defineStore('editor', {
             }
             cache.signals[signal.name] = signal
           }
+          if (total_signal_bits != null) {
+            const summary = this.messages[String(msg_id)]
+            if (summary) {
+              this.messages[String(msg_id)] = { ...summary, total_signal_bits }
+            }
+          }
           break
         }
 
         case 'signal_added': {
-          const { msg_id, signal } = msg.data
+          const { msg_id, signal, total_signal_bits } = msg.data
           const cache = this.messageCache[msg_id]
           if (cache) {
             cache.signals = { ...cache.signals, [signal.name]: signal }
@@ -297,14 +303,15 @@ export const useEditorStore = defineStore('editor', {
             this.messages[String(msg_id)] = {
               ...msgSummary,
               signal_count: cache ? Object.keys(cache.signals).length
-                : msgSummary.signal_count + 1
+                : msgSummary.signal_count + 1,
+              ...(total_signal_bits != null ? { total_signal_bits } : {})
             }
           }
           break
         }
 
         case 'signal_deleted': {
-          const { msg_id, signal_name } = msg.data
+          const { msg_id, signal_name, total_signal_bits } = msg.data
           const cache = this.messageCache[msg_id]
           if (cache && cache.signals) {
             const newSignals = { ...cache.signals }
@@ -316,7 +323,8 @@ export const useEditorStore = defineStore('editor', {
             this.messages[String(msg_id)] = {
               ...msgSummary2,
               signal_count: cache ? Object.keys(cache.signals).length
-                : Math.max(0, msgSummary2.signal_count - 1)
+                : Math.max(0, msgSummary2.signal_count - 1),
+              ...(total_signal_bits != null ? { total_signal_bits } : {})
             }
           }
           // 删除的信号若正在选中，清空 selectedSignalName

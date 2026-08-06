@@ -145,6 +145,7 @@ const dict = {
     'msgtable.thCycle': '周期(ms)',
     'msgtable.thFd': '报文类型',
     'msgtable.thComment': '注释',
+    'msgtable.thBitUsage': '位使用率',
     'msgtable.columnSettings': '列设置',
     'msgtable.resetColumns': '重置全部',
     'msgtable.empty': '暂无报文。',
