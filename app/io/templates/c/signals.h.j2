@@ -36,6 +36,22 @@ typedef enum {
 {% endif %}
 
 /* ═══════════════════════════════════════════
+ * Value Table Enumerations
+ * ═══════════════════════════════════════════ */
+
+{% if value_table_enums %}
+{% for vt in value_table_enums %}
+/* Value Table: {{ vt.table_name }} */
+typedef enum {
+{% for entry in vt.entries %}
+    CanCom_UserDef_{{ vt.name_sanitized }}_{{ entry.name }} = {{ entry.value }},{{ '  /* ' + entry.comment + ' */' if entry.comment else '' }}
+{% endfor %}
+} CanCom_UserDef_{{ vt.name_sanitized }}_t;
+
+{% endfor %}
+{% endif %}
+
+/* ═══════════════════════════════════════════
  * Message-Level Macro Definitions
  * ═══════════════════════════════════════════ */
 

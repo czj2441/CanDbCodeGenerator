@@ -16,6 +16,9 @@ import re
 from datetime import datetime
 from typing import Any, TYPE_CHECKING
 
+import pypinyin
+from pypinyin import Style as PinyinStyle
+
 if TYPE_CHECKING:
     from app.models import CanDatabase, Message, Signal
 
@@ -41,6 +44,26 @@ def _sanitize_identifier(name: str) -> str:
     return s
 
 
+def _chinese_to_pinyin_identifier(text: str) -> str:
+    """Convert text with possible Chinese characters to a C-safe identifier.
+
+    Chinese characters are converted to pinyin (no tone marks).
+    Non-Chinese characters are kept as-is.
+    The result is passed through _sanitize_identifier().
+    """
+    if not text or not text.strip():
+        return _sanitize_identifier(text or '')
+    parts: list[str] = []
+    for char in text.strip():
+        if '\u4e00' <= char <= '\u9fff':
+            py_list = pypinyin.pinyin(char, style=PinyinStyle.NORMAL)
+            if py_list and py_list[0]:
+                parts.append(py_list[0][0].capitalize())
+        else:
+            parts.append(char)
+    return _sanitize_identifier(''.join(parts))
+
+
 # ── C export filename ──────────────────────────────────────────────────────────
 
 _C_EXPORT_PREFIX = "CanCom_UserDef_SigGen_"
@@ -57,13 +80,62 @@ def c_export_filename(db_name: str, kind: str) -> str:
     return f"{_C_EXPORT_PREFIX}{sanitized}{'.h' if kind == 'h' else '.c'}"
 
 
+def _prepare_value_table_enums(db: "CanDatabase") -> list[dict]:
+    """Build enum data for all value tables.
+
+    Must be called while holding db.with_lock().
+    """
+    enums: list[dict] = []
+
+    for vt_name in sorted(db.value_tables.keys()):
+        vt_entries = db.value_tables[vt_name]
+
+        # Type name: CanCom_UserDef_{Sanitized}_t  (原始大小写)
+        sanitized_name = _chinese_to_pinyin_identifier(vt_name)
+
+        entries: list[dict] = []
+        seen_names: dict[str, int] = {}
+
+        for key_str, desc in vt_entries.items():
+            try:
+                value = int(key_str)
+            except (ValueError, TypeError):
+                logger.warning("Value table '%s': skipping non-numeric key '%s'", vt_name, key_str)
+                continue
+
+            entry_name = _chinese_to_pinyin_identifier(desc)
+
+            # Deduplicate entry names within the same enum
+            if entry_name in seen_names:
+                counter = seen_names[entry_name]
+                while f"{entry_name}_{counter}" in seen_names:
+                    counter += 1
+                entry_name = f"{entry_name}_{counter}"
+            seen_names[entry_name] = 1
+
+            entries.append({
+                'name': entry_name,
+                'value': value,
+                'comment': desc,
+            })
+
+        enums.append({
+            'table_name': vt_name,
+            'name_sanitized': sanitized_name,
+            'entries': entries,
+        })
+
+    return enums
+
+
 def _prepare_context(db: "CanDatabase") -> dict[str, Any]:
     """Transform CanDatabase into Jinja2 template context.
     
     MUST be called while holding db.with_lock().
     
     Returns:
-        dict with keys: db_name, db_name_upper, generated_at, messages, signals, signal_count
+        dict with keys: db_name, db_name_upper, generated_at, messages, signals, signal_count,
+                        value_table_enums
     """
     db_name = _sanitize_identifier(db.name)
     
@@ -125,6 +197,7 @@ def _prepare_context(db: "CanDatabase") -> dict[str, Any]:
         'messages': messages_data,
         'signals': all_signals,
         'signal_count': global_idx,
+        'value_table_enums': _prepare_value_table_enums(db),
     }
 
 
