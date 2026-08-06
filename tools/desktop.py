@@ -764,10 +764,10 @@ def main():
     if not check_port_available(port) or not check_port_available(port + 1):
         print(f"[WARN] 端口 {port} 或 {port+1} 被占用，尝试自动清理...")
         if not handle_port_conflict(port, auto_clean=True):
-            for alt_port in range(8082, 8092, 2):  # 步进 2，确保连续两端口可用
-                if check_port_available(alt_port) and check_port_available(alt_port + 1):
-                    port = alt_port
-                    break
+            from app.server.port_utils import find_available_port
+            alt = find_available_port(start=8082)
+            if alt is not None:
+                port = alt
             else:
                 print("[ERROR] 无法找到可用端口对（HTTP+WS），退出。")
                 sys.exit(1)

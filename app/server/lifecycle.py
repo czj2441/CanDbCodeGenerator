@@ -55,7 +55,7 @@ _check_dependencies()
 from app.services import init_session_manager
 from app.models import CanDatabase
 from .http_handler import ApiHandler
-from .port_utils import check_port_available, handle_port_conflict
+from .port_utils import check_port_available, handle_port_conflict, find_available_port
 
 logger = logging.getLogger(__name__)
 
@@ -156,6 +156,8 @@ def main() -> None:
                         help='强制模式（同 --auto-clean）')
     parser.add_argument('--ws-debug', action='store_true',
                         help='启用 WebSocket 诊断日志（JSON lines 输出到 stdout）')
+    parser.add_argument('--no-browser', action='store_true',
+                        help='启动后不自动打开浏览器')
 
     args = parser.parse_args()
 
@@ -169,17 +171,21 @@ def main() -> None:
     if auto_clean:
         logger.info("启动模式：自动清理端口冲突")
 
-    if not check_port_available(port):
-        logger.warning("检测到端口 %d 已被占用", port)
-        if not handle_port_conflict(port, auto_clean=auto_clean):
-            logger.error("无法启动服务器，请解决端口冲突后重试。")
-            sys.exit(1)
-        if not check_port_available(port):
-            logger.error("端口 %d 仍然被占用，无法启动。", port)
+    # 检查 HTTP + WS 双端口
+    if not check_port_available(port) or not check_port_available(port + 1):
+        logger.info("端口 %d/%d 不可用，扫描可用端口...", port, port + 1)
+        alt = find_available_port(start=port + 2)
+        if alt is not None:
+            logger.info("自动切换到端口 %d/%d", alt, alt + 1)
+            port = alt
+        else:
+            logger.error("在 %d-%d 范围内未找到可用端口对。", port, port + 21)
+            logger.info("提示: 使用 --auto-clean 尝试清理，或手动指定其他端口。")
             sys.exit(1)
 
     server = ThreadingHTTPServer(("localhost", port), ApiHandler)
     logger.info("CanMatrix Editor API server running at http://localhost:%d", port)
+    logger.info("WS port: %d", port + 1)
     logger.info("Press Ctrl+C to stop.")
 
     # ── WebSocket 服务启动 ──
@@ -229,19 +235,31 @@ def main() -> None:
 
     atexit.register(snapshot_on_exit)
 
-    def graceful_shutdown(signum, frame):
-        signal_name = "SIGINT" if signum == signal.SIGINT else "SIGTERM"
-        logger.info("Received %s signal, initiating graceful shutdown...", signal_name)
-        sys.exit(0)
+    # ── 自动打开浏览器 ──
+    if not args.no_browser:
+        import webbrowser
+        url = f"http://localhost:{port}"
+        logger.info("服务已就绪，正在打开浏览器: %s", url)
+        threading.Timer(0.5, webbrowser.open, args=[url]).start()
 
-    signal.signal(signal.SIGINT, graceful_shutdown)
-    if hasattr(signal, 'SIGTERM'):
-        signal.signal(signal.SIGTERM, graceful_shutdown)
-
+    # 不注册自定义 SIGINT 处理器，依赖 Python 默认行为：
+    # Ctrl+C → KeyboardInterrupt → 中断 serve_forever()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        logger.info("Shutting down.")
+        logger.info("Shutting down...")
+    finally:
+        # 关闭 WS server（独立线程，安全调用）
+        try:
+            ws_server.shutdown(timeout=3)
+        except Exception as e:
+            logger.error("WS shutdown error: %s", e)
+        # 关闭 HTTP server（serve_forever 已返回，不会死锁）
+        try:
+            server.shutdown()
+            server.server_close()
+        except Exception as e:
+            logger.error("HTTP shutdown error: %s", e)
 
 
 class BackgroundServer:
@@ -289,6 +307,16 @@ class BackgroundServer:
 def start_server_background(port: int = 8080) -> BackgroundServer:
     """在后台线程启动 API 服务器，返回 BackgroundServer 对象。"""
     setup_logging()
+
+    # 端口可用性检查（HTTP + WS 双端口）
+    if not check_port_available(port) or not check_port_available(port + 1):
+        alt = find_available_port(start=port)
+        if alt is not None:
+            logger.info("start_server_background: 端口 %d 不可用，切换到 %d", port, alt)
+            port = alt
+        else:
+            raise RuntimeError(f"端口 {port}/{port+1} 不可用且无替代端口")
+
     server = ThreadingHTTPServer(("localhost", port), ApiHandler)
     logger.info("CanMatrix Editor API server running at http://localhost:%d", port)
 

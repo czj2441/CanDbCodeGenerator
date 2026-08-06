@@ -46,4 +46,4 @@ echo ""
 
 echo "[Build] 正在启动后端服务..."
 cd "${ROOT_DIR}"
-python -m app.server.lifecycle 8080
+python -m app.server.lifecycle

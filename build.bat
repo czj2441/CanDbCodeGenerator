@@ -61,4 +61,4 @@ echo.
 
 echo [Build] Starting backend server...
 cd /d "%ROOT_DIR%"
-python -m app.server.lifecycle 8080
+python -m app.server.lifecycle
