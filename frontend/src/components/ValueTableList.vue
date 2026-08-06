@@ -27,7 +27,7 @@
       <div v-if="filteredNames.length === 0" class="empty">
         {{ searchQuery ? t('valtable.noResults') : t('valtable.empty') }}
       </div>
-      <table v-else class="valtable-table" ref="tableRef">
+      <table v-else class="valtable-table data-table" ref="tableRef" @keydown="onCellKeyDown">
         <colgroup>
           <col v-for="col in visibleColumns" :key="col.key"
                :style="{ width: normalizedPcts[col.key] + '%' }">
@@ -47,22 +47,19 @@
         </thead>
         <tbody>
           <template v-for="name in sortedFilteredNames" :key="name">
-            <tr :class="{ selected: ui.selectedVtName === name }"
-                @click="selectRow(name)">
+            <tr :data-vt-name="name"
+                :class="{ selected: ui.selectedVtName === name }"
+                @mousedown="handleRowMouseDown(name, $event)">
               <td v-for="col in visibleColumns" :key="col.key">
                 <template v-if="col.key === 'vt_name'">
-                  <input v-if="editingName === name"
-                         ref="editInputRef"
-                         class="vt-name-input"
-                         :value="name"
-                         @blur="commitRename(name, $event)"
-                         @keydown.enter.prevent="commitRename(name, $event)"
-                         @keydown.escape.prevent="cancelRename"
-                         @click.stop>
-                  <span v-else class="vt-name" @dblclick.stop="startRename(name)">{{ name }}</span>
+                  <input v-lazy-value="name"
+                         @blur="e => commitRename(name, e)"
+                         @keydown.enter.prevent="$event.target.blur()"
+                         @keydown.escape.prevent="cancelRename(name, $event)"
+                         :readonly="editingName !== name">
                 </template>
-                <template v-else-if="col.key === 'vt_entries'">{{ entryCount(name) }}</template>
-                <template v-else-if="col.key === 'vt_refs'">{{ refCountMap.get(name) || 0 }}</template>
+                <template v-else-if="col.key === 'vt_entries'"><input :value="entryCount(name)" readonly></template>
+                <template v-else-if="col.key === 'vt_refs'"><input :value="refCountMap.get(name) || 0" readonly></template>
                 <template v-else-if="col.key === 'vt_actions'">
                   <button class="action-delete" @click.stop="deleteTable(name)" title="删除">×</button>
                 </template>
@@ -76,13 +73,14 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { computed, ref, onMounted, onUnmounted, watch } from 'vue'
 import { useEditorStore } from '../stores/editor.js'
 import { useValueTablesStore } from '../stores/valueTables.js'
 import { useUiStore } from '../stores/uiStore.js'
 import { t } from '../i18n.js'
 
 import { sortByField, toggleSort, getSortIcon } from '../utils/sortHelper.js'
+import { vLazyValue } from '../directives/lazyValue.js'
 import { useColumnResize } from '../composables/useColumnResize.js'
 
 const COLUMNS = [
@@ -180,16 +178,9 @@ function entryCount(name) {
 
 // ── 双击重命名 ──
 const editingName = ref(null)
-const editInputRef = ref(null)
-
-function startRename(name) {
-  editingName.value = name
-  nextTick(() => editInputRef.value?.select())
-}
 
 async function commitRename(name, event) {
   const newName = event.target.value.trim()
-  editingName.value = null
   if (!newName || newName === name) return
   try {
     await valueTables.renameValueTable(name, newName)
@@ -197,14 +188,113 @@ async function commitRename(name, event) {
   } catch { /* toast already shown */ }
 }
 
-function cancelRename() {
+function cancelRename(name, event) {
   editingName.value = null
+  event.target.value = name
 }
 
-// ── 行选中 ──
-function selectRow(name) {
-  editingName.value = null
-  ui.selectedVtName = name
+// ── 行交互 ──
+function handleRowMouseDown(name, event) {
+  const INTERACTIVE_TAGS = new Set(['INPUT', 'SELECT'])
+  if (event.button !== 0) {
+    if (INTERACTIVE_TAGS.has(event.target.tagName)) event.preventDefault()
+    return
+  }
+  const isInteractive = INTERACTIVE_TAGS.has(event.target.tagName)
+  if (isInteractive) {
+    if (event.detail >= 2) editingName.value = name
+    ui.selectedVtName = name
+  } else {
+    editingName.value = null
+    ui.selectedVtName = name
+  }
+}
+
+// ── 方向键单元格导航 ──
+const NON_NAVIGABLE_COLS = new Set(['vt_actions'])
+
+function getCellPosition(el) {
+  const td = el.closest('td')
+  if (!td) return null
+  const tr = td.parentElement
+  if (!tr || tr.tagName !== 'TR') return null
+  const tbody = tr.parentElement
+  if (!tbody || tbody.tagName !== 'TBODY') return null
+  const rowIdx = Array.from(tbody.children).indexOf(tr)
+  return { rowIdx, colIdx: td.cellIndex }
+}
+
+function getCellEditor(rowIdx, colIdx) {
+  const table = tableRef.value
+  if (!table) return null
+  const tbody = table.tBodies[0]
+  if (!tbody) return null
+  const row = tbody.rows[rowIdx]
+  if (!row) return null
+  const cell = row.cells[colIdx]
+  if (!cell) return null
+  return cell.querySelector('input:not([readonly]), select')
+}
+
+function findNavigableCol(colIdx, direction) {
+  const cols = visibleColumns.value
+  let i = colIdx + direction
+  while (i >= 0 && i < cols.length) {
+    if (!NON_NAVIGABLE_COLS.has(cols[i].key)) return i
+    i += direction
+  }
+  return -1
+}
+
+function onCellKeyDown(e) {
+  const NAV_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'])
+  if (!NAV_KEYS.has(e.key)) return
+
+  const el = e.target
+  if (el.tagName !== 'INPUT' && el.tagName !== 'SELECT') return
+  if (!tableRef.value?.contains(el)) return
+
+  const pos = getCellPosition(el)
+  if (!pos) return
+
+  const cols = visibleColumns.value
+  const totalRows = sortedFilteredNames.value.length
+  let { rowIdx, colIdx } = pos
+  let targetRow = rowIdx
+  let targetCol = colIdx
+
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+    if (el.tagName === 'INPUT') {
+      const supportsSelection = el.type === 'text' || el.type === 'search' || el.type === 'url' || el.type === 'tel' || el.type === 'password' || el.type === ''
+      if (supportsSelection) {
+        if (e.key === 'ArrowLeft' && el.selectionStart > 0) return
+        if (e.key === 'ArrowRight' && el.selectionEnd < el.value.length) return
+      }
+    }
+    const dir = e.key === 'ArrowLeft' ? -1 : 1
+    const nextCol = findNavigableCol(colIdx, dir)
+    if (nextCol < 0) return
+    targetCol = nextCol
+  }
+
+  if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+    const dir = e.key === 'ArrowUp' ? -1 : 1
+    targetRow = rowIdx + dir
+    if (targetRow < 0 || targetRow >= totalRows) return
+    if (NON_NAVIGABLE_COLS.has(cols[colIdx]?.key)) {
+      const nextCol = findNavigableCol(colIdx, 1)
+      if (nextCol < 0) return
+      targetCol = nextCol
+    }
+  }
+
+  e.preventDefault()
+  const target = getCellEditor(targetRow, targetCol)
+  if (!target) return
+  target.focus()
+  if (target.tagName === 'INPUT') target.select()
+  target.closest('tr')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  ui.selectedVtName = sortedFilteredNames.value[targetRow]
 }
 
 // ── 新增表 ──
@@ -252,30 +342,9 @@ onMounted(() => {
 </script>
 
 <style scoped>
+@import './table-styles.css';
+
 .valtable-area { display: flex; flex-direction: column; flex: 1; min-height: 0; user-select: none; }
-
-.center-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-}
-.center-title { font-size: 13px; color: var(--text-dim); }
-
-.toolbar { display: flex; gap: 6px; align-items: center; }
-
-.btn {
-  background: var(--bg-raised);
-  border: 1px solid var(--border);
-  color: var(--text);
-  padding: 4px 12px;
-  border-radius: var(--radius-sm);
-  font-size: 12px;
-  cursor: pointer;
-}
-.btn:hover { background: var(--bg-hover); }
 
 .search-input {
   background: var(--bg-raised);
@@ -288,133 +357,4 @@ onMounted(() => {
   width: 140px;
 }
 .search-input:focus { border-color: var(--accent-dim); }
-
-.table-wrap { flex: 1 1 auto; overflow: auto; padding: 8px; min-height: 120px; }
-
-.empty {
-  padding: 60px 20px;
-  text-align: center;
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
-.valtable-table {
-  width: 100%;
-  table-layout: fixed;
-  border-collapse: separate;
-  border-spacing: 0;
-  font-size: 12px;
-}
-.valtable-table th {
-  position: relative;
-  text-align: left;
-  padding: 6px 8px;
-  color: var(--text-muted);
-  font-weight: 500;
-  border-bottom: 1px solid var(--border);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.th-label { overflow: hidden; text-overflow: ellipsis; }
-.valtable-table td {
-  padding: 3px 6px;
-  border-bottom: 1px solid var(--border);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.valtable-table tr:hover > td { background: var(--signal-bg); }
-.valtable-table tr.selected > td {
-  background: color-mix(in oklch, var(--accent) 15%, transparent) !important;
-}
-.valtable-table tr.selected td:first-child {
-  border-left: 3px solid var(--accent);
-}
-
-.th-sortable { cursor: pointer; user-select: none; }
-.th-sortable:hover { color: var(--text); }
-.sort-icon { font-size: 10px; margin-left: 2px; }
-
-.vt-name { font-weight: 500; cursor: default; }
-
-.vt-name-input {
-  width: 100%;
-  background: var(--bg-base, #fff);
-  border: 1px solid var(--accent-dim, #5b9bd5);
-  color: var(--text);
-  padding: 2px 5px;
-  font-size: 12px;
-  font-weight: 500;
-  border-radius: 2px;
-  outline: none;
-  box-sizing: border-box;
-}
-
-.action-delete {
-  background: transparent;
-  border: none;
-  color: var(--danger);
-  font-size: 18px;
-  cursor: pointer;
-  line-height: 1;
-}
-.action-delete:hover { color: oklch(0.75 0.15 25); }
-
-/* ── 拖拽手柄 ── */
-.resize-handle {
-  position: absolute;
-  top: 0; right: 0;
-  width: 20px; height: 100%;
-  cursor: col-resize;
-  z-index: 4;
-  user-select: none;
-}
-.resize-handle::after {
-  content: '';
-  position: absolute;
-  top: 25%; right: 5px;
-  width: 2px; height: 50%;
-  border-radius: 1px;
-  background: var(--border);
-}
-.resize-handle:hover::after { background: var(--accent); }
-
-/* ── 列显隐下拉菜单 ── */
-.col-toggle-wrap { position: relative; }
-.col-dropdown {
-  position: absolute;
-  top: 100%; right: 0;
-  margin-top: 4px;
-  background: var(--bg-raised);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 6px 0;
-  min-width: 140px;
-  z-index: 20;
-  box-shadow: var(--shadow);
-}
-.col-dropdown-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 12px;
-  font-size: 12px;
-  color: var(--text);
-  cursor: pointer;
-}
-.col-dropdown-item:hover { background: var(--bg-hover); }
-.col-dropdown-divider { height: 1px; background: var(--border); margin: 4px 0; }
-.col-dropdown-reset {
-  display: block;
-  width: 100%;
-  background: none;
-  border: none;
-  color: var(--accent);
-  font-size: 12px;
-  padding: 4px 12px;
-  text-align: left;
-  cursor: pointer;
-}
-.col-dropdown-reset:hover { background: var(--bg-hover); }
 </style>

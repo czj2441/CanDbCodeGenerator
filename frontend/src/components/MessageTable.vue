@@ -27,7 +27,7 @@
 
     <div class="table-wrap">
       <div v-if="messageCount === 0" class="empty">{{ t('msgtable.empty') }}</div>
-      <table v-else class="message-table" ref="tableRef" @keydown="onCellKeyDown">
+      <table v-else class="message-table data-table" ref="tableRef" @keydown="onCellKeyDown">
         <colgroup>
           <col v-for="col in visibleColumns" :key="col.key"
                :style="{ width: normalizedPcts[col.key] + '%' }">
@@ -213,16 +213,8 @@ function handleRowMouseDown(msgId, msgIndex, event) {
     return
   }
 
-  // 点击 td 空白区域时，解析到单元格内的编辑元素，扩大可点击区域
-  let targetEl = event.target
-  let isInteractive = INTERACTIVE_TAGS.has(targetEl.tagName)
-  if (!isInteractive && (targetEl.tagName === 'TD' || targetEl.tagName === 'TH')) {
-    const editor = targetEl.querySelector('input:not([type="checkbox"]), select')
-    if (editor) {
-      targetEl = editor
-      isInteractive = true
-    }
-  }
+  const targetEl = event.target
+  const isInteractive = INTERACTIVE_TAGS.has(targetEl.tagName)
 
   const isCheckbox = targetEl.type === 'checkbox'
 
@@ -420,134 +412,9 @@ function onCellKeyDown(e) {
 </script>
 
 <style scoped>
+@import './table-styles.css';
+
 .message-area { display: flex; flex-direction: column; flex: 1; min-height: 0; user-select: none; }
-
-.center-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-}
-.center-title {
-  font-size: 13px;
-  color: var(--text-dim);
-}
-.center-title strong { color: var(--text); font-weight: 600; }
-
-.toolbar { display: flex; gap: 6px; }
-
-.btn {
-  background: var(--bg-raised);
-  border: 1px solid var(--border);
-  color: var(--text);
-  padding: 4px 12px;
-  border-radius: var(--radius-sm);
-  font-size: 12px;
-  cursor: pointer;
-}
-.btn:hover { background: var(--bg-hover); }
-
-.table-wrap { flex: 1 1 auto; overflow: auto; padding: 8px; min-height: 120px; }
-
-.empty {
-  padding: 60px 20px;
-  text-align: center;
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
-.message-table {
-  width: 100%;
-  table-layout: fixed;
-  border-collapse: separate;
-  border-spacing: 0;
-  font-size: 12px;
-}
-.message-table th {
-  position: relative;
-  text-align: left;
-  padding: 6px 8px;
-  color: var(--text-muted);
-  font-weight: 500;
-  border-bottom: 1px solid var(--border);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.th-label { overflow: hidden; text-overflow: ellipsis; }
-.message-table td {
-  padding: 3px 6px;
-  border-bottom: 1px solid var(--border);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.message-table tr:nth-child(even) { background: var(--signal-bg-alt); }
-.message-table tr:hover { background: var(--signal-bg); }
-
-.message-table input {
-  width: 100%;
-  background: transparent;
-  border: 1px solid transparent;
-  color: var(--text);
-  padding: 3px 5px;
-  font-size: 12px;
-  border-radius: var(--radius-sm);
-  outline: none;
-}
-.message-table select {
-  width: 100%;
-  background: transparent;
-  border: 1px solid transparent;
-  color: var(--text);
-  padding: 3px 5px;
-  font-size: 12px;
-  border-radius: var(--radius-sm);
-  outline: none;
-  cursor: pointer;
-}
-.message-table input:focus,
-.message-table select:focus {
-  background: var(--bg-raised);
-  border-color: var(--accent);
-  box-shadow: 0 0 0 1px color-mix(in oklch, var(--accent) 40%, transparent);
-}
-.message-table input.mono { font-family: var(--font-mono); }
-.message-table input:disabled {
-  opacity: 1;
-  cursor: pointer;
-}
-.message-table input[readonly] { cursor: pointer; }
-.message-table input[type="number"]::-webkit-inner-spin-button,
-.message-table input[type="number"]::-webkit-outer-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
-}
-.message-table input[type="number"] {
-  -moz-appearance: textfield;
-}
-.th-sortable { cursor: pointer; user-select: none; }
-.th-sortable:hover { color: var(--text); }
-.sort-icon { font-size: 10px; margin-left: 2px; }
-
-.message-table tbody tr { cursor: pointer; }
-
-.action-delete {
-  background: transparent;
-  border: none;
-  color: var(--danger);
-  font-size: 18px;
-  cursor: pointer;
-  line-height: 1;
-}
-.action-delete:hover { color: oklch(0.75 0.15 25); }
-
-.btn-sm {
-  padding: 2px 8px;
-  font-size: 11px;
-}
 
 /* 编辑信号按钮 - 复用信号表值描述标签样式 */
 .vt-tag {
@@ -565,72 +432,6 @@ function onCellKeyDown(e) {
 }
 .vt-tag:hover { background: color-mix(in oklch, var(--accent) 25%, transparent); }
 
-/* 拖拽手柄 */
-.resize-handle {
-  position: absolute;
-  top: 0; right: 0;
-  width: 20px; height: 100%;
-  cursor: col-resize;
-  z-index: 4;
-  user-select: none;
-}
-.resize-handle::after {
-  content: '';
-  position: absolute;
-  top: 25%; right: 5px;
-  width: 2px; height: 50%;
-  border-radius: 1px;
-  background: var(--border);
-}
-.resize-handle:hover::after,
-.resize-handle.active::after { background: var(--accent); }
-
-/* 列显隐下拉菜单 */
-.col-toggle-wrap { position: relative; }
-.col-dropdown {
-  position: absolute;
-  top: 100%; right: 0;
-  margin-top: 4px;
-  background: var(--bg-raised);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 6px 0;
-  min-width: 140px;
-  z-index: 20;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-}
-.col-dropdown-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 12px;
-  font-size: 12px;
-  color: var(--text);
-  cursor: pointer;
-}
-.col-dropdown-item:hover { background: var(--bg-hover); }
-.col-dropdown-divider { height: 1px; background: var(--border); margin: 4px 0; }
-.col-dropdown-reset {
-  display: block;
-  width: 100%;
-  background: none;
-  border: none;
-  color: var(--accent);
-  font-size: 12px;
-  padding: 4px 12px;
-  text-align: left;
-  cursor: pointer;
-}
-.col-dropdown-reset:hover { background: var(--bg-hover); }
-
-/* 选中行高亮 */
-.message-table tr.selected {
-  background: color-mix(in oklch, var(--accent) 15%, transparent) !important;
-}
-.message-table tr.selected td:first-child {
-  border-left: 3px solid var(--accent);
-}
-
 /* 多选行高亮 */
 .message-table tr.multi-selected {
   background: color-mix(in oklch, var(--accent) 20%, transparent) !important;
@@ -643,6 +444,7 @@ function onCellKeyDown(e) {
   cursor: pointer;
   width: 14px;
   height: 14px;
+  padding: 0;
 }
 
 /* 批量删除按钮 */
