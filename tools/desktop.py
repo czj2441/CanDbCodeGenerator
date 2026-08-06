@@ -161,6 +161,7 @@ if HAS_WEBBROWSER_INTEROP:
             try:
                 from app.server import SESSION_MGR
                 from app.ws.handlers import DownloadFileHandler
+                from app.ws.router import HandlerError
 
                 handler = DownloadFileHandler(SESSION_MGR)
                 result = handler({"session_id": session_id, "format": format_str})
@@ -170,6 +171,13 @@ if HAS_WEBBROWSER_INTEROP:
                     f.write(content)
 
                 return json.dumps({'success': True, 'path': save_path})
+            except HandlerError as he:
+                # 保留结构化错误码，便于前端识别 DBC_EXPORT_ERRORS 并弹确认框
+                print(f"[Desktop] save_file HandlerError: code={he.code} msg={he.message}")
+                resp = {'success': False, 'error': he.code, 'message': he.message}
+                if he.details:
+                    resp['details'] = he.details
+                return json.dumps(resp)
             except Exception as e:
                 print(f"[Desktop] save_file error: {type(e).__name__}: {e}")
                 return json.dumps({'success': False, 'error': str(e)})

@@ -215,6 +215,7 @@ class ApiHandler(BaseHTTPRequestHandler):
         params = urllib.parse.parse_qs(parsed.query)
         sid = params.get("sid", [""])[0]
         fmt = params.get("fmt", ["properties"])[0]
+        force = params.get("force", ["0"])[0] == "1"
 
         if not sid:
             self._send_json(400, _resp(False, error="sid is required"))
@@ -225,8 +226,8 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._send_json(404, _resp(False, error="Session not found"))
             return
 
-        # DBC 导出前校验：存在数据完整性错误时拒绝导出
-        if fmt == "dbc":
+        # DBC 导出前校验：存在数据完整性错误时拒绝导出（force=True 跳过校验）
+        if fmt == "dbc" and not force:
             with session.db.with_lock():
                 export_errors = session.db.validate_for_dbc_export()
             if export_errors:

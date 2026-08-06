@@ -14,6 +14,11 @@ const dict = {
     'topbar.saveAsPlaceholder': '输入新文件名...',
     'topbar.saveAsConfirm': '另存为',
     'topbar.saveAsCancel': '取消',
+    'topbar.validate': '全量检查数据错误',
+    'topbar.forceExportTitle': '数据错误警告',
+    'topbar.forceExportDesc': '当前数据存在错误，导出的 DBC 文件可能无法被其它工具正常识别，并可能导致发送错误长度、类型的报文。是否强制导出？',
+    'topbar.forceExportCancel': '取消',
+    'topbar.forceExportConfirm': '强制导出',
 
     // FileBrowser
     'browser.title': '选择文件',
@@ -275,6 +280,10 @@ const dict = {
     'toast.validation.signal_overlap': '信号 "{name}" 与 "{other}" 位重叠',
     'toast.validation.signal_out_of_bounds': '信号超出报文范围',
     'toast.validation.dbc_export_errors': '存在 {total} 个数据错误，无法导出 DBC。请先修复错误面板中的问题。',
+    'toast.validation.checking': '正在全量检查...',
+    'toast.validation.noErrors': '数据检查通过，无错误',
+    'toast.validation.hasErrors': '发现 {total} 个数据错误',
+    'toast.validation.forceExported': '已强制导出（含数据错误）',
 
     // Layout view
     'layout.backToTable': '返回表格',

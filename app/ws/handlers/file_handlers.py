@@ -117,8 +117,10 @@ class DownloadFileHandler:
         db = session.db
         fmt = data.get("format", "dbc")
 
-        # DBC 导出前校验：存在数据完整性错误时拒绝导出
-        if fmt == "dbc":
+        force = data.get("force", False)
+
+        # DBC 导出前校验：存在数据完整性错误时拒绝导出（force=True 跳过校验）
+        if fmt == "dbc" and not force:
             with db.with_lock():
                 export_errors = db.validate_for_dbc_export()
             if export_errors:
