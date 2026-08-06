@@ -186,6 +186,8 @@ const dict = {
     'panel.noValueTable': '无',
     'panel.valueTablePreview': '值描述预览',
     'panel.editValueTable': '编辑值描述表',
+    'panel.createNewVt': '新建描述表...',
+    'panel.newVtPlaceholder': '输入表名后回车创建',
     'panel.bitUsage': '位使用率',
 
     // BatchModal
