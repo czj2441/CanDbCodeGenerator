@@ -86,7 +86,14 @@ export function useColumnResize(tableRef, visibleColumns, {
     let newNext = resizeState.nextPct - (newCur - resizeState.curPct)
     if (newNext < MIN_PCT) { newNext = MIN_PCT; newCur = resizeState.curPct + resizeState.nextPct - MIN_PCT }
 
+    // 将所有可见列的当前渲染宽度一并保存，确保总和精确 = 100%，
+    // 防止 normalizedPcts 检测到偏差后对全部列执行不必要的等比缩放
     const widths = { ...getColumnWidths() }
+    const cols = visibleColumns.value
+    const np = normalizedPcts.value
+    for (const c of cols) {
+      widths[c.key] = Math.round(np[c.key] * 100) / 100
+    }
     widths[resizeState.col.key] = Math.round(newCur * 100) / 100
     widths[resizeState.nextCol.key] = Math.round(newNext * 100) / 100
     setColumnWidths(widths)
