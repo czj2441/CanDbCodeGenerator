@@ -69,21 +69,21 @@
                 <input type="checkbox" :checked="multiSelect.selectedKeys.value.has(sig.name)"
                        @click.stop @change="multiSelect.toggleCheckbox(sig.name)">
               </template>
-              <template v-else-if="col.key === 'name'"><input v-lazy-value="sig.name" @blur="e => update(sig.name, 'name', e.target.value)" :disabled="multiSelect.isMultiSelect.value" :readonly="!isCellEditable(sig.name)" data-field="name"></template>
-              <template v-else-if="col.key === 'start'"><input class="mono" type="number" v-lazy-value="displayStartBit(sig)" @blur="e => updateStartBit(sig, parseInt(e.target.value)||0)" :disabled="multiSelect.isMultiSelect.value" :readonly="!isCellEditable(sig.name)" data-field="start"></template>
-              <template v-else-if="col.key === 'length'"><input class="mono" type="number" v-lazy-value="sig.length" @blur="e => update(sig.name, 'length', parseInt(e.target.value))" :readonly="!isCellEditable(sig.name)" data-field="length"></template>
+              <template v-else-if="col.key === 'name'"><input v-lazy-value="sig.name" @blur="e => isCellEditable(sig.name) && update(sig.name, 'name', e.target.value)" :disabled="multiSelect.isMultiSelect.value" :readonly="!isCellEditable(sig.name)" data-field="name"></template>
+              <template v-else-if="col.key === 'start'"><input class="mono" type="number" v-lazy-value="displayStartBit(sig)" @blur="e => isCellEditable(sig.name) && updateStartBit(sig, parseInt(e.target.value)||0)" :disabled="multiSelect.isMultiSelect.value" :readonly="!isCellEditable(sig.name)" data-field="start"></template>
+              <template v-else-if="col.key === 'length'"><input class="mono" type="number" v-lazy-value="sig.length" @blur="e => isCellEditable(sig.name) && update(sig.name, 'length', parseInt(e.target.value))" :readonly="!isCellEditable(sig.name)" data-field="length"></template>
               <template v-else-if="col.key === 'order'">
                 <select :value="sig.byte_order" @change="e => updateByteOrder(sig, e)" data-field="order">
                   <option value="intel">Intel</option>
                   <option value="motorola">Motorola</option>
                 </select>
               </template>
-              <template v-else-if="col.key === 'factor'"><input class="mono" type="number" step="any" v-lazy-value="sig.factor" @blur="e => update(sig.name, 'factor', parseFloat(e.target.value))" :readonly="!isCellEditable(sig.name)" data-field="factor"></template>
-              <template v-else-if="col.key === 'offset'"><input class="mono" type="number" step="any" v-lazy-value="sig.offset" @blur="e => update(sig.name, 'offset', parseFloat(e.target.value))" :readonly="!isCellEditable(sig.name)" data-field="offset"></template>
-              <template v-else-if="col.key === 'min'"><input class="mono" type="number" step="any" v-lazy-value="sig.min_val" @blur="e => update(sig.name, 'min_val', parseFloat(e.target.value))" :readonly="!isCellEditable(sig.name)" data-field="min"></template>
-              <template v-else-if="col.key === 'max'"><input class="mono" type="number" step="any" v-lazy-value="sig.max_val" @blur="e => update(sig.name, 'max_val', parseFloat(e.target.value))" :readonly="!isCellEditable(sig.name)" data-field="max"></template>
-              <template v-else-if="col.key === 'unit'"><input v-lazy-value="sig.unit" @blur="e => update(sig.name, 'unit', e.target.value)" :readonly="!isCellEditable(sig.name)" data-field="unit"></template>
-              <template v-else-if="col.key === 'comment'"><input v-lazy-value="sig.comment" @blur="e => update(sig.name, 'comment', e.target.value)" :readonly="!isCellEditable(sig.name)" data-field="comment"></template>
+              <template v-else-if="col.key === 'factor'"><input class="mono" type="number" step="any" v-lazy-value="sig.factor" @blur="e => isCellEditable(sig.name) && update(sig.name, 'factor', parseFloat(e.target.value))" :readonly="!isCellEditable(sig.name)" data-field="factor"></template>
+              <template v-else-if="col.key === 'offset'"><input class="mono" type="number" step="any" v-lazy-value="sig.offset" @blur="e => isCellEditable(sig.name) && update(sig.name, 'offset', parseFloat(e.target.value))" :readonly="!isCellEditable(sig.name)" data-field="offset"></template>
+              <template v-else-if="col.key === 'min'"><input class="mono" type="number" step="any" v-lazy-value="sig.min_val" @blur="e => isCellEditable(sig.name) && update(sig.name, 'min_val', parseFloat(e.target.value))" :readonly="!isCellEditable(sig.name)" data-field="min"></template>
+              <template v-else-if="col.key === 'max'"><input class="mono" type="number" step="any" v-lazy-value="sig.max_val" @blur="e => isCellEditable(sig.name) && update(sig.name, 'max_val', parseFloat(e.target.value))" :readonly="!isCellEditable(sig.name)" data-field="max"></template>
+              <template v-else-if="col.key === 'unit'"><input v-lazy-value="sig.unit" @blur="e => isCellEditable(sig.name) && update(sig.name, 'unit', e.target.value)" :readonly="!isCellEditable(sig.name)" data-field="unit"></template>
+              <template v-else-if="col.key === 'comment'"><input v-lazy-value="sig.comment" @blur="e => isCellEditable(sig.name) && update(sig.name, 'comment', e.target.value)" :readonly="!isCellEditable(sig.name)" data-field="comment"></template>
               <template v-else-if="col.key === 'valTable'">
                 <select :value="sig.value_table_name || ''" @change="e => updateValueTableRef(sig.name, e.target.value)" data-field="valTable">
                   <option value="">-</option>
@@ -372,17 +372,17 @@ function addSignal() {
 }
 
 function update(sigName, field, value) {
-  signals.updateSignal(sigName, field, value).catch(() => {})
+  signals.updateSignal(sigName, field, value, msg.value?.id).catch(() => {})
 }
 
 function updateByteOrder(sig, e) {
   const oldOrder = sig.byte_order
-  signals.updateSignal(sig.name, 'byte_order', e.target.value)
+  signals.updateSignal(sig.name, 'byte_order', e.target.value, msg.value?.id)
     .catch(() => { e.target.value = oldOrder })
 }
 
 function updateValueTableRef(sigName, value) {
-  signals.updateSignal(sigName, 'value_table_name', value || '').catch(() => {})
+  signals.updateSignal(sigName, 'value_table_name', value || '', msg.value?.id).catch(() => {})
 }
 
 function batchDeleteSelected() {
@@ -410,7 +410,7 @@ function displayStartBit(sig) {
 function updateStartBit(sig, displayValue) {
   const msbValue = toStorageStartBit(displayValue, sig.length, sig.byte_order, 63, sig.start_bit)
   const valueToSend = msbValue >= 0 ? msbValue : -1
-  signals.updateSignal(sig.name, 'start_bit', valueToSend).catch(() => {})
+  signals.updateSignal(sig.name, 'start_bit', valueToSend, msg.value?.id).catch(() => {})
 }
 
 // ── 方向键单元格导航 ──

@@ -62,12 +62,12 @@
                 <input type="checkbox" :checked="multiSelect.selectedKeys.value.has(m.id)"
                        @click.stop @change="multiSelect.toggleCheckbox(m.id)">
               </template>
-              <template v-else-if="col.key === 'msg_id'"><input class="mono" v-lazy-value="toHex(m.id)" @blur="e => update('id', parseHex(e.target.value))" :disabled="multiSelect.isMultiSelect.value" :readonly="!isCellEditable(m.id)"></template>
-              <template v-else-if="col.key === 'msg_name'"><input v-lazy-value="m.name" @blur="e => update('name', e.target.value)" :disabled="multiSelect.isMultiSelect.value" :readonly="!isCellEditable(m.id)"></template>
-              <template v-else-if="col.key === 'msg_dlc'"><input class="mono" type="number" v-lazy-value="m.dlc" @blur="e => update('dlc', parseInt(e.target.value))" :readonly="!isCellEditable(m.id)"></template>
-              <template v-else-if="col.key === 'msg_cycle'"><input class="mono" type="number" v-lazy-value="m.cycle_time" @blur="e => update('cycle_time', parseInt(e.target.value))" :readonly="!isCellEditable(m.id)"></template>
+              <template v-else-if="col.key === 'msg_id'"><input class="mono" v-lazy-value="toHex(m.id)" @blur="e => isCellEditable(m.id) && update(m.id, 'id', parseHex(e.target.value))" :disabled="multiSelect.isMultiSelect.value" :readonly="!isCellEditable(m.id)"></template>
+              <template v-else-if="col.key === 'msg_name'"><input v-lazy-value="m.name" @blur="e => isCellEditable(m.id) && update(m.id, 'name', e.target.value)" :disabled="multiSelect.isMultiSelect.value" :readonly="!isCellEditable(m.id)"></template>
+              <template v-else-if="col.key === 'msg_dlc'"><input class="mono" type="number" v-lazy-value="m.dlc" @blur="e => isCellEditable(m.id) && update(m.id, 'dlc', parseInt(e.target.value))" :readonly="!isCellEditable(m.id)"></template>
+              <template v-else-if="col.key === 'msg_cycle'"><input class="mono" type="number" v-lazy-value="m.cycle_time" @blur="e => isCellEditable(m.id) && update(m.id, 'cycle_time', parseInt(e.target.value))" :readonly="!isCellEditable(m.id)"></template>
               <template v-else-if="col.key === 'msg_fd'">
-                <select :value="String(m.is_fd)" @change="e => update('is_fd', e.target.value === 'true')">
+                <select :value="String(m.is_fd)" @change="e => update(m.id, 'is_fd', e.target.value === 'true')">
                   <option value="false">CAN</option>
                   <option value="true">CAN FD</option>
                 </select>
@@ -258,8 +258,8 @@ function addMessage() {
   messages.addMessage()
 }
 
-function update(field, value) {
-  messages.updateMessageField(field, value).catch(() => {})
+function update(msgId, field, value) {
+  messages.updateMessageField(field, value, msgId).catch(() => {})
 }
 
 function batchDeleteSelected() {

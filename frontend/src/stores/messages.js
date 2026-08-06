@@ -27,7 +27,6 @@ export const useMessagesStore = defineStore('messages', {
     selectMessage(id) {
       const editor = useEditorStore()
       editor.selectedMsgId = id
-      editor.messageCache[id] = null
       this.loadSelectedMessage()
     },
 
@@ -84,33 +83,37 @@ export const useMessagesStore = defineStore('messages', {
     /**
      * 更新报文属性（等待服务器模式）
      */
-    async updateMessageField(field, value) {
+    async updateMessageField(field, value, msgId) {
       const editor = useEditorStore()
-      if (editor.selectedMsgId == null) return
-      const msg = editor.messageCache[editor.selectedMsgId]
+      const targetId = msgId ?? editor.selectedMsgId
+      if (targetId == null) return
+      const msg = editor.messageCache[targetId]
       if (!msg) return
 
       // 记录旧值用于日志
       const oldVal = msg[field]
-      const msgName = msg.name || '0x' + editor.selectedMsgId.toString(16).toUpperCase()
+      const msgName = msg.name || '0x' + targetId.toString(16).toUpperCase()
 
       try {
         const result = await editor._wsRequest('edit_message', {
-          msg_id: editor.selectedMsgId,
+          msg_id: targetId,
           fields: { [field]: value }
         })
-        if (result?.id != null && result.id !== editor.selectedMsgId) {
-          delete editor.messageCache[editor.selectedMsgId]
-          editor.selectedMsgId = result.id
+        if (result?.id != null && result.id !== targetId) {
+          delete editor.messageCache[targetId]
+          if (targetId === editor.selectedMsgId) {
+            editor.selectedMsgId = result.id
+          }
         }
         if (result) {
-          editor.messageCache[editor.selectedMsgId] = result
+          const cacheId = result?.id != null ? result.id : targetId
+          editor.messageCache[cacheId] = result
         }
         editor.addLogEntry('update', `报文 ${msgName}.${field}: ${oldVal} → ${value}`)
       } catch (e) {
         // 后端拒绝时，用后端返回的权威值覆盖缓存中的对应字段
         if (e.details && field in e.details) {
-          const cache = editor.messageCache[editor.selectedMsgId]
+          const cache = editor.messageCache[targetId]
           if (cache) {
             cache[field] = e.details[field]
           }

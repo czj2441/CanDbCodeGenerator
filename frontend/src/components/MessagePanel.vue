@@ -207,7 +207,7 @@ const valueTablePreview = computed(() => {
 function onValueTableRefChange() {
   if (localValueTableName.value === '__new__') return
   if (!ui.selectedSignalName) return
-  signals.updateSignal(ui.selectedSignalName, 'value_table_name', localValueTableName.value).catch(() => {})
+  signals.updateSignal(ui.selectedSignalName, 'value_table_name', localValueTableName.value, msg.value?.id).catch(() => {})
 }
 
 // ── 内联条目编辑 ──
@@ -347,24 +347,24 @@ function modifyDisplayStartBit(displayValue) {
   if (!selectedSig.value) return
   const msbValue = toStorageStartBit(displayValue, selectedSig.value.length, selectedSig.value.byte_order, 63, selectedSig.value.start_bit)
   const valueToSend = msbValue >= 0 ? msbValue : -1
-  signals.updateSignal(ui.selectedSignalName, 'start_bit', valueToSend).catch(() => {})
+  signals.updateSignal(ui.selectedSignalName, 'start_bit', valueToSend, msg.value?.id).catch(() => {})
 }
 
 function updateSignal(field, value) {
   if (ui.selectedSignalName) {
-    signals.updateSignal(ui.selectedSignalName, field, value).catch(() => {})
+    signals.updateSignal(ui.selectedSignalName, field, value, msg.value?.id).catch(() => {})
   }
 }
 
 function handleByteOrderChange(e) {
   if (!ui.selectedSignalName) return
   const oldOrder = selectedSig.value?.byte_order
-  signals.updateSignal(ui.selectedSignalName, 'byte_order', e.target.value)
+  signals.updateSignal(ui.selectedSignalName, 'byte_order', e.target.value, msg.value?.id)
     .catch(() => { if (oldOrder != null) e.target.value = oldOrder })
 }
 
 function update(field, value) {
-  messages.updateMessageField(field, value).catch(() => {})
+  messages.updateMessageField(field, value, msg.value?.id).catch(() => {})
 }
 
 function updateDlc(value) {
@@ -372,7 +372,7 @@ function updateDlc(value) {
 }
 
 function toggleIsFd(newIsFd) {
-  messages.updateMessageField('is_fd', newIsFd)
+  messages.updateMessageField('is_fd', newIsFd, msg.value?.id)
     .catch(e => {
       localIsFd.value = msg.value?.is_fd ? 'true' : 'false'
       if (isFdEl.value) {

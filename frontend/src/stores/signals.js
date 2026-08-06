@@ -61,10 +61,11 @@ export const useSignalsStore = defineStore('signals', {
     /**
      * 更新信号属性（等待服务器模式）
      */
-    async updateSignal(sigName, field, value) {
+    async updateSignal(sigName, field, value, msgId) {
       const editor = useEditorStore()
-      if (editor.selectedMsgId == null) return
-      const msg = editor.messageCache[editor.selectedMsgId]
+      const targetId = msgId ?? editor.selectedMsgId
+      if (targetId == null) return
+      const msg = editor.messageCache[targetId]
       if (!msg) return
       const sig = msg.signals[sigName]
       if (!sig) return
@@ -79,7 +80,7 @@ export const useSignalsStore = defineStore('signals', {
 
       try {
         await editor._wsRequest('edit_signal', {
-          msg_id: editor.selectedMsgId,
+          msg_id: targetId,
           sig_name: sigName,
           field: field,
           value: value
