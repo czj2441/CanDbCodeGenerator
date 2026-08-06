@@ -50,7 +50,17 @@
             <tr :class="{ selected: ui.selectedVtName === name }"
                 @click="selectRow(name)">
               <td v-for="col in visibleColumns" :key="col.key">
-                <template v-if="col.key === 'vt_name'"><span class="vt-name">{{ name }}</span></template>
+                <template v-if="col.key === 'vt_name'">
+                  <input v-if="editingName === name"
+                         ref="editInputRef"
+                         class="vt-name-input"
+                         :value="name"
+                         @blur="commitRename(name, $event)"
+                         @keydown.enter.prevent="commitRename(name, $event)"
+                         @keydown.escape.prevent="cancelRename"
+                         @click.stop>
+                  <span v-else class="vt-name" @dblclick.stop="startRename(name)">{{ name }}</span>
+                </template>
                 <template v-else-if="col.key === 'vt_entries'">{{ entryCount(name) }}</template>
                 <template v-else-if="col.key === 'vt_refs'">{{ refCountMap.get(name) || 0 }}</template>
                 <template v-else-if="col.key === 'vt_actions'">
@@ -66,7 +76,7 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted, onUnmounted, watch } from 'vue'
+import { computed, ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useEditorStore } from '../stores/editor.js'
 import { useValueTablesStore } from '../stores/valueTables.js'
 import { useUiStore } from '../stores/uiStore.js'
@@ -168,8 +178,32 @@ function entryCount(name) {
   return Object.keys(entries).length
 }
 
+// ── 双击重命名 ──
+const editingName = ref(null)
+const editInputRef = ref(null)
+
+function startRename(name) {
+  editingName.value = name
+  nextTick(() => editInputRef.value?.select())
+}
+
+async function commitRename(name, event) {
+  const newName = event.target.value.trim()
+  editingName.value = null
+  if (!newName || newName === name) return
+  try {
+    await valueTables.renameValueTable(name, newName)
+    if (ui.selectedVtName === name) ui.selectedVtName = newName
+  } catch { /* toast already shown */ }
+}
+
+function cancelRename() {
+  editingName.value = null
+}
+
 // ── 行选中 ──
 function selectRow(name) {
+  editingName.value = null
   ui.selectedVtName = name
 }
 
@@ -302,7 +336,20 @@ onMounted(() => {
 .th-sortable:hover { color: var(--text); }
 .sort-icon { font-size: 10px; margin-left: 2px; }
 
-.vt-name { font-weight: 500; }
+.vt-name { font-weight: 500; cursor: default; }
+
+.vt-name-input {
+  width: 100%;
+  background: var(--bg-base, #fff);
+  border: 1px solid var(--accent-dim, #5b9bd5);
+  color: var(--text);
+  padding: 2px 5px;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 2px;
+  outline: none;
+  box-sizing: border-box;
+}
 
 .action-delete {
   background: transparent;
