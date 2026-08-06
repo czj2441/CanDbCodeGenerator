@@ -22,7 +22,10 @@
       <button class="btn-icon" @click="onSaveAs" title="另存为">
         <SaveAll :size="16" />
       </button>
-      <button class="btn-icon" @click="exportDropdownOpen = !exportDropdownOpen" title="导出">
+      <button class="btn-icon" @click="runFullValidation()" :title="t('topbar.validate')">
+        <ShieldCheck :size="16" />
+      </button>
+      <button class="btn-icon" @click="exportDropdownOpen = !exportDropdownOpen" :title="t('topbar.export')">
         <Download :size="16" />
         <ChevronDown :size="10" style="margin-left: 1px;" />
       </button>
@@ -75,6 +78,22 @@
     </Transition>
   </Teleport>
 
+ <!-- Force Export Confirm Dialog -->
+  <Teleport to="body">
+    <Transition name="fade">
+      <div v-if="forceExportOpen" class="confirm-overlay" @click="cancelForceExport">
+        <div class="confirm-box" @click.stop>
+          <h4>⚠️ {{ t('topbar.forceExportTitle') }}</h4>
+          <p>{{ t('topbar.forceExportDesc') }}</p>
+          <div class="confirm-actions">
+            <button class="btn" @click="cancelForceExport">{{ t('topbar.forceExportCancel') }}</button>
+            <button class="btn btn-warn" @click="confirmForceExport">{{ t('topbar.forceExportConfirm') }}</button>
+          </div>
+        </div>
+      </div>
+    </Transition>
+  </Teleport>
+
   <!-- C Code Preview Modal -->
   <CcodePreviewModal
     v-model:visible="ui.ccodePreview.open"
@@ -94,7 +113,7 @@ import { useUiStore } from '../stores/uiStore.js'
 import { connectionStatus } from '../stores/connectionHealth.js'
 import { t } from '../i18n.js'
 import { getSessionId } from '../api/client.js'
-import { ArrowLeft, Undo2, Redo2, Download, ChevronDown, Save, SaveAll, Moon, Sun, FileText } from '@lucide/vue'
+import { ArrowLeft, Undo2, Redo2, Download, ChevronDown, Save, SaveAll, Moon, Sun, FileText, ShieldCheck } from '@lucide/vue'
 import CcodePreviewModal from './CcodePreviewModal.vue'
 import ConnectionStatus from './ConnectionStatus.vue'
 
@@ -106,6 +125,8 @@ const fileOps = useFileOperationsStore()
 const ui = useUiStore()
 const exportDropdownOpen = ref(false)
 const exportWrapper = ref(null)
+const forceExportOpen = ref(false)
+const pendingExportFmt = ref('dbc')
 
 function setBusType(value) {
   store._wsRequest('edit_database', { fields: { bus_type: value } })
@@ -188,11 +209,41 @@ async function confirmSaveAs() {
   }
 }
 
+async function runFullValidation() {
+  try {
+    ui.setLoading(true)
+    ui.showToast(t('toast.validation.checking'), false)
+    const data = await store._wsRequest('get_data_errors')
+    const errors = Array.isArray(data) ? data : (data?.errors || [])
+    if (errors.length > 0) {
+      ui.showToast(t('toast.validation.hasErrors', { total: errors.length }), true)
+      ui.expandDataErrors = true
+    } else {
+      ui.showToast(t('toast.validation.noErrors'), false)
+    }
+  } catch (e) {
+    ui.showToast(`检查失败: ${e.message}`, true)
+  } finally {
+    ui.setLoading(false)
+  }
+}
+
 async function exportFile(fmt, options = {}) {
-  const ui = useUiStore()
   try {
     ui.setLoading(true)
     const sid = getSessionId() || ''
+
+    // ── DBC 导出前自动校验（非 force 模式） ──
+    if (fmt === 'dbc' && !options.force) {
+      const errData = await store._wsRequest('get_data_errors')
+      const errors = Array.isArray(errData) ? errData : (errData?.errors || [])
+      if (errors.length > 0) {
+        pendingExportFmt.value = fmt
+        ui.setLoading(false)
+        forceExportOpen.value = true
+        return
+      }
+    }
 
     // ── pywebview 桌面模式：调用原生保存对话框（不受 WS 状态影响） ──
     if (window.pywebview?.api?.save_file) {
@@ -200,7 +251,17 @@ async function exportFile(fmt, options = {}) {
       const raw = await window.pywebview.api.save_file(fmt, sid)
       const result = typeof raw === 'string' ? JSON.parse(raw) : raw
       if (result.success) {
-        ui.showToast(`已保存到: ${result.path}`, false)
+        if (options.force) {
+          ui.showToast(t('toast.validation.forceExported'), true)
+        } else {
+          ui.showToast(`已保存到: ${result.path}`, false)
+        }
+      } else if (result.error === 'DBC_EXPORT_ERRORS') {
+        // 桌面端 DBC 校验失败：弹窗确认后走 HTTP 降级路径强制导出
+        pendingExportFmt.value = fmt
+        ui.setLoading(false)
+        forceExportOpen.value = true
+        return
       } else if (result.error !== '用户取消') {
         ui.showToast(`导出失败: ${result.error}`, true)
       }
@@ -209,7 +270,8 @@ async function exportFile(fmt, options = {}) {
 
     // ── WS 断开降级：走 HTTP 导出端点 ──
     if (!store._wsClient?.connected) {
-      const url = `/api/export?sid=${encodeURIComponent(sid)}&fmt=${encodeURIComponent(fmt)}`
+      let url = `/api/export?sid=${encodeURIComponent(sid)}&fmt=${encodeURIComponent(fmt)}`
+      if (options.force) url += '&force=1'
       const resp = await fetch(url)
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({ error: resp.statusText }))
@@ -228,7 +290,11 @@ async function exportFile(fmt, options = {}) {
       document.body.appendChild(a)
       a.click()
       setTimeout(() => { URL.revokeObjectURL(blobUrl); a.remove() }, 100)
-      ui.showToast(`已通过 HTTP 导出备份: ${filename}`, false)
+      if (options.force) {
+        ui.showToast(t('toast.validation.forceExported'), true)
+      } else {
+        ui.showToast(`已通过 HTTP 导出备份: ${filename}`, false)
+      }
       return
     }
 
@@ -242,7 +308,9 @@ async function exportFile(fmt, options = {}) {
     }
 
     // ── 浏览器模式：WS 获取内容 + Blob 下载 ──
-    const data = await store._wsRequest('download_file', { format: fmt }, 60000)
+    const reqData = { format: fmt }
+    if (options.force) reqData.force = true
+    const data = await store._wsRequest('download_file', reqData, 60000)
     const mimeMap = { dbc: 'application/octet-stream', properties: 'text/plain' }
     const blob = new Blob([data.content], { type: `${mimeMap[fmt] || 'text/plain'};charset=utf-8` })
     const url = URL.createObjectURL(blob)
@@ -252,7 +320,11 @@ async function exportFile(fmt, options = {}) {
     document.body.appendChild(a)
     a.click()
     setTimeout(() => { URL.revokeObjectURL(url); a.remove() }, 100)
-    ui.showToast(`已导出: ${data.filename}`, false)
+    if (options.force) {
+      ui.showToast(t('toast.validation.forceExported'), true)
+    } else {
+      ui.showToast(`已导出: ${data.filename}`, false)
+    }
   } catch (e) {
     // DBC 导出被数据错误拦截时，自动展开错误面板
     if (e.details?.errors?.length > 0) {
@@ -267,6 +339,17 @@ async function exportFile(fmt, options = {}) {
   } finally {
     ui.setLoading(false)
   }
+}
+
+function confirmForceExport() {
+  forceExportOpen.value = false
+  const fmt = pendingExportFmt.value
+  exportFile(fmt, { force: true, skipSave: true })
+}
+
+function cancelForceExport() {
+  forceExportOpen.value = false
+  ui.expandDataErrors = true
 }
 
 async function exportCcode() {
@@ -413,6 +496,13 @@ async function save() {
 }
 .confirm-actions .btn-accent:hover { filter: brightness(1.1); }
 .confirm-actions .btn-accent:disabled { opacity: 0.5; cursor: not-allowed; }
+.confirm-actions .btn-warn {
+  background: var(--danger, #e53e3e);
+  color: #fff;
+  border-color: transparent;
+  font-weight: 600;
+}
+.confirm-actions .btn-warn:hover { filter: brightness(1.15); }
 
 .confirm-overlay {
   position: fixed;
