@@ -1,7 +1,7 @@
 <template>
   <div class="file-browser">
     <div class="browser-header">
-      <h2>{{ t('browser.title') }}</h2>
+      <div class="brand-logo">Can<span>DbCodeGenerator</span></div>
       <div class="header-actions">
         <div class="btn-group">
           <button class="btn-icon" @click="createNew" :title="t('browser.newFileTooltip')">
@@ -712,21 +712,23 @@ onUnmounted(() => {
   overflow: hidden;
 }
 
+.brand-logo {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: -0.3px;
+  margin-right: 16px;
+}
+.brand-logo span { color: var(--text); }
+
 .browser-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
   padding: 16px 24px;
   border-bottom: 1px solid var(--border);
   background: var(--bg-panel);
   position: relative;
   z-index: 10;
-}
-
-.browser-header h2 {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 600;
 }
 
 .header-actions {

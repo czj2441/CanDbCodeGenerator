@@ -4,8 +4,8 @@
     <button class="btn-icon" @click="$emit('back')" :title="t('topbar.back')">
       <ArrowLeft :size="18" />
     </button>
-    <!-- Logo -->
-    <div class="topbar-logo">Can<span>DbCodeGenerator</span></div>
+    <!-- 文件名 -->
+    <span class="topbar-filename">{{ store.currentFileName }}</span>
     <!-- 编辑操作按钮组 -->
     <div class="btn-group">
       <button class="btn-icon" @click="undoRedo.undo()" :disabled="!undoRedo.canUndo" title="撤销 (Ctrl+Z)">
@@ -35,12 +35,10 @@
         <button @click="exportCcode(); exportDropdownOpen = false">C Code (.h + .c)</button>
       </div>
     </div>
-    <!-- 中央区域：文件名 + 总线类型 + 脏标记 -->
-    <div class="topbar-center">
-      <span class="topbar-filename">{{ store.currentFileName }}</span>
-      <div class="bus-toggle-wrapper">
-        <span class="bus-toggle-label">{{ t('topbar.busType') }}</span>
-        <div class="bus-toggle" role="radiogroup" :title="t('topbar.busType')">
+    <!-- 总线类型 -->
+    <div class="bus-toggle-wrapper">
+      <span class="bus-toggle-label">{{ t('topbar.busType') }}</span>
+      <div class="bus-toggle" role="radiogroup" :title="t('topbar.busType')">
         <button
           class="bus-toggle-option"
           :class="{ active: store.busType === 'CAN' }"
@@ -55,10 +53,11 @@
           :aria-checked="store.busType === 'CAN FD'"
           @click="store.busType !== 'CAN FD' && setBusType('CAN FD')"
         >CAN FD</button>
-        </div>
       </div>
-      <span v-if="store.backendDirty" class="topbar-dirty-badge" :title="t('status.unsaved')">● {{ t('status.unsaved') }}</span>
     </div>
+    <!-- 脏标记 -->
+    <span v-if="store.backendDirty" class="topbar-dirty-badge" :title="t('status.unsaved')">● {{ t('status.unsaved') }}</span>
+    <div class="topbar-spacer"></div>
     <div class="btn-group">
       <button class="btn-icon" @click="ui.toggleTheme" title="切换主题">
         <Moon v-if="ui.theme === 'dark'" :size="16" />
@@ -456,15 +455,6 @@ async function save() {
   flex-shrink: 0;
 }
 
-.topbar-logo {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--accent);
-  letter-spacing: -0.3px;
-  margin-right: 8px;
-}
-.topbar-logo span { color: var(--text); }
-
 .topbar-filename {
   background: color-mix(in oklch, var(--accent) 8%, transparent);
   border: none;
@@ -482,14 +472,7 @@ async function save() {
   letter-spacing: 0.2px;
 }
 
-.topbar-center {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  min-width: 0;
-}
+.topbar-spacer { flex: 1; }
 
 /* ── 确认对话框按钮 ── */
 .confirm-actions .btn {
