@@ -14,6 +14,7 @@ const dict = {
     'topbar.saveAsPlaceholder': '输入新文件名...',
     'topbar.saveAsConfirm': '另存为',
     'topbar.saveAsCancel': '取消',
+    'topbar.busType': '总线类型',
     'topbar.validate': '全量检查数据错误',
     'topbar.forceExportTitle': '数据错误警告',
     'topbar.forceExportDesc': '当前数据存在错误，导出的 DBC 文件可能无法被其它工具正常识别，并可能导致发送错误长度、类型的报文。是否强制导出？',
