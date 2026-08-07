@@ -9,7 +9,7 @@ import { checkVersionHash } from '../utils/version-check.js'
 import { resetMessageIdGenerator } from '../utils/storeHelpers.js'
 import { setConnectionStatus, resetConnection } from './connectionHealth.js'
 
-export const useEditorStore = defineStore('editor', {
+export const useCoreStore = defineStore('core', {
   state: () => ({
     // ── 核心数据 ──
     messages: {},

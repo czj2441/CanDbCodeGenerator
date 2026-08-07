@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { t } from '../i18n.js'
 import { useUiStore } from './uiStore.js'
-import { useEditorStore } from './editor.js'
+import { useCoreStore } from './coreStore.js'
 import { translateError } from '../utils/storeHelpers.js'
 
 export const useValueTablesStore = defineStore('valueTables', {
@@ -10,7 +10,7 @@ export const useValueTablesStore = defineStore('valueTables', {
      * 新增全局值描述表
      */
     async addValueTable(name, entries = {}) {
-      const editor = useEditorStore()
+      const editor = useCoreStore()
       try {
         await editor._wsRequest('add_value_table', { name, entries })
         useUiStore().showToast(t('toast.valueTableAdded', { name }))
@@ -25,7 +25,7 @@ export const useValueTablesStore = defineStore('valueTables', {
      * 更新全局值描述表的条目
      */
     async updateValueTable(name, entries) {
-      const editor = useEditorStore()
+      const editor = useCoreStore()
       try {
         await editor._wsRequest('update_value_table', { name, entries })
         editor.addLogEntry('update', `更新值描述表: ${name}`)
@@ -39,7 +39,7 @@ export const useValueTablesStore = defineStore('valueTables', {
      * 删除全局值描述表
      */
     async deleteValueTable(name) {
-      const editor = useEditorStore()
+      const editor = useCoreStore()
       try {
         await editor._wsRequest('delete_value_table', { name })
         useUiStore().showToast(t('toast.valueTableDeleted', { name }))
@@ -54,7 +54,7 @@ export const useValueTablesStore = defineStore('valueTables', {
      * 重命名全局值描述表
      */
     async renameValueTable(oldName, newName) {
-      const editor = useEditorStore()
+      const editor = useCoreStore()
       try {
         await editor._wsRequest('rename_value_table', { old_name: oldName, new_name: newName })
         useUiStore().showToast(t('toast.valueTableRenamed', { old: oldName, new: newName }))

@@ -97,7 +97,7 @@
 
 <script setup>
 import { computed, ref, onMounted, onUnmounted, watch } from 'vue'
-import { useEditorStore } from '../stores/editor.js'
+import { useCoreStore } from '../stores/coreStore.js'
 import { useMessagesStore } from '../stores/messages.js'
 import { useClipboardStore } from '../stores/clipboard.js'
 import { useUiStore } from '../stores/uiStore.js'
@@ -124,7 +124,7 @@ const COLUMNS = [
   { key: 'msg_actions', i18n: null,                 toggleable: false, defaultPct: 3,  sortable: false },
 ]
 
-const store = useEditorStore()
+const store = useCoreStore()
 const messages = useMessagesStore()
 const clipboard = useClipboardStore()
 const ui = useUiStore()

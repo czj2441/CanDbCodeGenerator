@@ -108,10 +108,10 @@ const dict = {
     'status.saved': '已保存',
     'status.unsaved': '已修改·未保存',
 
-    // Shared (msglist.unnamed 仍被 SignalTable/SignalLayoutVisualizer 使用)
+    // Shared (msglist.unnamed 仍被 SignalEditorTab/SignalLayoutVisualizer 使用)
     'msglist.unnamed': '（未命名）',
 
-    // SignalTable
+    // SignalEditorTab
     'signal.selectMessage': '在「报文」标签页中选择一条报文以查看其信号。',
     'signal.empty': '未定义信号。<br>点击 + 信号 添加一个。',
     'signal.add': '+ 信号',
@@ -137,7 +137,7 @@ const dict = {
     'tab.closeTab': '关闭标签页',
     'tab.closeOtherTabs': '关闭其他标签页',
 
-    // MessageTable
+    // MessageTab
     'msgtable.allMessages': '所有报文',
     'msgtable.unit': '条',
     'msgtable.add': '+ 报文',
@@ -153,7 +153,7 @@ const dict = {
     'msgtable.empty': '暂无报文。',
     'msgtable.editSignals': '编辑信号',
 
-    // MessagePanel
+    // SignalPanel / MessagePanel
     'panel.msgEmpty': '未选择报文。<br>在「报文」标签页中选择一条报文以编辑其属性。',
     'panel.signalEmpty': '未选择信号。<br>点击左侧信号以编辑其属性。',
     'panel.vtProperties': '值描述表属性',

@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { t } from '../i18n.js'
 import { useUiStore } from './uiStore.js'
-import { useEditorStore } from './editor.js'
+import { useCoreStore } from './coreStore.js'
 import { translateError, generateMessageId } from '../utils/storeHelpers.js'
 
 export const useMessagesStore = defineStore('messages', {
@@ -10,7 +10,7 @@ export const useMessagesStore = defineStore('messages', {
      * 加载所有报文列表
      */
     async loadMessages() {
-      const editor = useEditorStore()
+      const editor = useCoreStore()
       try {
         editor.messages = await editor._wsRequest('get_messages')
         if (editor.selectedMsgId != null) {
@@ -25,7 +25,7 @@ export const useMessagesStore = defineStore('messages', {
      * 选中报文
      */
     selectMessage(id) {
-      const editor = useEditorStore()
+      const editor = useCoreStore()
       editor.selectedMsgId = id
       this.loadSelectedMessage()
     },
@@ -34,7 +34,7 @@ export const useMessagesStore = defineStore('messages', {
      * 加载选中报文的详细信息（含信号列表）
      */
     async loadSelectedMessage() {
-      const editor = useEditorStore()
+      const editor = useCoreStore()
       if (editor.selectedMsgId == null) return
       try {
         editor.messageCache[editor.selectedMsgId] = await editor._wsRequest('get_message', { msg_id: editor.selectedMsgId })
@@ -47,7 +47,7 @@ export const useMessagesStore = defineStore('messages', {
      * 添加报文（等待服务器模式）
      */
     async addMessage() {
-      const editor = useEditorStore()
+      const editor = useCoreStore()
       const id = generateMessageId(editor.messages)
       const name = `NewMessage${id - 0x300 + 1}`
 
@@ -70,7 +70,7 @@ export const useMessagesStore = defineStore('messages', {
      * 删除报文（等待服务器模式）
      */
     async deleteMessage(id) {
-      const editor = useEditorStore()
+      const editor = useCoreStore()
       try {
         await editor._wsRequest('delete_message', { msg_id: id })
         useUiStore().showToast(t('toast.messageDeleted'))
@@ -84,7 +84,7 @@ export const useMessagesStore = defineStore('messages', {
      * 更新报文属性（等待服务器模式）
      */
     async updateMessageField(field, value, msgId) {
-      const editor = useEditorStore()
+      const editor = useCoreStore()
       const targetId = msgId ?? editor.selectedMsgId
       if (targetId == null) return
       const msg = editor.messageCache[targetId]
@@ -129,7 +129,7 @@ export const useMessagesStore = defineStore('messages', {
      * 批量更新多个报文的指定字段（等待服务器模式）
      */
     async batchUpdateMessages(msgIds, fields) {
-      const editor = useEditorStore()
+      const editor = useCoreStore()
       try {
         const result = await editor._wsRequest('batch_edit_messages', {
           msg_ids: msgIds,
@@ -152,7 +152,7 @@ export const useMessagesStore = defineStore('messages', {
      * 批量删除多个报文（等待服务器模式）
      */
     async batchDeleteMessages(msgIds) {
-      const editor = useEditorStore()
+      const editor = useCoreStore()
       try {
         const result = await editor._wsRequest('batch_delete_messages', {
           msg_ids: msgIds,

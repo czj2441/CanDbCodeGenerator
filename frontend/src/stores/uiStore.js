@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { useEditorStore } from './editor.js'
+import { useCoreStore } from './coreStore.js'
 import { useMessagesStore } from './messages.js'
 
 // 信号表默认隐藏列（无 localStorage 记录时使用）
@@ -53,23 +53,23 @@ export const useUiStore = defineStore('ui', {
     sidebarWidth: parseInt(localStorage.getItem('canmatrix_sidebar_width')) || 280,
     // 底部面板高度
     bottomPanelHeight: parseInt(localStorage.getItem('canmatrix_bottom_height')) || 160,
-    // 列可见性 + 列宽（SignalTable）
+    // 列可见性 + 列宽（SignalEditorTab）
     hiddenColumns: JSON.parse(localStorage.getItem('canmatrix_hidden_cols') ?? JSON.stringify(DEFAULT_SIGNAL_HIDDEN_COLS)),
     columnWidths: JSON.parse(localStorage.getItem('canmatrix_col_widths') || '{}'),
     // 中间区域 Tab 状态（保留以兼容部分模板判断；动态 tab 时值为 'msg_{id}'）
     centerTab: 'messages',  // 'messages' | 'valtables' | 'msg_{id}'
-    // 列可见性 + 列宽（MessageTable，独立 key 前缀 msg_）
+    // 列可见性 + 列宽（MessageTab，独立 key 前缀 msg_）
     msgHiddenColumns: JSON.parse(localStorage.getItem('canmatrix_msg_hidden_cols') || '[]'),
     msgColumnWidths: JSON.parse(localStorage.getItem('canmatrix_msg_col_widths') || '{}'),
-    // 列可见性 + 列宽（ValueTableList，独立 key 前缀 vt_）
+    // 列可见性 + 列宽（ValueTableTab，独立 key 前缀 vt_）
     vtHiddenColumns: JSON.parse(localStorage.getItem('canmatrix_vt_hidden_cols') || '[]'),
     vtColumnWidths: JSON.parse(localStorage.getItem('canmatrix_vt_col_widths') || '{}'),
     // 值描述表选中状态 + 外部跳转焦点
     selectedVtName: null,
     valueTableFocusName: '',
     // 多选 keys 快照（供右键菜单判断多选状态）
-    signalMultiKeys: [],  // string[] — SignalTable
-    msgMultiKeys: [],     // number[] — MessageTable
+    signalMultiKeys: [],  // string[] — SignalEditorTab
+    msgMultiKeys: [],     // number[] — MessageTab
     // 排序偏好（所有文件共享，localStorage 持久化）
     signalSortField: localStorage.getItem('canmatrix_sig_sort_field') || 'start_bit',
     signalSortDir: localStorage.getItem('canmatrix_sig_sort_dir') || 'asc',
@@ -269,7 +269,7 @@ export const useUiStore = defineStore('ui', {
       this.centerTab = `msg_${msgId}`
       this.activeTabId = msgId
       // 同步全局 selectedMsgId（供 signals.js / clipboard.js 使用）
-      const editor = useEditorStore()
+      const editor = useCoreStore()
       editor.selectedMsgId = msgId
       // 预加载 messageCache
       const messages = useMessagesStore()
@@ -306,7 +306,7 @@ export const useUiStore = defineStore('ui', {
       this.centerTab = `msg_${msgId}`
       this.activeTabId = msgId
       // 恢复本 tab 的独立状态到全局
-      const editor = useEditorStore()
+      const editor = useCoreStore()
       editor.selectedMsgId = msgId
       this.selectedSignalName = tab.selectedSignalName
       this.layoutViewMode = tab.layoutViewMode
@@ -332,7 +332,7 @@ export const useUiStore = defineStore('ui', {
       this.centerTab = 'messages'
     },
 
-    // ── 列可见性（SignalTable） ──
+    // ── 列可见性（SignalEditorTab） ──
     toggleColumnVisibility(key) {
       const idx = this.hiddenColumns.indexOf(key)
       if (idx >= 0) this.hiddenColumns.splice(idx, 1)
@@ -359,7 +359,7 @@ export const useUiStore = defineStore('ui', {
       localStorage.setItem('canmatrix_col_widths', '{}')
     },
 
-    // ── 列可见性（MessageTable） ──
+    // ── 列可见性（MessageTab） ──
     toggleMsgColumnVisibility(key) {
       const idx = this.msgHiddenColumns.indexOf(key)
       if (idx >= 0) this.msgHiddenColumns.splice(idx, 1)
@@ -373,7 +373,7 @@ export const useUiStore = defineStore('ui', {
       this.msgHiddenColumns = []
       localStorage.setItem('canmatrix_msg_hidden_cols', '[]')
     },
-    // ── 列宽（MessageTable） ──
+    // ── 列宽（MessageTab） ──
     setMsgColumnWidths(widths) {
       this.msgColumnWidths = widths
       localStorage.setItem('canmatrix_msg_col_widths', JSON.stringify(widths))
@@ -386,7 +386,7 @@ export const useUiStore = defineStore('ui', {
       localStorage.setItem('canmatrix_msg_col_widths', '{}')
     },
 
-    // ── 列可见性（ValueTableList） ──
+    // ── 列可见性（ValueTableTab） ──
     toggleVtColumnVisibility(key) {
       const idx = this.vtHiddenColumns.indexOf(key)
       if (idx >= 0) this.vtHiddenColumns.splice(idx, 1)
@@ -400,7 +400,7 @@ export const useUiStore = defineStore('ui', {
       this.vtHiddenColumns = []
       localStorage.setItem('canmatrix_vt_hidden_cols', '[]')
     },
-    // ── 列宽（ValueTableList） ──
+    // ── 列宽（ValueTableTab） ──
     setVtColumnWidths(widths) {
       this.vtColumnWidths = widths
       localStorage.setItem('canmatrix_vt_col_widths', JSON.stringify(widths))
@@ -414,7 +414,7 @@ export const useUiStore = defineStore('ui', {
     },
 
     setLoading(val) {
-      useEditorStore().isLoading = val
+      useCoreStore().isLoading = val
     },
 
     openCcodePreview({ headerCode, headerFilename, sourceCode, sourceFilename }) {

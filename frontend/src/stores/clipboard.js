@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { t } from '../i18n.js'
 import { useUiStore } from './uiStore.js'
-import { useEditorStore } from './editor.js'
+import { useCoreStore } from './coreStore.js'
 import { useMessagesStore } from './messages.js'
 import { useSignalsStore } from './signals.js'
 import { generateMessageId, resolveCopyName } from '../utils/storeHelpers.js'
@@ -40,7 +40,7 @@ export const useClipboardStore = defineStore('clipboard', {
      * @param {boolean} skipLog - 内部调用时跳过日志（如 cut 操作）
      */
     copySignals(sigNames, skipLog = false) {
-      const editor = useEditorStore()
+      const editor = useCoreStore()
       const msg = editor.selectedMessage
       if (!msg || !sigNames.length) return
       const items = sigNames
@@ -67,7 +67,7 @@ export const useClipboardStore = defineStore('clipboard', {
     async cutSignals(sigNames) {
       this.copySignals(sigNames, true)  // skipLog=true，避免与 cut 日志重复
       if (!this.clipboard) return
-      const editor = useEditorStore()
+      const editor = useCoreStore()
       editor.addLogEntry('cut', `剪切信号: ${sigNames.join(', ')}`)
       const signals = useSignalsStore()
       await signals.batchDeleteSignals(sigNames)
@@ -91,7 +91,7 @@ export const useClipboardStore = defineStore('clipboard', {
      */
     async pasteSignals() {
       if (!this.clipboard || this.clipboard.type !== 'signal') return
-      const editor = useEditorStore()
+      const editor = useCoreStore()
       const msg = editor.selectedMessage
       if (!msg || editor.selectedMsgId == null) return
 
@@ -136,7 +136,7 @@ export const useClipboardStore = defineStore('clipboard', {
      * @param {boolean} skipLog - 内部调用时跳过日志（如 cut 操作）
      */
     async copyMessages(msgIds, skipLog = false) {
-      const editor = useEditorStore()
+      const editor = useCoreStore()
       if (!msgIds.length) return
 
       const items = []
@@ -165,7 +165,7 @@ export const useClipboardStore = defineStore('clipboard', {
      * 复制当前选中的报文（委托 copyMessages）
      */
     copyMessage() {
-      const editor = useEditorStore()
+      const editor = useCoreStore()
       if (editor.selectedMsgId == null) return
       return this.copyMessages([editor.selectedMsgId])
     },
@@ -177,7 +177,7 @@ export const useClipboardStore = defineStore('clipboard', {
     async cutMessages(msgIds) {
       await this.copyMessages(msgIds, true)  // skipLog=true，避免与 cut 日志重复
       if (!this.clipboard) return
-      const editor = useEditorStore()
+      const editor = useCoreStore()
       const idStr = msgIds.map(id => '0x' + id.toString(16).toUpperCase()).join(', ')
       editor.addLogEntry('cut', `剪切报文: ${idStr}`)
       const messages = useMessagesStore()
@@ -194,7 +194,7 @@ export const useClipboardStore = defineStore('clipboard', {
      * 剪切当前选中的报文（委托 cutMessages）
      */
     cutMessage() {
-      const editor = useEditorStore()
+      const editor = useCoreStore()
       if (editor.selectedMsgId == null) return
       return this.cutMessages([editor.selectedMsgId])
     },
@@ -204,7 +204,7 @@ export const useClipboardStore = defineStore('clipboard', {
      */
     async pasteMessages() {
       if (!this.clipboard || this.clipboard.type !== 'message') return
-      const editor = useEditorStore()
+      const editor = useCoreStore()
 
       // 兼容旧格式
       const sourceItems = this.clipboard.items || [this.clipboard.data]
@@ -232,7 +232,7 @@ export const useClipboardStore = defineStore('clipboard', {
 
       if (successCount > 0) {
         useUiStore().showToast(t('toast.messagesPasted', { count: successCount }))
-        const editor = useEditorStore()
+        const editor = useCoreStore()
         editor.addLogEntry('paste', `粘贴报文: ${successCount}个`)
       }
     },

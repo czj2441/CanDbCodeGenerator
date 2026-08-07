@@ -7,8 +7,8 @@
 </template>
 
 <script setup>
-import { useEditorStore } from '../stores/editor.js'
-const store = useEditorStore()
+import { useCoreStore } from '../stores/coreStore.js'
+const store = useCoreStore()
 </script>
 
 <style scoped>

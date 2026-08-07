@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { t } from '../i18n.js'
 import { useUiStore } from './uiStore.js'
-import { useEditorStore } from './editor.js'
+import { useCoreStore } from './coreStore.js'
 
 export const useUndoRedoStore = defineStore('undoRedo', {
   state: () => ({
@@ -19,7 +19,7 @@ export const useUndoRedoStore = defineStore('undoRedo', {
      * 执行撤销操作（调用后端 API）
      */
     async undo() {
-      const editor = useEditorStore()
+      const editor = useCoreStore()
       try {
         const result = await editor._wsRequest('undo')
         const desc = result?.action_desc || '未知操作'
@@ -38,7 +38,7 @@ export const useUndoRedoStore = defineStore('undoRedo', {
      * 执行重做操作（调用后端 API）
      */
     async redo() {
-      const editor = useEditorStore()
+      const editor = useCoreStore()
       try {
         const result = await editor._wsRequest('redo')
         const desc = result?.action_desc || '未知操作'

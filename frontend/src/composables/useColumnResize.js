@@ -1,7 +1,7 @@
 /**
  * 列宽拖拽 composable
  *
- * 提取自 SignalTable / MessageTable / ValueTableList 共用的列宽拖拽逻辑。
+ * 提取自 SignalEditorTab / MessageTab / ValueTableTab 共用的列宽拖拽逻辑。
  * 调用方通过回调函数注入宽度读写操作，composable 不直接依赖任何 store。
  *
  * @param {import('vue').Ref<HTMLTableElement|null>} tableRef - 表格 DOM 引用

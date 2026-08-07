@@ -36,7 +36,7 @@
 
 <script setup>
 import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
-import { useEditorStore } from '../stores/editor.js'
+import { useCoreStore } from '../stores/coreStore.js'
 import { useSignalsStore } from '../stores/signals.js'
 import { useUiStore } from '../stores/uiStore.js'
 import { t } from '../i18n.js'
@@ -44,7 +44,7 @@ import { bitToGridCell, pixelToGridCell, motorolaBitAtPosition, motorolaFindMsbB
 import { toHex } from '../utils/format.js'
 import BitLayoutCanvas from './BitLayoutCanvas.vue'
 
-const store = useEditorStore()
+const store = useCoreStore()
 const signals = useSignalsStore()
 const ui = useUiStore()
 

@@ -33,12 +33,12 @@
 
 <script setup>
 import { ref, computed, nextTick, watch } from 'vue'
-import { useEditorStore } from '../stores/editor.js'
+import { useCoreStore } from '../stores/coreStore.js'
 import { useMessagesStore } from '../stores/messages.js'
 import { useUiStore } from '../stores/uiStore.js'
 import { t } from '../i18n.js'
 
-const editor = useEditorStore()
+const editor = useCoreStore()
 const messages = useMessagesStore()
 const ui = useUiStore()
 

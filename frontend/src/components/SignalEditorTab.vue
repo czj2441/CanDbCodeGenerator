@@ -1,4 +1,6 @@
 <template>
+  <SignalLayoutVisualizer v-if="ui.layoutViewMode" :msg-id="effectiveMsgId" />
+  <template v-else>
   <div class="signal-area">
     <div class="center-header">
       <div class="center-title">
@@ -103,11 +105,12 @@
     :fields="SIGNAL_BATCH_EDIT_FIELDS"
     :selected-count="multiSelect.selectedCount.value"
     @apply="onBatchEditApply" />
+  </template>
 </template>
 
 <script setup>
 import { computed, ref, onMounted, onUnmounted, watch } from 'vue'
-import { useEditorStore } from '../stores/editor.js'
+import { useCoreStore } from '../stores/coreStore.js'
 import { useSignalsStore } from '../stores/signals.js'
 import { useClipboardStore } from '../stores/clipboard.js'
 import { useUndoRedoStore } from '../stores/undoRedo.js'
@@ -120,6 +123,7 @@ import { sortByField, toggleSort, getSortIcon } from '../utils/sortHelper.js'
 import { useColumnResize } from '../composables/useColumnResize.js'
 import { useMultiSelect } from '../composables/useMultiSelect.js'
 import BatchEditModal from './BatchEditModal.vue'
+import SignalLayoutVisualizer from './SignalLayoutVisualizer.vue'
 
 const COLUMNS = [
   { key: '_cb',     i18n: null,               toggleable: false, defaultPct: 2,  sortable: false },
@@ -137,7 +141,7 @@ const COLUMNS = [
   { key: 'actions', i18n: null,                toggleable: false, defaultPct: 3,  sortable: false },
 ]
 
-const store = useEditorStore()
+const store = useCoreStore()
 const signals = useSignalsStore()
 const clipboard = useClipboardStore()
 const undoRedo = useUndoRedoStore()

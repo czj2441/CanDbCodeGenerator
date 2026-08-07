@@ -36,7 +36,7 @@
 ## 建议 (CONSIDER)
 
 ### ~~6. `resetEditorState()` 未重置 `busType`~~ ✅ 已修复
-- **文件**: `frontend/src/stores/editor.js` L98-L115
+- **文件**: `frontend/src/stores/coreStore.js` L98-L115
 - **问题**: 会话拆卸后旧的 `busType` 值残留，`resetEditorState()` 中未包含 `this.busType = 'CAN'`。
 - **修复状态**: 已在 `resetEditorState()` 中添加 `this.busType = 'CAN'`，紧跟 `this.currentFileName = ''` 之后。
 

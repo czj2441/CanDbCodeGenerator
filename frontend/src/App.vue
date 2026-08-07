@@ -26,11 +26,11 @@
       <div class="main">
         <div class="center">
           <!-- 主内容区（flex:1） -->
-          <MessageEditorTab v-if="ui.isAnyMessageTabActive"
-                            :key="ui.activeTabId"
-                            :msg-id="ui.activeTabId" />
-          <MessageTable v-else-if="ui.centerTab === 'messages'" />
-          <ValueTableList v-else-if="ui.centerTab === 'valtables'" />
+          <SignalEditorTab v-if="ui.isAnyMessageTabActive"
+                           :key="ui.activeTabId"
+                           :msg-id="ui.activeTabId" />
+          <MessageTab v-else-if="ui.centerTab === 'messages'" />
+          <ValueTableTab v-else-if="ui.centerTab === 'valtables'" />
 
           <!-- 底部面板内容区（选中 Tab 时显示） -->
           <div v-if="ui.bottomTab" class="bottom-panel" :style="{ height: ui.bottomPanelHeight + 'px' }">
@@ -57,6 +57,7 @@
         <div class="sidebar-wrap" :style="{ width: ui.sidebarWidth + 'px' }">
           <div class="sidebar-resize" @mousedown="startSidebarResize"></div>
           <ValueTablePanel v-if="ui.centerTab === 'valtables'" />
+          <SignalPanel v-else-if="ui.isAnyMessageTabActive" />
           <MessagePanel v-else />
         </div>
       </div>
@@ -137,7 +138,7 @@
 // ⚠️ 禁止直接通过 vite dev server 访问，必须先启动后端 (build.bat → python -m app.server.lifecycle 8080)
 // 详见 vite.config.js 顶部说明
 import { ref, reactive, onMounted, onUnmounted, computed, watchEffect, watch, nextTick } from 'vue'
-import { useEditorStore } from './stores/editor.js'
+import { useCoreStore } from './stores/coreStore.js'
 import { useFileOperationsStore } from './stores/fileOperations.js'
 import { useClipboardStore } from './stores/clipboard.js'
 import { useSignalsStore } from './stores/signals.js'
@@ -148,9 +149,10 @@ import { t } from './i18n.js'
 import { getSessionId, setSessionId } from './api/client.js'
 import FileBrowser from './components/FileBrowser.vue'
 import TopBar from './components/TopBar.vue'
-import MessageTable from './components/MessageTable.vue'
-import MessageEditorTab from './components/MessageEditorTab.vue'
+import MessageTab from './components/MessageTab.vue'
+import SignalEditorTab from './components/SignalEditorTab.vue'
 import MessagePanel from './components/MessagePanel.vue'
+import SignalPanel from './components/SignalPanel.vue'
 import StatusBar from './components/StatusBar.vue'
 import BatchModal from './components/BatchModal.vue'
 import LoadingOverlay from './components/LoadingOverlay.vue'
@@ -158,11 +160,11 @@ import Toast from './components/Toast.vue'
 import ContextMenu from './components/ContextMenu.vue'
 import LogPanel from './components/LogPanel.vue'
 import DataErrorList from './components/DataErrorList.vue'
-import ValueTableList from './components/ValueTableList.vue'
+import ValueTableTab from './components/ValueTableTab.vue'
 import ValueTablePanel from './components/ValueTablePanel.vue'
 import { versionMismatch } from './utils/version-check.js'
 
-const store = useEditorStore()
+const store = useCoreStore()
 const fileOps = useFileOperationsStore()
 const clipboard = useClipboardStore()
 const signals = useSignalsStore()

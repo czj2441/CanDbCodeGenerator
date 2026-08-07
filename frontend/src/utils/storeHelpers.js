@@ -1,7 +1,7 @@
 /**
  * Store 工具函数
  *
- * 从 editor.js 提取的通用辅助逻辑，供多个 Pinia store 共享使用。
+ * 从 coreStore.js 提取的通用辅助逻辑，供多个 Pinia store 共享使用。
  */
 
 import { t } from '../i18n.js'

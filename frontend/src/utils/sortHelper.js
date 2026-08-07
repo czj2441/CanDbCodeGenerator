@@ -1,7 +1,7 @@
 /**
  * 通用排序工具函数
  *
- * 供 SignalTable / MessageTable / ValueTableList 复用。
+ * 供 SignalEditorTab / MessageTab / ValueTableTab 复用。
  */
 
 /**

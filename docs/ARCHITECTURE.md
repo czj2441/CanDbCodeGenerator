@@ -36,7 +36,7 @@
 
 | Store | 职责 | 文件 | 行数 |
 |-------|------|------|------|
-| **editor** | 核心数据（messages/cache）、WS 连接管理、消息分发、健康检查、日志 | `stores/editor.js` | 422 |
+| **core** | 核心数据（messages/cache）、WS 连接管理、消息分发、健康检查、日志 | `stores/coreStore.js` | 422 |
 | **ui** | UI 状态（Toast、上下文菜单、模态框、主题、布局视图、日志面板） | `stores/uiStore.js` | 76 |
 | **messages** | 报文 CRUD（加载、选中、添加、删除、属性编辑） | `stores/messages.js` | 112 |
 | **signals** | 信号 CRUD（添加、编辑、删除、批量创建、错误加载） | `stores/signals.js` | 180 |
@@ -46,13 +46,13 @@
 
 ### 2.2 Store 间协作模式
 
-- **editor** 持有 WS 连接（`_wsClient`）和核心数据（`messages`, `messageCache`）
-- 其他 Store 通过 `useEditorStore()._wsRequest(type, data)` 发起 WS 请求
-- 后端执行操作后广播事件（如 `signal_added`, `message_updated`），由 editor 的 `_applyWsMessage()` 统一分发更新
+- **core** 持有 WS 连接（`_wsClient`）和核心数据（`messages`, `messageCache`）
+- 其他 Store 通过 `useCoreStore()._wsRequest(type, data)` 发起 WS 请求
+- 后端执行操作后广播事件（如 `signal_added`, `message_updated`），由 core 的 `_applyWsMessage()` 统一分发更新
 
 ### 2.3 Store 职责边界
 
-#### editor（核心 + 通信）
+#### core（核心 + 通信）
 
 - **核心数据**：`messages`, `selectedMsgId`, `messageCache`
 - **会话与文件**：`currentFileName`
@@ -212,15 +212,15 @@
 
 | 关注点 | 负责 Store | 说明 |
 |--------|-----------|------|
-| WS 连接与重连 | `editor` | `_connectWebSocket()`, `_wsRequest()` |
-| 数据同步分发 | `editor` | `_applyWsMessage()` 处理所有广播 |
-| 报文 CRUD | `messages` | 通过 `editor._wsRequest()` 调用 |
-| 信号 CRUD | `signals` | 通过 `editor._wsRequest()` 调用 |
+| WS 连接与重连 | `core` | `_connectWebSocket()`, `_wsRequest()` |
+| 数据同步分发 | `core` | `_applyWsMessage()` 处理所有广播 |
+| 报文 CRUD | `messages` | 通过 `core._wsRequest()` 调用 |
+| 信号 CRUD | `signals` | 通过 `core._wsRequest()` 调用 |
 | 剪贴板操作 | `clipboard` | 调用 `signals` / `messages` 的方法 |
 | 文件生命周期 | `fileOperations` | 会话创建/切换/保存/导入 |
 | 撤销/重做 | `undoRedo` | 调用后端 WS，前端仅维护计数器 |
 | UI 反馈 | `ui` | Toast、模态框、主题、上下文菜单 |
-| 日志记录 | `editor` | `addLogEntry()` / `clearLog()` |
+| 日志记录 | `core` | `addLogEntry()` / `clearLog()` |
 
 ### 5.2 JSDoc 注释要求
 
@@ -251,7 +251,7 @@ showToast(text, isError = false) {
 
 ### 6.2 健康检查定时器
 
-**状态**：`editor._healthTimer`
+**状态**：`core._healthTimer`
 
 **规则**：`startEditorSync()` 启动 2s 定时器调用 `checkApiHealth()`，`stopEditorSync()` 清理。
 
@@ -283,7 +283,7 @@ showToast(text, isError = false) {
 
 | 文件 | 职责 |
 |------|------|
-| `stores/editor.js` | 核心数据 + WS 连接 + 消息分发 + 健康检查 + 日志 |
+| `stores/coreStore.js` | 核心数据 + WS 连接 + 消息分发 + 健康检查 + 日志 |
 | `stores/uiStore.js` | UI 状态管理（Toast、模态框、主题、上下文菜单） |
 | `stores/messages.js` | 报文 CRUD |
 | `stores/signals.js` | 信号 CRUD + 批量创建 |
@@ -298,7 +298,7 @@ showToast(text, isError = false) {
 | `api/client.js` | Session ID 管理（`sessionStorage` 持久化） |
 | `directives/lazyValue.js` | Vue 自定义指令（延迟值更新） |
 | `components/FileBrowser.vue` | 文件浏览器（创建/加载/删除/导入文件） |
-| `components/SignalTable.vue` | 信号表格（内联编辑、错误高亮） |
+| `components/SignalEditorTab.vue` | 信号表格（内联编辑、错误高亮） |
 | `components/SignalLayoutVisualizer.vue` | 信号布局可视化 |
 | `components/LogPanel.vue` | 操作日志面板 |
 
@@ -339,12 +339,12 @@ showToast(text, isError = false) {
 1. **后端**：`app/ws/handlers/` 中新建 Handler 类
 2. **后端**：`app/ws/handlers/__init__.py` 中导出
 3. **后端**：`app/server/lifecycle.py` 中 `ws_router.register()` 注册
-4. **前端**：`editor.js` 的 `_applyWsMessage()` 中添加广播事件处理分支
+4. **前端**：`coreStore.js` 的 `_applyWsMessage()` 中添加广播事件处理分支
 
 ### 9.2 组件状态引用
 
 - UI 状态统一从 `uiStore` 获取（`useUiStore()`）
-- 核心数据从 `editorStore` 获取（`useEditorStore()`）
+- 核心数据从 `coreStore` 获取（`useCoreStore()`）
 - 报文操作从 `messagesStore` 获取（`useMessagesStore()`）
 - 信号操作从 `signalsStore` 获取（`useSignalsStore()`）
 - 剪贴板操作从 `clipboardStore` 获取（`useClipboardStore()`）
@@ -356,7 +356,7 @@ showToast(text, isError = false) {
 
 切换会话时需要清理：
 
-- `editor.resetEditorState()` — 清空 messages/cache/selectedMsgId/signalErrors/logEntries
+- `core.resetEditorState()` — 清空 messages/cache/selectedMsgId/signalErrors/logEntries
 - `undoRedo.clearUndoStack()` — 重置前端撤销计数器
 - WS 连接重建（`stopEditorSync()` + `startEditorSync()`）
 

@@ -26,10 +26,10 @@
 
 <script setup>
 import { ref, watch, nextTick, computed } from 'vue'
-import { useEditorStore } from '../stores/editor.js'
+import { useCoreStore } from '../stores/coreStore.js'
 import { t } from '../i18n.js'
 
-const store = useEditorStore()
+const store = useCoreStore()
 const logBody = ref(null)
 
 const typeLabels = computed(() => ({

@@ -8,9 +8,9 @@
 </template>
 
 <script setup>
-import { useEditorStore } from '../stores/editor.js'
+import { useCoreStore } from '../stores/coreStore.js'
 import { t } from '../i18n.js'
-const store = useEditorStore()
+const store = useCoreStore()
 const manualVersion = typeof __MANUAL_VERSION__ !== 'undefined' ? __MANUAL_VERSION__ : 'dev'
 const autoVersion = typeof __AUTO_VERSION__ !== 'undefined' ? __AUTO_VERSION__ : 'dev'
 </script>

@@ -1,7 +1,7 @@
 /* ═══════════════════════════════════════════════════════════
  * table-styles.css — 数据表格组件共享样式
  *
- * 共享组件：MessageTable / SignalTable / ValueTableList
+ * 共享组件：MessageTab / SignalEditorTab / ValueTableTab
  * 使用方式：在组件 <style scoped> 中 @import './table-styles.css';
  *           并给 <table> 添加 data-table class
  * ═══════════════════════════════════════════════════════════ */

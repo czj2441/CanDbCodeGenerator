@@ -537,7 +537,7 @@ frontend/
     ├── api/
     │   └── client.js       # Session ID 管理（sessionStorage 持久化）
     ├── stores/
-    │   ├── editor.js       # 核心数据 + WS 连接 + 消息分发 + 健康检查 (422 行)
+    │   ├── coreStore.js    # 核心数据 + WS 连接 + 消息分发 + 健康检查 (422 行)
     │   ├── uiStore.js      # UI 状态（Toast、模态框、主题） (76 行)
     │   ├── messages.js     # 报文 CRUD (112 行)
     │   ├── signals.js      # 信号 CRUD + 批量创建 (180 行)
@@ -554,8 +554,9 @@ frontend/
     │   └── lazyValue.js    # Vue 自定义指令
     └── components/
         ├── TopBar.vue          # 顶部导航栏
-        ├── MessageList.vue     # 左侧报文列表
-        ├── SignalTable.vue     # 中央可编辑信号表格
+        ├── MessageTab.vue      # 中央报文列表选项卡
+        ├── SignalEditorTab.vue # 中央可编辑信号表格
+        ├── SignalPanel.vue     # 右侧信号属性编辑面板
         ├── MessagePanel.vue    # 右侧报文属性编辑面板
         ├── StatusBar.vue       # 底部状态栏
         ├── Toast.vue           # Toast 通知
@@ -590,7 +591,7 @@ frontend/
 - **主题切换**：dark/light 主题持久化到 localStorage
 - **国际化**：zh/en 切换
 
-### 7.4 SignalTable 组件
+### 7.4 SignalEditorTab 组件
 
 核心工作区的可编辑信号表格：
 - 列：Name, Start Bit, Length, Byte Order, Factor, Offset, Min, Max, Unit, Comment

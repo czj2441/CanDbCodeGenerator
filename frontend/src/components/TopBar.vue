@@ -106,7 +106,7 @@
 
 <script setup>
 import { ref, watch, onMounted, onUnmounted } from 'vue'
-import { useEditorStore } from '../stores/editor.js'
+import { useCoreStore } from '../stores/coreStore.js'
 import { useUndoRedoStore } from '../stores/undoRedo.js'
 import { useFileOperationsStore } from '../stores/fileOperations.js'
 import { useUiStore } from '../stores/uiStore.js'
@@ -119,7 +119,7 @@ import ConnectionStatus from './ConnectionStatus.vue'
 
 defineEmits(['back'])
 
-const store = useEditorStore()
+const store = useCoreStore()
 const undoRedo = useUndoRedoStore()
 const fileOps = useFileOperationsStore()
 const ui = useUiStore()

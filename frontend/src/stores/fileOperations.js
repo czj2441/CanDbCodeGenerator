@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { t } from '../i18n.js'
 import { setSessionId, getSessionId } from '../api/client.js'
 import { useUiStore } from './uiStore.js'
-import { useEditorStore } from './editor.js'
+import { useCoreStore } from './coreStore.js'
 import { useUndoRedoStore } from './undoRedo.js'
 import { resetMessageIdGenerator } from '../utils/storeHelpers.js'
 
@@ -12,7 +12,7 @@ export const useFileOperationsStore = defineStore('fileOperations', {
      * 手动保存当前会话
      */
     async saveSession() {
-      const editor = useEditorStore()
+      const editor = useCoreStore()
       try {
         editor.lastSaveError = null
         editor.saveStatus = 'saving'
@@ -33,7 +33,7 @@ export const useFileOperationsStore = defineStore('fileOperations', {
      * 加载文件
      */
     async loadHistoryFile(fileName) {
-      const editor = useEditorStore()
+      const editor = useCoreStore()
       const undoRedo = useUndoRedoStore()
 
       useUiStore().closeAllMessageTabs()
@@ -80,7 +80,7 @@ export const useFileOperationsStore = defineStore('fileOperations', {
      * 另存为：克隆当前会话数据到新文件，切换到新 session
      */
     async saveAs(name) {
-      const editor = useEditorStore()
+      const editor = useCoreStore()
       const undoRedo = useUndoRedoStore()
       try {
         const data = await editor._wsRequest('save_as', { name })
@@ -117,7 +117,7 @@ export const useFileOperationsStore = defineStore('fileOperations', {
      * 导入文件到新会话
      */
     async importFile({ format, content, filename }) {
-      const editor = useEditorStore()
+      const editor = useCoreStore()
       const undoRedo = useUndoRedoStore()
 
       useUiStore().closeAllMessageTabs()
@@ -160,7 +160,7 @@ export const useFileOperationsStore = defineStore('fileOperations', {
      * 新建文件（从 FileBrowser 调用）
      */
     async newFile(name = 'Untitled') {
-      const editor = useEditorStore()
+      const editor = useCoreStore()
       const undoRedo = useUndoRedoStore()
 
       editor.stopEditorSync()
@@ -193,7 +193,7 @@ export const useFileOperationsStore = defineStore('fileOperations', {
      * 释放当前 session 的文件锁
      */
     async releaseSession() {
-      const editor = useEditorStore()
+      const editor = useCoreStore()
       const sid = getSessionId()
       if (sid) {
         try {

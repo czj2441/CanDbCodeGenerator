@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { t } from '../i18n.js'
 import { useUiStore } from './uiStore.js'
-import { useEditorStore } from './editor.js'
+import { useCoreStore } from './coreStore.js'
 import { translateError, findNextAvailableStartBit, generateSignalName } from '../utils/storeHelpers.js'
 import { computeBatchSignals } from '../utils/signalLayout.js'
 
@@ -25,7 +25,7 @@ export const useSignalsStore = defineStore('signals', {
      * 添加信号（等待服务器模式）
      */
     async addSignal(signalData) {
-      const editor = useEditorStore()
+      const editor = useCoreStore()
       if (editor.selectedMsgId == null) return
       const msg = editor.messageCache[editor.selectedMsgId]
       if (!msg) return
@@ -62,7 +62,7 @@ export const useSignalsStore = defineStore('signals', {
      * 更新信号属性（等待服务器模式）
      */
     async updateSignal(sigName, field, value, msgId) {
-      const editor = useEditorStore()
+      const editor = useCoreStore()
       const targetId = msgId ?? editor.selectedMsgId
       if (targetId == null) return
       const msg = editor.messageCache[targetId]
@@ -105,7 +105,7 @@ export const useSignalsStore = defineStore('signals', {
      * 删除信号（等待服务器模式）
      */
     async deleteSignal(sigName) {
-      const editor = useEditorStore()
+      const editor = useCoreStore()
       if (editor.selectedMsgId == null) return
       try {
         await editor._wsRequest('delete_signal', { msg_id: editor.selectedMsgId, sig_name: sigName })
@@ -120,7 +120,7 @@ export const useSignalsStore = defineStore('signals', {
      * 批量更新多个信号的指定字段（等待服务器模式）
      */
     async batchUpdateSignals(sigNames, fields) {
-      const editor = useEditorStore()
+      const editor = useCoreStore()
       if (editor.selectedMsgId == null) return
       const msg = editor.messageCache[editor.selectedMsgId]
       if (!msg) return
@@ -151,7 +151,7 @@ export const useSignalsStore = defineStore('signals', {
      * 批量删除多个信号（等待服务器模式）
      */
     async batchDeleteSignals(sigNames) {
-      const editor = useEditorStore()
+      const editor = useCoreStore()
       if (editor.selectedMsgId == null) return
 
       editor.isLoading = true
@@ -177,7 +177,7 @@ export const useSignalsStore = defineStore('signals', {
      * 无效/越界信号被跳过（标记 invalid），不中止整批
      */
     async batchAddSignals({ nameTemplate, count, startNum, startBit, interval, length, byteOrder, factor, offset, minVal, maxVal, unit, commentTemplate }) {
-      const editor = useEditorStore()
+      const editor = useCoreStore()
       if (editor.selectedMsgId == null) return
       const msg = editor.messageCache[editor.selectedMsgId]
       if (!msg) return

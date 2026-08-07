@@ -74,7 +74,7 @@
 
 <script setup>
 import { computed, ref, onMounted, onUnmounted, watch } from 'vue'
-import { useEditorStore } from '../stores/editor.js'
+import { useCoreStore } from '../stores/coreStore.js'
 import { useValueTablesStore } from '../stores/valueTables.js'
 import { useUiStore } from '../stores/uiStore.js'
 import { t } from '../i18n.js'
@@ -90,7 +90,7 @@ const COLUMNS = [
   { key: 'vt_actions', i18n: null,                 toggleable: false, defaultPct: 6,  sortable: false },
 ]
 
-const editor = useEditorStore()
+const editor = useCoreStore()
 const valueTables = useValueTablesStore()
 const ui = useUiStore()
 

@@ -101,14 +101,14 @@
 <script setup>
 import { computed, reactive, watch } from 'vue'
 import { useSignalsStore } from '../stores/signals.js'
-import { useEditorStore } from '../stores/editor.js'
+import { useCoreStore } from '../stores/coreStore.js'
 import { t } from '../i18n.js'
 import { expandTemplate } from '../utils/format.js'
 import { computeBatchSignals } from '../utils/signalLayout.js'
 import BitLayoutCanvas from './BitLayoutCanvas.vue'
 
 const signals = useSignalsStore()
-const editor = useEditorStore()
+const editor = useCoreStore()
 
 const visible = defineModel('visible', { type: Boolean, default: false })
 
