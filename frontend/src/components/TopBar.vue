@@ -38,10 +38,25 @@
     <!-- 中央区域：文件名 + 总线类型 + 脏标记 -->
     <div class="topbar-center">
       <span class="topbar-filename">{{ store.currentFileName }}</span>
-      <select class="topbar-bus-type" v-model="store.busType" @change="setBusType($event.target.value)">
-        <option value="CAN">CAN</option>
-        <option value="CAN FD">CAN FD</option>
-      </select>
+      <div class="bus-toggle-wrapper">
+        <span class="bus-toggle-label">{{ t('topbar.busType') }}</span>
+        <div class="bus-toggle" role="radiogroup" :title="t('topbar.busType')">
+        <button
+          class="bus-toggle-option"
+          :class="{ active: store.busType === 'CAN' }"
+          role="radio"
+          :aria-checked="store.busType === 'CAN'"
+          @click="store.busType !== 'CAN' && setBusType('CAN')"
+        >CAN</button>
+        <button
+          class="bus-toggle-option"
+          :class="{ active: store.busType === 'CAN FD' }"
+          role="radio"
+          :aria-checked="store.busType === 'CAN FD'"
+          @click="store.busType !== 'CAN FD' && setBusType('CAN FD')"
+        >CAN FD</button>
+        </div>
+      </div>
       <span v-if="store.backendDirty" class="topbar-dirty-badge" :title="t('status.unsaved')">● {{ t('status.unsaved') }}</span>
     </div>
     <div class="btn-group">
@@ -609,16 +624,48 @@ async function save() {
   50% { opacity: 0.5; }
 }
 
-.topbar-bus-type {
+.bus-toggle-wrapper {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.bus-toggle-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  user-select: none;
+}
+.bus-toggle {
+  display: inline-flex;
   background: var(--bg-raised);
   border: 1px solid var(--border);
-  color: var(--text);
-  padding: 2px 6px;
+  border-radius: 6px;
+  overflow: hidden;
+  padding: 1px;
+  gap: 1px;
+}
+.bus-toggle-option {
+  position: relative;
+  padding: 3px 10px;
   font-size: 11px;
   font-weight: 600;
-  border-radius: var(--radius-sm);
+  letter-spacing: 0.3px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-muted);
   cursor: pointer;
-  outline: none;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  line-height: 1.4;
 }
-.topbar-bus-type:focus { border-color: var(--accent-dim); }
+.bus-toggle-option:hover:not(.active) {
+  color: var(--text);
+  background: color-mix(in oklch, var(--text) 6%, transparent);
+}
+.bus-toggle-option.active {
+  background: var(--accent);
+  color: oklch(0.12 0.01 155);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.12);
+}
 </style>

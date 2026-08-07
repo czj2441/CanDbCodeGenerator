@@ -187,6 +187,7 @@ def _prepare_context(db: "CanDatabase") -> dict[str, Any]:
             'comment': msg.comment,
             'signals': msg_signals,
             'signal_count': len(msg_signals),
+            'is_fd': msg.is_fd,
         })
     
     return {

@@ -60,6 +60,7 @@ typedef enum {
 #define CANCOM_USERDEF_{{ msg.name_upper }}_SIGNAL_COUNT  {{ msg.signal_count }}
 #define CANCOM_USERDEF_{{ msg.name_upper }}_ID            {{ msg.id }}
 #define CANCOM_USERDEF_{{ msg.name_upper }}_DLC           {{ msg.dlc }}
+#define CANCOM_USERDEF_{{ msg.name_upper }}_MSG_TYPE      {{ 1 if msg.is_fd else 0 }}
 
 {% endfor %}
 
