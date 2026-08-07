@@ -372,11 +372,13 @@ class CanDatabase:
         """验证信号是否可以加入/更新到报文中。返回 (is_valid, error_message, details)。"""
         if sig.start_bit < 0:
             return False, "Start bit must be non-negative", {
-                "type": "invalid_param", "field": "start_bit", "value": sig.start_bit,
+                "error_code": "start_bit_invalid", "type": "invalid_param",
+                "field": "start_bit", "value": sig.start_bit,
             }
         if sig.length < 1:
             return False, "Signal length must be at least 1", {
-                "type": "invalid_param", "field": "length", "value": sig.length,
+                "error_code": "signal_length_invalid", "type": "invalid_param",
+                "field": "length", "value": sig.length,
             }
         # A3/A4 已延后：越界和重叠由 validate_all_signals() 非阻断检测
         return True, "", {"type": "ok"}

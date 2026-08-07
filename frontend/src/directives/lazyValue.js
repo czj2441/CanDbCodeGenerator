@@ -22,8 +22,14 @@ export const vLazyValue = {
   },
   updated(el, binding) {
     const newVal = binding.value
-    // 值未变化 → 跳过
-    if (newVal === el.__lastCommitted) return
+    if (newVal === el.__lastCommitted) {
+      // 值未变化，但 DOM 可能被用户编辑偏离（如异步错误回退）
+      if (el === document.activeElement) return
+      if (el.value !== String(newVal ?? '')) {
+        el.value = newVal ?? ''
+      }
+      return
+    }
     // 输入框正在聚焦 → 不覆盖用户正在编辑的内容
     if (el === document.activeElement) return
     // 正常更新

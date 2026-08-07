@@ -281,6 +281,7 @@ const dict = {
     'toast.validation.signal_name_empty': '信号名称不能为空',
     'toast.validation.signal_name_duplicate': '信号名称 "{name}" 已存在',
     'toast.validation.signal_length_invalid': '信号长度必须 ≥ 1',
+    'toast.validation.start_bit_invalid': '起始位必须为非负数',
     'toast.validation.invalid_number': '“{field}” 请输入有效数字',
     'toast.validation.factor_zero': '缩放因子不能为零',
     'toast.validation.signal_overlap': '信号 "{name}" 与 "{other}" 位重叠',

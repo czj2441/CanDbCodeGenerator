@@ -91,8 +91,11 @@ export const useSignalsStore = defineStore('signals', {
         if (e.details && field in e.details) {
           sig[field] = e.details[field]
         }
+        // 替换信号对象，确保 Vue 响应式系统可靠触发组件更新
+        // （与 signal_updated 广播处理中 cache.signals[name] = signal 的模式一致）
+        msg.signals[sigName] = { ...sig }
         if (field === 'length') {
-          editor._defaultSignalLength = sig.length
+          editor._defaultSignalLength = msg.signals[sigName].length
         }
         if (!e.message?.includes?.('Connection lost')) {
           useUiStore().showToast(translateError(e), true)
