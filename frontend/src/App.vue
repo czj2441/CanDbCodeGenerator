@@ -5,24 +5,30 @@
     <!-- 编辑器模式 -->
     <template v-else>
       <TopBar @back="goBack" />
-      <!-- Tab 导航栏：全宽，优先级高于报文列表和属性面板 -->
+      <!-- Tab 导航栏：固定标签 + 动态报文标签 -->
       <div class="nav-tabs">
         <button class="nav-tab" :class="{ active: ui.centerTab === 'messages' }"
                 @click="ui.switchCenterTab('messages')">
           {{ t('tab.messages') }}
         </button>
-        <button class="nav-tab" :class="{ active: ui.centerTab === 'signals' }"
-                @click="ui.switchCenterTab('signals')">{{ t('tab.signals') }}</button>
         <button class="nav-tab" :class="{ active: ui.centerTab === 'valtables' }"
                 @click="ui.switchCenterTab('valtables')">{{ t('tab.valtables') }}</button>
+        <button v-for="tab in ui.openTabs" :key="tab.msgId"
+                class="nav-tab nav-tab-dynamic"
+                :class="{ active: ui.activeTabId === tab.msgId }"
+                @click="ui.activateMessageTab(tab.msgId)"
+                @mousedown.middle.prevent="ui.closeMessageTab(tab.msgId)"
+                @contextmenu.prevent="onTabContextMenu($event, tab.msgId)">
+          <span class="tab-label">{{ getTabLabel(tab.msgId) }}</span>
+          <span class="tab-close" @click.stop="ui.closeMessageTab(tab.msgId)">×</span>
+        </button>
       </div>
       <div class="main">
         <div class="center">
           <!-- 主内容区（flex:1） -->
-          <template v-if="ui.centerTab === 'signals'">
-            <SignalLayoutVisualizer v-if="ui.layoutViewMode" />
-            <SignalTable v-else />
-          </template>
+          <MessageEditorTab v-if="ui.isAnyMessageTabActive"
+                            :key="ui.activeTabId"
+                            :msg-id="ui.activeTabId" />
           <MessageTable v-else-if="ui.centerTab === 'messages'" />
           <ValueTableList v-else-if="ui.centerTab === 'valtables'" />
 
@@ -142,9 +148,8 @@ import { t } from './i18n.js'
 import { getSessionId, setSessionId } from './api/client.js'
 import FileBrowser from './components/FileBrowser.vue'
 import TopBar from './components/TopBar.vue'
-import SignalTable from './components/SignalTable.vue'
 import MessageTable from './components/MessageTable.vue'
-import SignalLayoutVisualizer from './components/SignalLayoutVisualizer.vue'
+import MessageEditorTab from './components/MessageEditorTab.vue'
 import MessagePanel from './components/MessagePanel.vue'
 import StatusBar from './components/StatusBar.vue'
 import BatchModal from './components/BatchModal.vue'
@@ -166,6 +171,21 @@ const ui = useUiStore()
 
 // 错误计数（底部标签栏显示）
 const errorCount = computed(() => (store.dataErrors || []).length)
+
+// ── 动态标签页辅助函数 ──
+/** 动态 tab 显示文字：报文名称 + ID */
+function getTabLabel(msgId) {
+  const msg = store.messages[String(msgId)]
+  if (!msg) return `0x${msgId.toString(16).toUpperCase()}`
+  return `${msg.name || 'Unnamed'} [0x${msgId.toString(16).toUpperCase()}]`
+}
+
+/** Tab 右键菜单 */
+function onTabContextMenu(e, msgId) {
+  const x = Math.min(e.clientX, window.innerWidth - 180)
+  const y = Math.min(e.clientY, window.innerHeight - 200)
+  ui.showContextMenu(x, y, 'tab', msgId)
+}
 
 // ── 底部面板 resize ──
 let _bottomResize = null
@@ -496,10 +516,23 @@ const contextMenuItems = computed(() => {
     const isMulti = multiKeys.length > 1
     const hasMsg = store.selectedMsgId != null
     return [
+      { label: t('ctx.openInTab'), action: () => ui.openMessageTab(store.selectedMsgId), disabled: !hasMsg },
       { label: t('ctx.copyMessage'), action: () => isMulti ? clipboard.copyMessages(multiKeys) : clipboard.copyMessage(), disabled: !isMulti && !hasMsg },
       { label: t('ctx.cutMessage'), action: () => isMulti ? clipboard.cutMessages(multiKeys) : clipboard.cutMessage(), disabled: !isMulti && !hasMsg },
       { label: t('ctx.pasteMessage'), action: () => clipboard.pasteMessages(), disabled: !clipboard.clipboard || clipboard.clipboard.type !== 'message' },
       { label: t('ctx.deleteMessage'), action: () => isMulti ? messages.batchDeleteMessages(multiKeys) : messages.deleteMessage(store.selectedMsgId), danger: true, disabled: !isMulti && !hasMsg },
+    ]
+  }
+  if (target === 'tab') {
+    const tabMsgId = idx
+    return [
+      { label: t('tab.closeTab'), action: () => ui.closeMessageTab(tabMsgId) },
+      {
+        label: t('tab.closeOtherTabs'),
+        action: () => {
+          ui.openTabs.filter(t => t.msgId !== tabMsgId).forEach(t => ui.closeMessageTab(t.msgId))
+        },
+      },
     ]
   }
   return []
@@ -636,6 +669,8 @@ body {
   border-bottom: 1px solid var(--border);
   background: var(--bg-panel);
   flex-shrink: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
 }
 .nav-tab {
   display: flex;
@@ -649,12 +684,44 @@ body {
   font-size: 12px;
   cursor: pointer;
   transition: color 150ms, border-color 150ms;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .nav-tab:hover { color: var(--text); background: var(--bg-hover); }
 .nav-tab.active {
   color: var(--accent);
   border-bottom-color: var(--accent);
   font-weight: 600;
+}
+
+/* 动态报文标签 */
+.nav-tab-dynamic {
+  max-width: 200px;
+  gap: 4px;
+}
+.nav-tab-dynamic .tab-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 140px;
+}
+.nav-tab-dynamic .tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--text-muted, var(--text-dim));
+  flex-shrink: 0;
+  opacity: 0.5;
+}
+.nav-tab-dynamic .tab-close:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+  opacity: 1;
 }
 
 /* ── 连接中断遮罩 ── */

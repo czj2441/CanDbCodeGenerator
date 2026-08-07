@@ -253,15 +253,29 @@ function handleRowMouseDown(msgId, msgIndex, event) {
   // 普通点击：清空多选，走单选逻辑，同时将当前项加入 selectedKeys
   multiSelect.clearSelection()
 
-  // 点击输入/选择元素 → 双击进入编辑模式
+  // 点击输入/选择元素 → 双击进入编辑模式（仅已选中的行）或打开标签页
   if (isInteractive) {
     if (event.detail >= 2) {
-      editingKey.value = msgId
+      if (editingKey.value === msgId) {
+        // 已在编辑状态：再次双击保持编辑
+      } else if (store.selectedMsgId === msgId) {
+        // 已选中但非编辑状态：进入编辑模式
+        editingKey.value = msgId
+      } else {
+        // 未选中的行：双击打开标签页
+        ui.openMessageTab(msgId)
+        return
+      }
     }
     messages.selectMessage(msgId)
     multiSelect.handleRowClick(msgId, msgIndex, {})
   } else {
     editingKey.value = null
+    // 双击报文行 → 打开报文编辑标签页
+    if (event.detail >= 2) {
+      ui.openMessageTab(msgId)
+      return
+    }
     messages.selectMessage(msgId)
     multiSelect.handleRowClick(msgId, msgIndex, {})
   }
@@ -339,8 +353,7 @@ function onKeyDown(e) {
 }
 
 function jumpToSignals(id) {
-  messages.selectMessage(id)
-  ui.switchCenterTab('signals')
+  ui.openMessageTab(id)
 }
 
 // ── 方向键单元格导航 ──

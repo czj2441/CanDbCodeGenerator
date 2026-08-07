@@ -1,7 +1,7 @@
 <template>
   <div class="panel">
-    <!-- 信号属性区域 -->
-    <template v-if="ui.centerTab === 'signals' && selectedSig">
+    <!-- 信号属性区域（动态报文 tab 或旧版 'signals' 视图，有选中信号时显示） -->
+    <template v-if="(ui.centerTab === 'signals' || isDynamicMsgTab) && selectedSig">
       <div class="panel-section">
         <div class="panel-section-title">{{ t('panel.signalProperties') }}</div>
         <div class="field">
@@ -100,8 +100,8 @@
 
     </template>
 
-    <!-- 报文属性区域 -->
-    <template v-else-if="ui.centerTab === 'messages' && msg">
+    <!-- 报文属性区域（报文列表 tab，或动态 tab 且无信号选中时） -->
+    <template v-else-if="(ui.centerTab === 'messages' || isDynamicMsgTab) && msg">
       <div class="panel-section">
         <div class="panel-section-title">{{ t('panel.properties') }}</div>
         <div class="field">
@@ -174,9 +174,12 @@ const valueTablesStore = useValueTablesStore()
 const ui = useUiStore()
 const msg = computed(() => store.selectedMessage)
 
+// 动态报文标签页时为 true（centerTab 形如 'msg_{id}'）
+const isDynamicMsgTab = computed(() => typeof ui.centerTab === 'string' && ui.centerTab.startsWith('msg_'))
+
 // ── 空状态文本 ──
 const emptyHtml = computed(() =>
-  ui.centerTab === 'signals'
+  (ui.centerTab === 'signals' || isDynamicMsgTab.value)
     ? t('panel.signalEmpty')
     : t('panel.msgEmpty')
 )

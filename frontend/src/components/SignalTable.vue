@@ -143,6 +143,11 @@ const clipboard = useClipboardStore()
 const undoRedo = useUndoRedoStore()
 const ui = useUiStore()
 
+const props = defineProps({
+  // 当来自动态标签页时，强制使用本 tab 的 msgId；否则 fallback 到全局 selectedMsgId
+  msgId: { type: Number, default: null },
+})
+
 // ── 值描述表名称列表 ──
 const valueTableNames = computed(() => Object.keys(store.valueTables).sort())
 
@@ -152,15 +157,20 @@ function isCellEditable(sigName) {
   return editingKey.value && editingKey.value.sigName === sigName
 }
 
-const msg = computed(() => store.selectedMessage)
+// 动态 tab 时优先使用 prop，fallback 到全局 selectedMsgId
+const effectiveMsgId = computed(() => props.msgId ?? store.selectedMsgId)
+const msg = computed(() => {
+  if (effectiveMsgId.value == null) return null
+  return store.messageCache[effectiveMsgId.value] || null
+})
 // ✅ 使用单一数据源：直接代理 ui.selectedSignalName，避免双写
 const selectedSigName = computed({
   get: () => ui.selectedSignalName,
   set: (val) => { ui.selectedSignalName = val }
 })
 
-// 切换报文时清除选中
-watch(msg, () => {
+// 切换报文时清除选中（仅在 effectiveMsgId 真正变化时触发，动态 tab 切换时 prop 不变，不会误清）
+watch(effectiveMsgId, () => {
   ui.selectedSignalName = null
   editingKey.value = null
   multiSelect.clearSelection()

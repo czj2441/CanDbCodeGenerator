@@ -48,8 +48,17 @@ const store = useEditorStore()
 const signals = useSignalsStore()
 const ui = useUiStore()
 
+const props = defineProps({
+  // 动态标签页传入的 msgId，优先级高于全局 selectedMsgId
+  msgId: { type: Number, default: null },
+})
+
 // ── Computed data ──
-const msg = computed(() => store.selectedMessage)
+const effectiveMsgId = computed(() => props.msgId ?? store.selectedMsgId)
+const msg = computed(() => {
+  if (effectiveMsgId.value == null) return null
+  return store.messageCache[effectiveMsgId.value] || null
+})
 const dlcBytes = computed(() => msg.value?.dlc || 0)
 const msgSignals = computed(() => msg.value ? Object.values(msg.value.signals) : [])
 
@@ -317,8 +326,8 @@ function onStageClick() {
   ui.selectedSignalName = null
 }
 
-// ── Watch selectedMsgId → clear selection ──
-watch(() => store.selectedMsgId, () => {
+// ── Watch effectiveMsgId → clear selection（动态 tab 切换时 prop 不变，不会误清） ──
+watch(effectiveMsgId, () => {
   ui.selectedSignalName = null
 })
 </script>

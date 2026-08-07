@@ -104,10 +104,14 @@ const totalCount = computed(() => (editor.dataErrors || []).length)
 async function navigateToError(err) {
   // Step 0: 根据错误类型决定目标 Tab
   const isSignalError = !!err.signal_name
-  const targetTab = isSignalError ? 'signals' : 'messages'
-  if (ui.centerTab !== targetTab) ui.switchCenterTab(targetTab)
-  // Step 1: 选中目标报文并等待数据加载
-  messages.selectMessage(err.msg_id)
+  if (isSignalError) {
+    // 信号错误：在动态报文标签页中打开
+    ui.openMessageTab(err.msg_id)
+  } else {
+    // 报文错误：切到报文列表 tab 并选中
+    ui.switchCenterTab('messages')
+    messages.selectMessage(err.msg_id)
+  }
   await nextTick()
   const MAX_WAIT_MS = 5000
   const start = Date.now()

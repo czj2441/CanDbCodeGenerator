@@ -36,6 +36,7 @@ export const useFileOperationsStore = defineStore('fileOperations', {
       const editor = useEditorStore()
       const undoRedo = useUndoRedoStore()
 
+      useUiStore().closeAllMessageTabs()
       editor.selectedMsgId = null
       editor.messageCache = {}
       editor.messages = {}
@@ -86,6 +87,7 @@ export const useFileOperationsStore = defineStore('fileOperations', {
         const sid = data.session_id
         setSessionId(sid)
         editor.currentFileName = data.file_name
+        useUiStore().closeAllMessageTabs()
         editor.selectedMsgId = null
         editor.messageCache = {}
         editor.messages = {}
@@ -118,6 +120,7 @@ export const useFileOperationsStore = defineStore('fileOperations', {
       const editor = useEditorStore()
       const undoRedo = useUndoRedoStore()
 
+      useUiStore().closeAllMessageTabs()
       editor.selectedMsgId = null
       editor.messageCache = {}
       editor.messages = {}
@@ -170,6 +173,7 @@ export const useFileOperationsStore = defineStore('fileOperations', {
         setSessionId(sid)
         editor.currentFileName = data.file_name
         editor.busType = data.bus_type || 'CAN'
+        useUiStore().closeAllMessageTabs()
         editor.selectedMsgId = null
         editor.messageCache = {}
         editor.messages = {}

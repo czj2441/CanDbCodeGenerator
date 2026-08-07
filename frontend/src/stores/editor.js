@@ -118,6 +118,8 @@ export const useEditorStore = defineStore('editor', {
       // 通过拆分 store 清理
       const undoRedo = useUndoRedoStore()
       undoRedo.clearUndoStack()
+      // 关闭所有动态标签页
+      useUiStore().closeAllMessageTabs()
     },
 
     _startSaveFadeTimer() {
@@ -266,6 +268,10 @@ export const useEditorStore = defineStore('editor', {
             this.selectedMsgId = null
             this.messageCache = {}
           }
+          // 关闭指向已不存在报文的动态标签页
+          useUiStore().openTabs
+            .filter(t => !this.messages[String(t.msgId)])
+            .forEach(t => useUiStore().closeMessageTab(t.msgId))
           // full_sync 完成后自动拉取全局错误列表
           this._wsRequest('get_data_errors').then(errors => {
             this.dataErrors = errors || []
@@ -360,6 +366,16 @@ export const useEditorStore = defineStore('editor', {
             if (this.selectedMsgId === oldId) {
               this.selectedMsgId = m.id
             }
+            // 更新动态标签页的 msgId
+            const uiForTab = useUiStore()
+            const tab = uiForTab.openTabs.find(t => t.msgId === oldId)
+            if (tab) {
+              tab.msgId = m.id
+              if (uiForTab.activeTabId === oldId) {
+                uiForTab.activeTabId = m.id
+                uiForTab.centerTab = `msg_${m.id}`
+              }
+            }
           } else {
             const cache = this.messageCache[m.id]
             if (cache) {
@@ -378,6 +394,8 @@ export const useEditorStore = defineStore('editor', {
             this.selectedMsgId = null
           }
           delete this.messageCache[deletedId]
+          // 关闭引用此报文的动态标签页
+          useUiStore().closeMessageTab(deletedId)
           break
         }
 
@@ -406,6 +424,10 @@ export const useEditorStore = defineStore('editor', {
               !this.messages[String(this.selectedMsgId)]) {
             this.selectedMsgId = null
           }
+          // 关闭指向已不存在报文的动态标签页
+          useUiStore().openTabs
+            .filter(t => !this.messages[String(t.msgId)])
+            .forEach(t => useUiStore().closeMessageTab(t.msgId))
           break
         }
 

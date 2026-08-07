@@ -134,6 +134,8 @@ const dict = {
     'tab.signals': '信号',
     'tab.messages': '报文',
     'tab.valtables': '值描述表',
+    'tab.closeTab': '关闭标签页',
+    'tab.closeOtherTabs': '关闭其他标签页',
 
     // MessageTable
     'msgtable.allMessages': '所有报文',
@@ -218,6 +220,7 @@ const dict = {
 
     // HistoryModal
     // ContextMenu
+    'ctx.openInTab': '在新标签页打开',
     'ctx.copySignal': '复制信号',
     'ctx.cutSignal': '剪切信号',
     'ctx.pasteSignal': '粘贴信号',

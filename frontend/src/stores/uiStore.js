@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { useEditorStore } from './editor.js'
+import { useMessagesStore } from './messages.js'
 
 // 信号表默认隐藏列（无 localStorage 记录时使用）
 const DEFAULT_SIGNAL_HIDDEN_COLS = ['unit', 'max', 'min', 'offset', 'factor']
@@ -34,6 +35,11 @@ export const useUiStore = defineStore('ui', {
     // 视图状态
     layoutViewMode: false,
     selectedSignalName: null,
+    // ── 动态标签页 ──
+    // openTabs: [{ msgId: number, selectedSignalName: string|null, layoutViewMode: boolean }]
+    openTabs: [],
+    // activeTabId: number (msgId) | 'messages' | 'valtables'
+    activeTabId: 'messages',
     // 主题
     theme: localStorage.getItem('canmatrix_theme') || 'dark',
     // 日志面板
@@ -50,8 +56,8 @@ export const useUiStore = defineStore('ui', {
     // 列可见性 + 列宽（SignalTable）
     hiddenColumns: JSON.parse(localStorage.getItem('canmatrix_hidden_cols') ?? JSON.stringify(DEFAULT_SIGNAL_HIDDEN_COLS)),
     columnWidths: JSON.parse(localStorage.getItem('canmatrix_col_widths') || '{}'),
-    // 中间区域 Tab 状态
-    centerTab: 'messages',  // 'signals' | 'messages' | 'valtables'
+    // 中间区域 Tab 状态（保留以兼容部分模板判断；动态 tab 时值为 'msg_{id}'）
+    centerTab: 'messages',  // 'messages' | 'valtables' | 'msg_{id}'
     // 列可见性 + 列宽（MessageTable，独立 key 前缀 msg_）
     msgHiddenColumns: JSON.parse(localStorage.getItem('canmatrix_msg_hidden_cols') || '[]'),
     msgColumnWidths: JSON.parse(localStorage.getItem('canmatrix_msg_col_widths') || '{}'),
@@ -77,6 +83,15 @@ export const useUiStore = defineStore('ui', {
     /** UI 层只渲染最老的 MAX_VISIBLE_TOASTS 条，队首始终可见 */
     visibleToasts(state) {
       return state.toasts.slice(0, MAX_VISIBLE_TOASTS)
+    },
+    /** 当前活跃的动态报文 tab 对象；固定 tab 时返回 null */
+    activeMessageTab(state) {
+      if (typeof state.activeTabId !== 'number') return null
+      return state.openTabs.find(t => t.msgId === state.activeTabId) || null
+    },
+    /** 当前是否有动态报文 tab 处于活跃状态 */
+    isAnyMessageTabActive(state) {
+      return typeof state.activeTabId === 'number'
     },
   },
 
@@ -228,9 +243,93 @@ export const useUiStore = defineStore('ui', {
       localStorage.setItem('canmatrix_bottom_height', String(h))
     },
 
-    // ── Tab 切换 ──
+    // ── Tab 切换（含动态标签页状态同步） ──
+    /**
+     * 切换到固定标签（'messages' | 'valtables'）
+     * 动态 tab 请使用 openMessageTab / activateMessageTab
+     */
     switchCenterTab(tab) {
+      this._saveActiveTabState()
       this.centerTab = tab
+      this.activeTabId = tab
+    },
+
+    /**
+     * 打开报文编辑标签页：若已打开则激活，否则创建新 tab
+     */
+    openMessageTab(msgId) {
+      const existing = this.openTabs.find(t => t.msgId === msgId)
+      if (existing) {
+        this.activateMessageTab(msgId)
+        return
+      }
+      this._saveActiveTabState()
+      // 创建新 tab
+      this.openTabs.push({ msgId, selectedSignalName: null, layoutViewMode: false })
+      this.centerTab = `msg_${msgId}`
+      this.activeTabId = msgId
+      // 同步全局 selectedMsgId（供 signals.js / clipboard.js 使用）
+      const editor = useEditorStore()
+      editor.selectedMsgId = msgId
+      // 预加载 messageCache
+      const messages = useMessagesStore()
+      messages.loadSelectedMessage()
+      // 重置全局信号选中
+      this.selectedSignalName = null
+      this.layoutViewMode = false
+    },
+
+    /**
+     * 关闭动态报文标签页，自动激活相邻 tab
+     */
+    closeMessageTab(msgId) {
+      const idx = this.openTabs.findIndex(t => t.msgId === msgId)
+      if (idx < 0) return
+      this.openTabs.splice(idx, 1)
+      if (this.activeTabId === msgId) {
+        if (this.openTabs.length > 0) {
+          const nextIdx = Math.min(idx, this.openTabs.length - 1)
+          this.activateMessageTab(this.openTabs[nextIdx].msgId)
+        } else {
+          this.switchCenterTab('messages')
+        }
+      }
+    },
+
+    /**
+     * 激活已打开的报文标签页
+     */
+    activateMessageTab(msgId) {
+      const tab = this.openTabs.find(t => t.msgId === msgId)
+      if (!tab) return
+      this._saveActiveTabState()
+      this.centerTab = `msg_${msgId}`
+      this.activeTabId = msgId
+      // 恢复本 tab 的独立状态到全局
+      const editor = useEditorStore()
+      editor.selectedMsgId = msgId
+      this.selectedSignalName = tab.selectedSignalName
+      this.layoutViewMode = tab.layoutViewMode
+    },
+
+    /**
+     * @internal 将当前全局 selectedSignalName / layoutViewMode 存回活跃 tab 对象
+     */
+    _saveActiveTabState() {
+      if (typeof this.activeTabId !== 'number') return
+      const tab = this.openTabs.find(t => t.msgId === this.activeTabId)
+      if (!tab) return
+      tab.selectedSignalName = this.selectedSignalName
+      tab.layoutViewMode = this.layoutViewMode
+    },
+
+    /**
+     * 关闭所有动态报文标签页（会话拆卸时调用）
+     */
+    closeAllMessageTabs() {
+      this.openTabs = []
+      this.activeTabId = 'messages'
+      this.centerTab = 'messages'
     },
 
     // ── 列可见性（SignalTable） ──
