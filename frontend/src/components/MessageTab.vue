@@ -36,7 +36,8 @@
           <tr>
             <th v-for="(col, ci) in visibleColumns" :key="col.key"
                 @click="col.key !== '_cb' && col.sortable !== false ? onHeaderClick(col.sortField || col.key) : null"
-                :class="{ 'th-sortable': col.key !== '_cb' && col.sortable !== false }">
+                :class="{ 'th-sortable': col.key !== '_cb' && col.sortable !== false }"
+                @mousedown="col.key === '_cb' ? onHeaderCbMouseDown($event) : null">
               <template v-if="col.key === '_cb'">
                 <input type="checkbox" :checked="multiSelect.allSelected.value"
                        :indeterminate.prop="multiSelect.someSelected.value"
@@ -57,7 +58,9 @@
               :data-msg-id="m.id"
               :class="{ selected: store.selectedMsgId === m.id, 'multi-selected': multiSelect.selectedKeys.value.has(m.id) }"
               @mousedown="handleRowMouseDown(m.id, mIdx, $event)">
-            <td v-for="col in visibleColumns" :key="col.key">
+            <td v-for="col in visibleColumns" :key="col.key"
+                :class="{ 'cb-cell': col.key === '_cb' }"
+                @mousedown="col.key === '_cb' ? onCbCellMouseDown(m.id, $event) : null">
               <template v-if="col.key === '_cb'">
                 <input type="checkbox" :checked="multiSelect.selectedKeys.value.has(m.id)"
                        @click.stop @change="multiSelect.toggleCheckbox(m.id)">
@@ -225,6 +228,18 @@ onUnmounted(() => {
 })
 
 // ── 行操作 ──
+function onCbCellMouseDown(key, event) {
+  event.stopPropagation()
+  if (event.target.type === 'checkbox') return
+  multiSelect.toggleCheckbox(key)
+}
+
+function onHeaderCbMouseDown(event) {
+  event.stopPropagation()
+  if (event.target.type === 'checkbox') return
+  multiSelect.toggleAll()
+}
+
 function handleRowMouseDown(msgId, msgIndex, event) {
   const INTERACTIVE_TAGS = new Set(['INPUT', 'SELECT'])
 
@@ -471,7 +486,8 @@ function onCellKeyDown(e) {
   background: color-mix(in oklch, var(--accent) 20%, transparent) !important;
 }
 
-/* checkbox 列 */
+/* checkbox 列 — 扩大可点击范围 */
+.cb-cell { cursor: pointer; }
 .message-table th input[type="checkbox"],
 .message-table td input[type="checkbox"] {
   accent-color: var(--accent);

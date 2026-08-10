@@ -49,7 +49,8 @@
           <tr>
             <th v-for="(col, ci) in visibleColumns" :key="col.key"
                 @click="col.key !== '_cb' && col.sortable !== false ? onHeaderClick(col.sortField || col.key) : null"
-                :class="{ 'th-sortable': col.key !== '_cb' && col.sortable !== false }">
+                :class="{ 'th-sortable': col.key !== '_cb' && col.sortable !== false }"
+                @mousedown="col.key === '_cb' ? onHeaderCbMouseDown($event) : null">
               <template v-if="col.key === '_cb'">
                 <input type="checkbox" :checked="multiSelect.allSelected.value"
                        :indeterminate.prop="multiSelect.someSelected.value"
@@ -67,7 +68,9 @@
         </thead>
         <tbody>
           <tr v-for="(sig, sigIdx) in sortedSignals" :key="sig.name" :data-sig-id="sig.name" :class="{ 'has-error': errorNames.has(sig.name), 'selected': selectedSigName === sig.name, 'multi-selected': multiSelect.selectedKeys.value.has(sig.name) }" @mousedown="handleRowMouseDown(sig.name, sigIdx, $event)">
-            <td v-for="col in visibleColumns" :key="col.key">
+            <td v-for="col in visibleColumns" :key="col.key"
+                :class="{ 'cb-cell': col.key === '_cb' }"
+                @mousedown="col.key === '_cb' ? onCbCellMouseDown(sig.name, $event) : null">
               <template v-if="col.key === '_cb'">
                 <input type="checkbox" :checked="multiSelect.selectedKeys.value.has(sig.name)"
                        @click.stop @change="multiSelect.toggleCheckbox(sig.name)">
@@ -265,6 +268,18 @@ function onDocClick(e) {
   if (showColMenu.value && colToggleRef.value && !colToggleRef.value.contains(e.target)) {
     showColMenu.value = false
   }
+}
+
+function onCbCellMouseDown(key, event) {
+  event.stopPropagation()
+  if (event.target.type === 'checkbox') return
+  multiSelect.toggleCheckbox(key)
+}
+
+function onHeaderCbMouseDown(event) {
+  event.stopPropagation()
+  if (event.target.type === 'checkbox') return
+  multiSelect.toggleAll()
 }
 
 function handleRowMouseDown(sigName, sigIndex, event) {
@@ -541,7 +556,8 @@ function onCellKeyDown(e) {
   background: color-mix(in oklch, var(--accent) 20%, transparent) !important;
 }
 
-/* checkbox 列 */
+/* checkbox 列 — 扩大可点击范围 */
+.cb-cell { cursor: pointer; }
 .signal-table th input[type="checkbox"],
 .signal-table td input[type="checkbox"] {
   accent-color: var(--accent);
