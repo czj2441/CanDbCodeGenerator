@@ -21,6 +21,11 @@ const dict = {
     'topbar.forceExportCancel': '取消',
     'topbar.forceExportConfirm': '强制导出',
 
+    // Save Diff Tooltip
+    'diff.title': '保存差异预览',
+    'diff.loading': '正在计算差异…',
+    'diff.noChanges': '无变更',
+
     // FileBrowser
     'browser.title': '选择文件',
     'browser.newFile': '新建文件',

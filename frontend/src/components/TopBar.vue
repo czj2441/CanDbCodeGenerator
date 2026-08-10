@@ -16,9 +16,21 @@
       </button>
     </div>
     <div class="export-wrapper btn-group" ref="exportWrapper">
-      <button class="btn-icon" :class="{ 'btn-warn': store.backendDirty }" @click="save" title="保存 (Ctrl+S)">
+      <button class="btn-icon" :class="{ 'btn-warn': store.backendDirty }"
+              @click="save"
+              @mouseenter="onDiffEnter"
+              @mouseleave="onDiffLeave"
+              title="保存 (Ctrl+S)">
         <Save :size="16" />
       </button>
+      <SaveDiffTooltip
+        :visible="diffVisible"
+        :loading="diffLoading"
+        :error="diffError"
+        :entries="diffEntries"
+        @enter="onDiffEnter"
+        @leave="onDiffLeave"
+      />
       <button class="btn-icon" @click="onSaveAs" title="另存为">
         <SaveAll :size="16" />
       </button>
@@ -130,6 +142,7 @@ import { getSessionId } from '../api/client.js'
 import { ArrowLeft, Undo2, Redo2, Download, ChevronDown, Save, SaveAll, Moon, Sun, FileText, ShieldCheck } from '@lucide/vue'
 import CcodePreviewModal from './CcodePreviewModal.vue'
 import ConnectionStatus from './ConnectionStatus.vue'
+import SaveDiffTooltip from './SaveDiffTooltip.vue'
 
 defineEmits(['back'])
 
@@ -193,6 +206,7 @@ onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown)
   document.removeEventListener('click', handleExportClickOutside)
   window.removeEventListener('trigger-export', handleTriggerExport)
+  clearTimeout(_diffDebounce)
 })
 
 // App.vue 保存失败时通过此事件触发导出备份（跳过冗余的 saveSession）
@@ -431,6 +445,35 @@ async function exportCcode() {
   } finally {
     ui.setLoading(false)
   }
+}
+
+// ── Save Diff Tooltip ──
+const diffVisible = ref(false)
+const diffLoading = ref(false)
+const diffError = ref('')
+const diffEntries = ref([])
+let _diffDebounce = null
+
+function onDiffEnter() {
+  clearTimeout(_diffDebounce)
+  diffVisible.value = true
+  diffLoading.value = true
+  diffError.value = ''
+  _diffDebounce = setTimeout(async () => {
+    try {
+      const data = await store._wsRequest('get_save_diff')
+      diffEntries.value = data.entries || []
+    } catch (e) {
+      diffError.value = e.message || '获取差异失败'
+    } finally {
+      diffLoading.value = false
+    }
+  }, 300)
+}
+
+function onDiffLeave() {
+  clearTimeout(_diffDebounce)
+  diffVisible.value = false
 }
 
 async function save() {

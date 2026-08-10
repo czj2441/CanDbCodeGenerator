@@ -35,6 +35,9 @@ from .value_table_handlers import (
     RenameValueTableHandler, GetValueTablesHandler,
 )
 
+# Save diff handler
+from .save_diff_handler import GetSaveDiffHandler
+
 __all__ = [
     # Signal
     'EditSignalHandler', 'AddSignalHandler', 'DeleteSignalHandler',
@@ -56,4 +59,6 @@ __all__ = [
     # Value table
     'AddValueTableHandler', 'UpdateValueTableHandler', 'DeleteValueTableHandler',
     'RenameValueTableHandler', 'GetValueTablesHandler',
+    # Save diff
+    'GetSaveDiffHandler',
 ]
