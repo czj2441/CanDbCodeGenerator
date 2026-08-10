@@ -456,9 +456,11 @@ function onCellKeyDown(e) {
 
 .message-area { display: flex; flex-direction: column; flex: 1; min-height: 0; user-select: none; }
 
-/* 编辑信号按钮 - 复用信号表值描述标签样式 */
+/* 编辑信号按钮 — 撑满列宽，文字居中 */
 .vt-tag {
-  display: inline-block;
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
   background: color-mix(in oklch, var(--accent) 15%, transparent);
   color: var(--accent);
   border: none;
@@ -466,7 +468,8 @@ function onCellKeyDown(e) {
   padding: 1px 6px;
   font-size: 11px;
   cursor: pointer;
-  max-width: 100%;
+  text-align: center;
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
