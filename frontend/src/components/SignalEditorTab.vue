@@ -5,8 +5,9 @@
     <div class="center-header">
       <div class="center-title">
         <template v-if="msg">
-          <strong>{{ msg.name || t('msglist.unnamed') }}</strong>
-          — {{ toHex(msg.id) }} · {{ signalCount }} {{ signalCount === 1 ? t('status.signal') : t('status.signals') }}
+          <strong>{{ toHex(msg.id) }}</strong>
+          {{ msg.name || t('msglist.unnamed') }}
+          · {{ signalCount }} {{ signalCount === 1 ? t('status.signal') : t('status.signals') }}
         </template>
         <template v-else>{{ t('signal.selectMessage') }}</template>
       </div>

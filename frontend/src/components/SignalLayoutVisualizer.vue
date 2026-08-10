@@ -3,8 +3,9 @@
     <div class="center-header">
       <div class="center-title">
         <template v-if="msg">
-          <strong>{{ msg.name || t('msglist.unnamed') }}</strong>
-          &mdash; {{ toHex(msg.id) }} &middot; {{ Object.keys(msg.signals).length }} signals
+          <strong>{{ toHex(msg.id) }}</strong>
+          {{ msg.name || t('msglist.unnamed') }}
+          &middot; {{ Object.keys(msg.signals).length }} signals
         </template>
       </div>
       <div class="toolbar">

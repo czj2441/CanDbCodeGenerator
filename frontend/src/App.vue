@@ -16,6 +16,7 @@
         <button v-for="tab in ui.openTabs" :key="tab.msgId"
                 class="nav-tab nav-tab-dynamic"
                 :class="{ active: ui.activeTabId === tab.msgId }"
+                :title="getTabTooltip(tab.msgId)"
                 @click="ui.activateMessageTab(tab.msgId)"
                 @mousedown.middle.prevent="ui.closeMessageTab(tab.msgId)"
                 @contextmenu.prevent="onTabContextMenu($event, tab.msgId)">
@@ -163,6 +164,7 @@ import DataErrorList from './components/DataErrorList.vue'
 import ValueTableTab from './components/ValueTableTab.vue'
 import ValueTablePanel from './components/ValueTablePanel.vue'
 import { versionMismatch } from './utils/version-check.js'
+import { toHex } from './utils/format.js'
 
 const store = useCoreStore()
 const fileOps = useFileOperationsStore()
@@ -175,11 +177,18 @@ const ui = useUiStore()
 const errorCount = computed(() => (store.dataErrors || []).length)
 
 // ── 动态标签页辅助函数 ──
-/** 动态 tab 显示文字：报文名称 + ID */
+/** 动态 tab 显示文字：ID 在前 + 报文名称 */
 function getTabLabel(msgId) {
   const msg = store.messages[String(msgId)]
-  if (!msg) return `0x${msgId.toString(16).toUpperCase()}`
-  return `${msg.name || 'Unnamed'} [0x${msgId.toString(16).toUpperCase()}]`
+  if (!msg) return toHex(msgId)
+  return `${toHex(msgId)} ${msg.name || 'Unnamed'}`
+}
+
+/** Tab 悬浮提示：完整报文标识 */
+function getTabTooltip(msgId) {
+  const msg = store.messages[String(msgId)]
+  if (!msg) return ''
+  return `${toHex(msgId)} ${msg.name || 'Unnamed'}`
 }
 
 /** Tab 右键菜单 */
