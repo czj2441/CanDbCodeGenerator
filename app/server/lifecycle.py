@@ -24,30 +24,70 @@ from app.logging_config import setup_logging
 
 
 def _check_dependencies():
-    """检查必要的第三方依赖是否已安装。"""
-    missing = []
-    for pkg, import_name in [
+    """检查必要的第三方依赖是否已安装，缺失时自动安装。"""
+    import subprocess
+
+    required = [
         ('cantools', 'cantools'),
         ('javaproperties', 'javaproperties'),
         ('websockets', 'websockets'),
         ('Jinja2', 'jinja2'),
-    ]:
+        ('pypinyin', 'pypinyin'),
+    ]
+
+    missing = []
+    for pkg, import_name in required:
         try:
             __import__(import_name)
         except ImportError:
             missing.append(pkg)
-    if missing:
-        import logging as _log
-        _log.getLogger(__name__).error(
-            "缺少必要依赖: %s\n请运行: pip install -r requirements.txt",
-            ', '.join(missing)
+
+    if not missing:
+        return
+
+    # 尝试自动安装缺失依赖
+    print(
+        f"\n[INFO] 检测到缺失依赖: {', '.join(missing)}，正在自动安装...",
+        file=sys.stderr
+    )
+    try:
+        result = subprocess.run(
+            [sys.executable, '-m', 'pip', 'install', *missing],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
         )
-        print(
-            f"\n[ERROR] 缺少必要依赖: {', '.join(missing)}\n"
-            f"请运行: pip install -r requirements.txt\n",
-            file=sys.stderr
-        )
-        sys.exit(1)
+        if result.returncode != 0:
+            if result.stderr:
+                print(f"[pip stderr]:\n{result.stderr.strip()}", file=sys.stderr)
+            raise subprocess.CalledProcessError(result.returncode, result.args)
+        # 安装后重新验证
+        still_missing = []
+        for pkg, import_name in required:
+            if pkg not in missing:
+                continue
+            try:
+                __import__(import_name)
+            except ImportError:
+                still_missing.append(pkg)
+        if not still_missing:
+            return
+        missing = still_missing
+    except Exception as e:
+        logging.getLogger(__name__).debug("Auto-install failed: %s", e)
+
+    # 自动安装失败，给出明确错误
+    _log = logging.getLogger(__name__)
+    _log.error(
+        "缺少必要依赖: %s\n请运行: pip install -r requirements.txt",
+        ', '.join(missing)
+    )
+    print(
+        f"\n[ERROR] 缺少必要依赖: {', '.join(missing)}\n"
+        f"自动安装失败，请手动运行: pip install -r requirements.txt\n",
+        file=sys.stderr
+    )
+    sys.exit(1)
 
 
 _check_dependencies()

@@ -12,14 +12,41 @@ set "ROOT_DIR=%~dp0"
 REM PyPI 镜像源（留空则使用官方源，国内推荐清华源）
 set "PIP_MIRROR="
 
+REM ── 自动探测可用的 Python + pip 组合 ──
+REM 优先使用 python -m pip（保证同一解释器），失败时回退到裸 pip。
+set "PYTHON_CMD=python"
+set "PIP_CMD=python -m pip"
+
+python -m pip --version >nul 2>&1
+if errorlevel 1 (
+    echo [Build] python -m pip not available, falling back to pip...
+    pip --version >nul 2>&1
+    if errorlevel 1 (
+        echo [ERROR] Neither python -m pip nor pip is available!
+        echo         Please install Python from https://www.python.org/
+        exit /b 1
+    )
+    REM pip 可用但当前 python 无 pip 模块，尝试用 py launcher 定位 pip 所属 python
+    py -3 -m pip --version >nul 2>&1
+    if not errorlevel 1 (
+        set "PYTHON_CMD=py -3"
+        set "PIP_CMD=py -3 -m pip"
+        echo [Build] Using py launcher for Python 3.
+    ) else (
+        echo [Warn] pip found but cannot locate matching python. Using bare pip.
+        set "PIP_CMD=pip"
+    )
+)
+
 echo [Build] Installing Python dependencies...
 if defined PIP_MIRROR (
-    pip install -r "%ROOT_DIR%requirements.txt" -i %PIP_MIRROR%
+    %PIP_CMD% install -r "%ROOT_DIR%requirements.txt" -i %PIP_MIRROR%
 ) else (
-    pip install -r "%ROOT_DIR%requirements.txt"
+    %PIP_CMD% install -r "%ROOT_DIR%requirements.txt"
 )
 if errorlevel 1 (
-    echo [Warn] pip install failed, some features may not work.
+    echo [ERROR] pip install failed! Please check your network or Python environment.
+    exit /b 1
 )
 echo [Build] Python dependencies installed.
 
@@ -27,7 +54,7 @@ echo [Build] Building frontend...
 echo [Build] Working directory: %ROOT_DIR%frontend
 
 REM 计算自动版本号（写入 app/_auto_version.py，已被 .gitignore 排除）
-python "%ROOT_DIR%tools\compute_version.py" --write
+%PYTHON_CMD% "%ROOT_DIR%tools\compute_version.py" --write
 if errorlevel 1 (
     echo [Warn] Version computation failed, using defaults.
 )
@@ -61,4 +88,4 @@ echo.
 
 echo [Build] Starting backend server...
 cd /d "%ROOT_DIR%"
-python -m app.server.lifecycle
+%PYTHON_CMD% -m app.server.lifecycle
