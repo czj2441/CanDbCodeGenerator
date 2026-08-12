@@ -258,7 +258,7 @@ export const useCoreStore = defineStore('core', {
           this._dataVersion = msg.data_version ?? 0
           const d = msg.data
 
-          if (d.lock_status === 'lost') {
+          if (d.lock_status === 'lost' && !this.readOnly) {
             console.warn('[WS] full_sync: lock lost on reconnect, navigating to file list')
             this._teardownSession('lock_lost_on_reconnect')
             useUiStore().showToast(t('toast.sessionLost') || 'Session lost', true)
@@ -495,6 +495,9 @@ export const useCoreStore = defineStore('core', {
         }
 
         case 'lock_stolen': {
+          // read-only 用户不受抢占事件影响
+          if (this.readOnly) break
+
           const victimSid = msg.data?.victim_session_id
           if (victimSid && victimSid !== getSessionId()) break
 

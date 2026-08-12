@@ -78,6 +78,10 @@ class SessionManager:
         self._snapshot_timer: Optional[threading.Timer] = None
         # list_history 磁盘解析缓存: fname -> (mtime, size, msg_count, sig_count)
         self._history_cache: dict[str, tuple] = {}
+        # ── Viewer session 跟踪（read-only 用户，不获取文件锁） ──
+        self._viewer_sessions: set[str] = set()
+        self._viewer_heartbeats: dict[str, float] = {}
+        self._viewer_lock = threading.Lock()
         os.makedirs(self._data_dir, exist_ok=True)
         self._data_dir_real = os.path.realpath(self._data_dir)
         self._start_heartbeat_checker()
@@ -153,21 +157,56 @@ class SessionManager:
                 session.touch()
             return session
 
-    def restore(self, file_name: str, exclude_session: str = ''):
+    def restore(self, file_name: str, exclude_session: str = '', read_only: bool = False):
         """
         从磁盘恢复会话。
 
         Args:
             file_name: 文件名（如 "project.properties"）
             exclude_session: 排除的会话 ID（当前已打开的会话不视为锁定）
+            read_only: 为 True 时创建独立 viewer session（不获取文件锁、不消费快照）
             
         Returns:
             Session 或 None（文件不存在/数据损坏）
             
         Raises:
-            FileLockedError: 如果文件已被其他会话占用
+            FileLockedError: 如果文件已被其他会话占用（仅 read_only=False 时）
         """
         with self._lock:
+            # ── read_only 路径：创建独立 viewer session（不获取文件锁） ──
+            if read_only:
+                existing = None
+                for s in self._sessions.values():
+                    if os.path.basename(s.file_path) == file_name:
+                        existing = s
+                        break
+
+                file_path = self._safe_path(file_name)
+                new_sid = uuid.uuid4().hex[:12]
+
+                if existing:
+                    # 从编辑 session 克隆数据快照（不共享 db 对象）
+                    with existing.db.with_lock():
+                        db = type(existing.db).from_dict(existing.db.to_dict())
+                    db.modified = False
+                else:
+                    # 无编辑 session → 从磁盘加载（不消费快照）
+                    if not os.path.isfile(file_path):
+                        return None
+                    db = load_session_file(file_path, self._model_factory)
+                    if db is None:
+                        return None
+                    db.modified = False
+
+                session = Session(new_sid, file_path, db)
+                self._sessions[new_sid] = session
+                with self._viewer_lock:
+                    self._viewer_sessions.add(new_sid)
+                    self._viewer_heartbeats[new_sid] = time.time()
+                logger.info("Viewer session created: sid=%s file=%s", new_sid[:8], file_name)
+                return session
+
+            # ── 编辑用户路径：现有逻辑 ──
             # 先检查内存中是否已有该文件打开
             for session in self._sessions.values():
                 if os.path.basename(session.file_path) == file_name:
@@ -473,6 +512,11 @@ class SessionManager:
     # ── 内部方法 ──
 
     def _destroy(self, session_id: str, abort: bool = False) -> bool:
+        # 清理 viewer 跟踪数据（无论是否为 viewer，都尝试移除，幂等）
+        with self._viewer_lock:
+            self._viewer_sessions.discard(session_id)
+            self._viewer_heartbeats.pop(session_id, None)
+
         session = self._sessions.pop(session_id, None)
         if not session:
             return False
@@ -518,8 +562,14 @@ class SessionManager:
             return self._destroy(session_id, abort=abort)
 
     def update_heartbeat(self, session_id: str) -> bool:
-        """更新指定 session 的心跳时间。"""
-        return self._file_lock.update_heartbeat(session_id)
+        """更新指定 session 的心跳时间（同时支持编辑 session 和 viewer session）。"""
+        if self._file_lock.update_heartbeat(session_id):
+            return True
+        with self._viewer_lock:
+            if session_id in self._viewer_heartbeats:
+                self._viewer_heartbeats[session_id] = time.time()
+                return True
+        return False
 
     def set_lock_released_callback(self, cb: callable):
         """注册锁释放回调。"""
@@ -532,6 +582,11 @@ class SessionManager:
     def has_lock(self, session_id: str) -> bool:
         """检查指定 session 是否仍持有文件锁。"""
         return self._file_lock.has_lock(session_id)
+
+    def is_viewer(self, session_id: str) -> bool:
+        """检查指定 session 是否为只读 viewer。"""
+        with self._viewer_lock:
+            return session_id in self._viewer_sessions
 
     def mark_stale(self, session_id: str):
         """将心跳前推至即将超时。"""
@@ -555,6 +610,7 @@ class SessionManager:
 
     def _cleanup_stale_heartbeats(self):
         """清理超时未心跳的 session，自动释放其文件锁。"""
+        # ── 编辑 session 清理（释放文件锁 + 广播事件） ──
         stale_sids = self._file_lock.get_stale_sessions(HEARTBEAT_TIMEOUT)
 
         for sid in stale_sids:
@@ -565,6 +621,19 @@ class SessionManager:
                 logger.warning("Stale session cleaned: sid=%s (heartbeat timeout)", sid[:8])
             except Exception as e:
                 logger.error("Error cleaning stale session %s: %s", sid[:8], e, exc_info=True)
+
+        # ── Viewer session 清理（不释放锁、不广播事件） ──
+        now = time.time()
+        with self._viewer_lock:
+            stale_viewers = [sid for sid, last in list(self._viewer_heartbeats.items())
+                             if now - last > HEARTBEAT_TIMEOUT]
+        for sid in stale_viewers:
+            try:
+                with self._lock:
+                    self._destroy(sid)
+                logger.info("Stale viewer cleaned: sid=%s (heartbeat timeout)", sid[:8])
+            except Exception as e:
+                logger.error("Error cleaning stale viewer %s: %s", sid[:8], e, exc_info=True)
 
         self._start_heartbeat_checker()
 

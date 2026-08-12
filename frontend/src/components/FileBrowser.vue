@@ -171,7 +171,7 @@
             </td>
             <td class="col-actions" @click.stop>
               <button
-                v-if="!file.is_locked"
+                v-if="!file.is_locked || !file.can_write"
                 class="open-btn"
                 :title="t('browser.openTooltip')"
                 @click="open(file)"
@@ -623,7 +623,8 @@ async function executeDelete() {
 }
 
 function open(file) {
-  if (file.is_locked) {
+  // read-only 用户始终可以打开；编辑用户不可以打开已锁定的文件
+  if (file.is_locked && file.can_write) {
     return
   }
   // 防止重复点击

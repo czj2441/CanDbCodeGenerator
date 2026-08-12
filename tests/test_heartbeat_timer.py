@@ -27,6 +27,10 @@ class TestHeartbeatTimerRecovery(unittest.TestCase):
         mgr._history_cache = {}
         mgr._data_dir = "/tmp/test"
         mgr._data_dir_real = "/tmp/test"
+        # Viewer session 跟踪字段
+        mgr._viewer_lock = threading.Lock()
+        mgr._viewer_sessions = set()
+        mgr._viewer_heartbeats = {}
 
         # get_stale_sessions 返回空列表（由测试用例覆盖）
         mgr._file_lock.get_stale_sessions.return_value = []
@@ -152,6 +156,9 @@ class TestHeartbeatTimerIntegration(unittest.TestCase):
         mgr._history_cache = {}
         mgr._data_dir = "/tmp/test"
         mgr._data_dir_real = "/tmp/test"
+        mgr._viewer_lock = threading.Lock()
+        mgr._viewer_sessions = set()
+        mgr._viewer_heartbeats = {}
         mgr._file_lock.get_stale_sessions.return_value = []
 
         # 先确认没有定时器
@@ -180,6 +187,9 @@ class TestHeartbeatTimerIntegration(unittest.TestCase):
         mgr._history_cache = {}
         mgr._data_dir = "/tmp/test"
         mgr._data_dir_real = "/tmp/test"
+        mgr._viewer_lock = threading.Lock()
+        mgr._viewer_sessions = set()
+        mgr._viewer_heartbeats = {}
         mgr._file_lock.get_stale_sessions.return_value = ["bad-session-id"]
 
         # 让 _destroy 抛异常

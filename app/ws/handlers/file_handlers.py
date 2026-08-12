@@ -8,7 +8,7 @@ SaveAs / DeleteFile / GetSessions
 from app.models import CanDatabase
 from app.services import FileLockedError, FileNameExistsError
 from app.ws.router import HandlerResult, HandlerError
-from ._common import pure_file_name as _pure_file_name, validate_file_name
+from ._common import pure_file_name as _pure_file_name, validate_file_name, is_user_read_only
 
 
 class SaveHandler:
@@ -195,8 +195,9 @@ class LoadFileHandler:
         except ValueError:
             raise HandlerError("INVALID_FILE_NAME", "非法文件名")
         current_sid = data.get("current_session_id", "")
+        read_only = is_user_read_only(data, file_name)
         try:
-            s = self._sm.restore(file_name, exclude_session=current_sid)
+            s = self._sm.restore(file_name, exclude_session=current_sid, read_only=read_only)
         except FileLockedError as e:
             raise HandlerError("FILE_LOCKED", str(e))
         if not s:

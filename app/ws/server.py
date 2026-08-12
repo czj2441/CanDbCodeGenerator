@@ -169,6 +169,7 @@ class WsServer:
             version = db.data_version
 
         lock_held = sm.has_lock(session_id)
+        is_viewer = sm.is_viewer(session_id)
 
         msg = {
             "type": "full_sync",
@@ -178,7 +179,7 @@ class WsServer:
                 "value_tables": value_tables_snapshot,
                 "bus_type": db.bus_type,
                 "status": status,
-                "lock_status": "held" if lock_held else "lost"
+                "lock_status": "held" if (lock_held or is_viewer) else "lost"
             }
         }
 
