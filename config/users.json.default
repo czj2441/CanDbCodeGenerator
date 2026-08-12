@@ -1,0 +1,12 @@
+{
+  "users": [
+    {
+      "username": "admin",
+      "password_hash": "d346a7dc48aae984672acddf78a3de9e2b8bfa6b8e384e36a023382f12cabc0e",
+      "salt": "9e1125f9003e3c75d8dd6209e5768357",
+      "role": "admin",
+      "must_change_password": true
+    }
+  ],
+  "token_ttl_hours": 8
+}

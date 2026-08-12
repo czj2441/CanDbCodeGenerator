@@ -50,6 +50,7 @@ frontend/package-lock.json
 # Runtime data
 data/
 snapshots/
+config/users.json
 
 # Temp files (test screenshots & scripts)
 temp/
