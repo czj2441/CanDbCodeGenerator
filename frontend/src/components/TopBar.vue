@@ -6,8 +6,9 @@
     </button>
     <!-- 文件名 -->
     <span class="topbar-filename">{{ store.currentFileName }}</span>
-    <!-- 编辑操作按钮组 -->
-    <div class="btn-group">
+    <span v-if="store.readOnly" class="readonly-tag">🔒 只读</span>
+    <!-- 编辑操作按钮组（只读模式下隐藏） -->
+    <div v-if="!store.readOnly" class="btn-group">
       <button class="btn-icon" @click="undoRedo.undo()" :disabled="!undoRedo.canUndo" title="撤销 (Ctrl+Z)">
         <Undo2 :size="16" />
       </button>
@@ -16,7 +17,7 @@
       </button>
     </div>
     <div class="export-wrapper btn-group" ref="exportWrapper">
-      <button class="btn-icon" :class="{ 'btn-warn': store.backendDirty }"
+      <button v-if="!store.readOnly" class="btn-icon" :class="{ 'btn-warn': store.backendDirty }"
               @click="save"
               @mouseenter="onDiffEnter"
               @mouseleave="onDiffLeave"
@@ -24,7 +25,7 @@
         <Save :size="16" />
       </button>
       <SaveDiffTooltip
-        :visible="diffVisible"
+        :visible="!store.readOnly && diffVisible"
         :loading="diffLoading"
         :error="diffError"
         :entries="diffEntries"
@@ -34,7 +35,7 @@
       <button class="btn-icon" @click="onSaveAs" title="另存为">
         <SaveAll :size="16" />
       </button>
-      <button class="btn-icon" @click="runFullValidation()" :title="t('topbar.validate')">
+      <button v-if="!store.readOnly" class="btn-icon" @click="runFullValidation()" :title="t('topbar.validate')">
         <ShieldCheck :size="16" />
       </button>
       <button class="btn-icon" @click="exportDropdownOpen = !exportDropdownOpen" :title="t('topbar.export')">
@@ -47,23 +48,25 @@
         <button @click="exportCcode(); exportDropdownOpen = false">C Code (.h + .c)</button>
       </div>
     </div>
-    <!-- 总线类型 -->
+    <!-- 总线类型（只读模式下禁用） -->
     <div class="bus-toggle-wrapper">
       <span class="bus-toggle-label">{{ t('topbar.busType') }}</span>
-      <div class="bus-toggle" role="radiogroup" :title="t('topbar.busType')">
+      <div class="bus-toggle" role="radiogroup" :title="t('topbar.busType')" :class="{ 'bus-toggle-disabled': store.readOnly }">
         <button
           class="bus-toggle-option"
           :class="{ active: store.busType === 'CAN' }"
           role="radio"
           :aria-checked="store.busType === 'CAN'"
-          @click="store.busType !== 'CAN' && setBusType('CAN')"
+          :disabled="store.readOnly"
+          @click="!store.readOnly && store.busType !== 'CAN' && setBusType('CAN')"
         >CAN</button>
         <button
           class="bus-toggle-option"
           :class="{ active: store.busType === 'CAN FD' }"
           role="radio"
           :aria-checked="store.busType === 'CAN FD'"
-          @click="store.busType !== 'CAN FD' && setBusType('CAN FD')"
+          :disabled="store.readOnly"
+          @click="!store.readOnly && store.busType !== 'CAN FD' && setBusType('CAN FD')"
         >CAN FD</button>
       </div>
     </div>
@@ -77,6 +80,9 @@
       </button>
       <button class="btn-icon" :class="{ active: ui.showLogPanel }" @click="ui.showLogPanel = !ui.showLogPanel" :title="t('topbar.log')">
         <FileText :size="16" />
+      </button>
+      <button class="btn-icon" @click="changePwdOpen = true" title="修改密码">
+        <KeyRound :size="16" />
       </button>
     </div>
     <ConnectionStatus :status="connectionStatus" />
@@ -128,6 +134,9 @@
     :source-code="ui.ccodePreview.sourceCode"
     :source-filename="ui.ccodePreview.sourceFilename"
   />
+
+  <!-- 修改密码 Modal -->
+  <ChangePasswordModal v-model:visible="changePwdOpen" />
 </template>
 
 <script setup>
@@ -139,10 +148,11 @@ import { useUiStore } from '../stores/uiStore.js'
 import { connectionStatus } from '../stores/connectionHealth.js'
 import { t } from '../i18n.js'
 import { getSessionId } from '../api/client.js'
-import { ArrowLeft, Undo2, Redo2, Download, ChevronDown, Save, SaveAll, Moon, Sun, FileText, ShieldCheck } from '@lucide/vue'
+import { ArrowLeft, Undo2, Redo2, Download, ChevronDown, Save, SaveAll, Moon, Sun, FileText, ShieldCheck, KeyRound } from '@lucide/vue'
 import CcodePreviewModal from './CcodePreviewModal.vue'
 import ConnectionStatus from './ConnectionStatus.vue'
 import SaveDiffTooltip from './SaveDiffTooltip.vue'
+import ChangePasswordModal from './ChangePasswordModal.vue'
 
 defineEmits(['back'])
 
@@ -154,6 +164,7 @@ const exportDropdownOpen = ref(false)
 const exportWrapper = ref(null)
 const forceExportOpen = ref(false)
 const pendingExportFmt = ref('dbc')
+const changePwdOpen = ref(false)
 
 function setBusType(value) {
   store._wsRequest('edit_database', { fields: { bus_type: value } })
@@ -693,5 +704,20 @@ async function save() {
   background: var(--accent);
   color: oklch(0.12 0.01 155);
   box-shadow: 0 1px 2px rgba(0,0,0,0.12);
+}
+.bus-toggle-disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.readonly-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  background: var(--warn);
+  color: #fff;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 600;
+  margin-left: 8px;
 }
 </style>

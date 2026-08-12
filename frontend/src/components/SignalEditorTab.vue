@@ -12,9 +12,9 @@
         <template v-else>{{ t('signal.selectMessage') }}</template>
       </div>
       <div v-if="msg" class="toolbar">
-        <button class="btn" @click="addSignal">{{ t('signal.add') }}</button>
-        <button class="btn btn-accent" @click="ui.batchModalOpen = true">{{ t('signal.batch') }}</button>
-        <template v-if="multiSelect.isMultiSelect.value">
+        <button v-if="!store.readOnly" class="btn" @click="addSignal">{{ t('signal.add') }}</button>
+        <button v-if="!store.readOnly" class="btn btn-accent" @click="ui.batchModalOpen = true">{{ t('signal.batch') }}</button>
+        <template v-if="!store.readOnly && multiSelect.isMultiSelect.value">
           <button class="btn" @click="batchEditModalOpen = true">{{ t('multiselect.batchEdit') }} ({{ multiSelect.selectedCount.value }})</button>
           <button class="btn btn-danger" @click="batchDeleteSelected">{{ t('multiselect.batchDelete') }}</button>
         </template>
@@ -79,7 +79,7 @@
               <template v-else-if="col.key === 'start'"><input class="mono" type="number" v-lazy-value="displayStartBit(sig)" @blur="e => isCellEditable(sig.name) && updateStartBit(sig, parseInt(e.target.value)||0)" :disabled="multiSelect.isMultiSelect.value" :readonly="!isCellEditable(sig.name)" data-field="start"></template>
               <template v-else-if="col.key === 'length'"><input class="mono" type="number" v-lazy-value="sig.length" @blur="e => isCellEditable(sig.name) && update(sig.name, 'length', parseInt(e.target.value))" :readonly="!isCellEditable(sig.name)" data-field="length"></template>
               <template v-else-if="col.key === 'order'">
-                <select :value="sig.byte_order" @change="e => updateByteOrder(sig, e)" data-field="order">
+                <select :value="sig.byte_order" @change="e => updateByteOrder(sig, e)" :disabled="store.readOnly" data-field="order">
                   <option value="intel">Intel</option>
                   <option value="motorola">Motorola</option>
                 </select>
@@ -91,12 +91,14 @@
               <template v-else-if="col.key === 'unit'"><input v-lazy-value="sig.unit" @blur="e => isCellEditable(sig.name) && update(sig.name, 'unit', e.target.value)" :readonly="!isCellEditable(sig.name)" data-field="unit"></template>
               <template v-else-if="col.key === 'comment'"><input v-lazy-value="sig.comment" @blur="e => isCellEditable(sig.name) && update(sig.name, 'comment', e.target.value)" :readonly="!isCellEditable(sig.name)" data-field="comment"></template>
               <template v-else-if="col.key === 'valTable'">
-                <select :value="sig.value_table_name || ''" @change="e => updateValueTableRef(sig.name, e.target.value)" data-field="valTable">
+                <select :value="sig.value_table_name || ''" @change="e => updateValueTableRef(sig.name, e.target.value)" :disabled="store.readOnly" data-field="valTable">
                   <option value="">-</option>
                   <option v-for="name in valueTableNames" :key="name" :value="name">{{ name }}</option>
                 </select>
               </template>
-              <template v-else-if="col.key === 'actions'"><button class="action-delete" @click.stop="signals.deleteSignal(sig.name)" title="删除">×</button></template>
+              <template v-else-if="col.key === 'actions'">
+                <button v-if="!store.readOnly" class="action-delete" @click.stop="signals.deleteSignal(sig.name)" title="删除">×</button>
+              </template>
             </td>
           </tr>
         </tbody>
@@ -162,6 +164,7 @@ const valueTableNames = computed(() => Object.keys(store.valueTables).sort())
 // ── 双击编辑状态 ──
 const editingKey = ref(null) // { sigName, field } | null
 function isCellEditable(sigName) {
+  if (store.readOnly) return false
   return editingKey.value && editingKey.value.sigName === sigName
 }
 

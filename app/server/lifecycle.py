@@ -33,6 +33,7 @@ def _check_dependencies():
         ('websockets', 'websockets'),
         ('Jinja2', 'jinja2'),
         ('pypinyin', 'pypinyin'),
+        ('watchdog', 'watchdog'),
     ]
 
     missing = []
@@ -96,6 +97,7 @@ from app.services import init_session_manager
 from app.models import CanDatabase
 from .http_handler import ApiHandler
 from .port_utils import check_port_available, handle_port_conflict, find_available_port
+from app.auth import init_auth_service
 
 logger = logging.getLogger(__name__)
 
@@ -103,10 +105,13 @@ logger = logging.getLogger(__name__)
 SESSION_MGR = init_session_manager()
 SESSION_MGR.set_model_factory(CanDatabase)
 
-# ⚠️ 顺序约束：SESSION_MGR 必须在 HTTP server 启动前赋值。
-# http_handler._post_release / _get_export 已移除 None 守卫，依赖此赋值先于 serve_forever()。
+# ── 认证服务初始化 ──
+AUTH_SERVICE = init_auth_service()
+
+# ⚙️ 顺序约束：SESSION_MGR 和 AUTH_SERVICE 必须在 HTTP server 启动前赋值。
 import app.server.http_handler as _http_mod
 _http_mod.SESSION_MGR = SESSION_MGR
+_http_mod.AUTH_SERVICE = AUTH_SERVICE
 
 
 def _register_all_handlers(ws_router, session_mgr, ws_transport=None):
@@ -200,6 +205,8 @@ def main() -> None:
                         help='启用 WebSocket 诊断日志（JSON lines 输出到 stdout）')
     parser.add_argument('--no-browser', action='store_true',
                         help='启动后不自动打开浏览器')
+    parser.add_argument('--host', type=str, default='localhost',
+                        help='HTTP 绑定地址 (默认: localhost, LAN 部署时传 0.0.0.0)')
 
     args = parser.parse_args()
 
@@ -209,6 +216,7 @@ def main() -> None:
 
     port = args.port_opt if args.port_opt is not None else args.port
     auto_clean = args.auto_clean or args.force
+    host = args.host
 
     if auto_clean:
         logger.info("启动模式：自动清理端口冲突")
@@ -225,8 +233,8 @@ def main() -> None:
             logger.info("提示: 使用 --auto-clean 尝试清理，或手动指定其他端口。")
             sys.exit(1)
 
-    server = ThreadingHTTPServer(("localhost", port), ApiHandler)
-    logger.info("CanMatrix Editor API server running at http://localhost:%d", port)
+    server = ThreadingHTTPServer((host, port), ApiHandler)
+    logger.info("CanMatrix Editor API server running at http://%s:%d", host, port)
     logger.info("WS port: %d", port + 1)
     logger.info("Press Ctrl+C to stop.")
 
@@ -237,7 +245,7 @@ def main() -> None:
 
     ws_diag = WsDiagnostics(enabled=args.ws_debug)
     ws_transport = WsTransport(port=port + 1, diagnostics=ws_diag)
-    ws_router = MessageRouter(ws_transport, SESSION_MGR)
+    ws_router = MessageRouter(ws_transport, SESSION_MGR, auth_service=AUTH_SERVICE)
     _register_all_handlers(ws_router, SESSION_MGR, ws_transport)
 
     # ── 注册锁释放回调（在 WS 服务启动前，避免心跳定时器竞态） ──
@@ -277,10 +285,13 @@ def main() -> None:
 
     atexit.register(snapshot_on_exit)
 
+    # ── 配置热重载 watchdog ──
+    AUTH_SERVICE.start_watchdog()
+
     # ── 自动打开浏览器 ──
     if not args.no_browser:
         import webbrowser
-        url = f"http://localhost:{port}"
+        url = f"http://localhost:{port}" if host == 'localhost' else f"http://{host}:{port}"
         logger.info("服务已就绪，正在打开浏览器: %s", url)
         threading.Timer(0.5, webbrowser.open, args=[url]).start()
 
@@ -291,6 +302,7 @@ def main() -> None:
     except KeyboardInterrupt:
         logger.info("Shutting down...")
     finally:
+        AUTH_SERVICE.stop_watchdog()
         # 关闭 WS server（独立线程，安全调用）
         try:
             ws_server.shutdown(timeout=3)
@@ -307,11 +319,12 @@ def main() -> None:
 class BackgroundServer:
     """HTTP + WS 服务器的统一生命周期管理。"""
 
-    def __init__(self, http_server, ws_server, ws_transport, port):
+    def __init__(self, http_server, ws_server, ws_transport, port, auth_service=None):
         self._http = http_server
         self._ws = ws_server
         self._ws_transport = ws_transport
         self._port = port
+        self._auth_service = auth_service
         self._stopped = False
         self._lock = threading.Lock()
 
@@ -328,6 +341,9 @@ class BackgroundServer:
             if self._stopped:
                 return
             self._stopped = True
+
+        if self._auth_service:
+            self._auth_service.stop_watchdog()
 
         try:
             self._ws.shutdown(timeout=5)
@@ -346,7 +362,7 @@ class BackgroundServer:
             logger.error("HTTP server_close error: %s", e)
 
 
-def start_server_background(port: int = 8080) -> BackgroundServer:
+def start_server_background(port: int = 8080, host: str = 'localhost') -> BackgroundServer:
     """在后台线程启动 API 服务器，返回 BackgroundServer 对象。"""
     setup_logging()
 
@@ -359,15 +375,15 @@ def start_server_background(port: int = 8080) -> BackgroundServer:
         else:
             raise RuntimeError(f"端口 {port}/{port+1} 不可用且无替代端口")
 
-    server = ThreadingHTTPServer(("localhost", port), ApiHandler)
-    logger.info("CanMatrix Editor API server running at http://localhost:%d", port)
+    server = ThreadingHTTPServer((host, port), ApiHandler)
+    logger.info("CanMatrix Editor API server running at http://%s:%d", host, port)
 
     from app.ws.transport import WsTransport
     from app.ws.router import MessageRouter
     from app.ws.server import WsServer
 
     ws_transport = WsTransport(port=port + 1)
-    ws_router = MessageRouter(ws_transport, SESSION_MGR)
+    ws_router = MessageRouter(ws_transport, SESSION_MGR, auth_service=AUTH_SERVICE)
     _register_all_handlers(ws_router, SESSION_MGR, ws_transport)
 
     # ── 注册锁释放回调（在 WS 服务启动前，避免心跳定时器竞态） ──
@@ -398,6 +414,7 @@ def start_server_background(port: int = 8080) -> BackgroundServer:
         from app.services.snapshot import cleanup_stale_snapshots
         cleanup_stale_snapshots()
         SESSION_MGR.start_snapshot_scheduler(interval=60)
+        AUTH_SERVICE.start_watchdog()
 
         def snapshot_on_exit():
             count = SESSION_MGR.snapshot_all_dirty()
@@ -407,7 +424,7 @@ def start_server_background(port: int = 8080) -> BackgroundServer:
 
     server_thread = threading.Thread(target=server.serve_forever, daemon=True)
     server_thread.start()
-    return BackgroundServer(server, ws_server, ws_transport, port)
+    return BackgroundServer(server, ws_server, ws_transport, port, auth_service=AUTH_SERVICE)
 
 
 if __name__ == '__main__':

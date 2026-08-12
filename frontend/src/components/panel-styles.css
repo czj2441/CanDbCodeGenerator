@@ -71,3 +71,26 @@
   cursor: pointer;
 }
 .btn:hover { background: var(--bg-hover); }
+
+/* ── 只读模式 ── */
+.panel-readonly {
+  position: relative;
+}
+.panel-readonly::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.03);
+  pointer-events: none;
+  z-index: 1;
+}
+.panel-readonly input,
+.panel-readonly textarea,
+.panel-readonly select {
+  pointer-events: none;
+  opacity: 0.6;
+}
+.panel-readonly .choices-delete,
+.panel-readonly .add-entry-btn {
+  display: none;
+}

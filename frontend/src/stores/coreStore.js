@@ -8,6 +8,7 @@ import { WsSyncClient, WsFrontendDiag } from '../utils/ws-client.js'
 import { checkVersionHash } from '../utils/version-check.js'
 import { resetMessageIdGenerator } from '../utils/storeHelpers.js'
 import { setConnectionStatus, resetConnection } from './connectionHealth.js'
+import { useAuthStore } from './authStore.js'
 
 export const useCoreStore = defineStore('core', {
   state: () => ({
@@ -19,6 +20,7 @@ export const useCoreStore = defineStore('core', {
     // ── 会话与文件 ──
     currentFileName: '',
     busType: 'CAN',  // 全局总线类型，用户显式配置
+    readOnly: false,  // 只读模式：当前用户非文件 owner
 
     // ── 全局值描述表 ──
     valueTables: {},
@@ -107,6 +109,7 @@ export const useCoreStore = defineStore('core', {
       this.messageCache = {}
       this.currentFileName = ''
       this.busType = 'CAN'
+      this.readOnly = false
       this.backendDirty = false
       this.lastSaveError = null
       this.saveStatus = 'idle'
@@ -173,6 +176,7 @@ export const useCoreStore = defineStore('core', {
       const client = new WsSyncClient({
         url: wsUrl,
         getSessionId: () => getSessionId() || '',
+        getToken: () => useAuthStore().token,
         onMessage: (msg) => { this._applyWsMessage(msg) },
         onStatusChange: (status) => {
           // 守卫：如果不是当前活跃的 client，忽略此回调
@@ -182,6 +186,11 @@ export const useCoreStore = defineStore('core', {
             this._wsConnected = true
           } else if (status === 'disconnected') {
             this._wsConnected = false
+          } else if (status === 'auth_required') {
+            // 4010: token 失效，清除认证并跳转登录页
+            const auth = useAuthStore()
+            auth.clearAuth()
+            window.dispatchEvent(new CustomEvent('auth-expired'))
           } else if (status === 'session_invalid') {
             // 4003: 后端重启或 session 超时，当前 session 已失效
             this._teardownSession('session_invalid')

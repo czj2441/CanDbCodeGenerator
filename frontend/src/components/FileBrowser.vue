@@ -3,6 +3,22 @@
     <div class="browser-header">
       <div class="brand-logo">Can<span>DbCodeGenerator</span></div>
       <div class="header-actions">
+        <button
+          class="btn-toggle-files"
+          :class="{ active: showAllFiles }"
+          @click="showAllFiles = !showAllFiles"
+          :title="showAllFiles ? '显示所有文件' : '仅显示我的文件'"
+        >
+          {{ showAllFiles ? '所有文件' : '我的文件' }}
+        </button>
+        <button
+          v-if="authStore.isAdmin"
+          class="btn-icon"
+          @click="userMgmtOpen = true"
+          title="用户管理"
+        >
+          <Users :size="16" />
+        </button>
         <div class="btn-group">
           <button class="btn-icon" @click="createNew" :title="t('browser.newFileTooltip')">
             <FilePlus :size="16" />
@@ -76,13 +92,14 @@
             <th class="col-time sortable" @click.stop="toggleSort('mtime')">
               {{ t('browser.colTime') }} <span class="sort-icon">{{ getSortIcon('mtime') }}</span>
             </th>
+            <th class="col-owner">所有者</th>
             <th class="col-status">{{ t('browser.colStatus') }}</th>
             <th class="col-actions">{{ t('browser.colActions') }}</th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="initialLoading && files.length === 0">
-            <td colspan="7" class="loading-state">
+            <td colspan="8" class="loading-state">
               <div class="loading-content">
                 <div class="browser-spinner"></div>
                 <p class="loading-text">{{ t('browser.loading') }}</p>
@@ -90,7 +107,7 @@
             </td>
           </tr>
           <tr v-else-if="files.length === 0">
-            <td colspan="7" class="empty-state">
+            <td colspan="8" class="empty-state">
               <div class="empty-state-content">
                 <div class="empty-icon">📂</div>
                 <p class="empty-title">{{ t('browser.emptyTitle') }}</p>
@@ -106,7 +123,7 @@
             </td>
           </tr>
           <tr v-else-if="displayedFiles.length === 0">
-            <td colspan="7" class="empty-state filter-empty">
+            <td colspan="8" class="empty-state filter-empty">
               <div class="empty-state-content">
                 <div class="empty-icon">🔍</div>
                 <p class="empty-title">{{ t('browser.noResults') }}</p>
@@ -121,9 +138,11 @@
             :class="{ 
               'locked': file.is_locked,
               'selected': selectedFiles.includes(file.file_name),
-              'opening': openingSessionId === file.file_name
+              'opening': openingSessionId === file.file_name,
+              'readonly-row': file.owner && !file.can_write
             }"
             @click="toggleSelectFile(file)"
+            @contextmenu="onFileContextMenu($event, file)"
           >
             <td class="col-checkbox" @click.stop>
               <input 
@@ -135,10 +154,16 @@
             </td>
             <td class="col-name" @click.stop="open(file)">
               <span class="file-name-link">{{ file.name }}</span>
+              <span v-if="file.owner && !file.can_write" class="readonly-badge" title="只读 — 非所有者">🔒</span>
+              <span v-else-if="!file.owner" class="unowned-badge" title="无所有者 — 全员只读">⚪</span>
             </td>
             <td class="col-messages">{{ file.message_count }}</td>
             <td class="col-signals">{{ file.signal_count }}</td>
             <td class="col-time">{{ formatTime(file.mtime) }}</td>
+            <td class="col-owner">
+              <span v-if="file.owner" class="owner-name">{{ file.owner }}</span>
+              <span v-else class="no-owner">—</span>
+            </td>
             <td class="col-status">
               <span v-if="file.is_locked" class="lock-badge">{{ t('browser.locked') }}</span>
               <span v-else-if="file.is_modified" class="unsaved-badge">{{ t('browser.unsaved') }}</span>
@@ -299,11 +324,59 @@
       @change="handleImportFileSelect"
     />
 
+    <!-- 右键菜单 -->
+    <Teleport to="body">
+      <div
+        v-if="contextMenuOpen"
+        class="ctx-menu"
+        :style="{ left: contextMenuPos.x + 'px', top: contextMenuPos.y + 'px' }"
+        @click.stop
+      >
+        <div v-if="authStore.isAdmin && contextMenuFile?.owner" class="ctx-item" @click="openTransferOwnerModal">
+          转移所有权
+        </div>
+        <div v-if="authStore.isAdmin && !contextMenuFile?.owner" class="ctx-item" @click="executeTakeOver">
+          接管文件
+        </div>
+        <div v-if="!authStore.isAdmin && !contextMenuFile?.owner" class="ctx-item disabled">
+          无所有者（仅管理员可操作）
+        </div>
+        <div v-if="contextMenuFile?.owner && !contextMenuFile?.can_write" class="ctx-item disabled">
+          只读 — 所有者: {{ contextMenuFile?.owner }}
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- 转移所有权对话框 -->
+    <Teleport to="body">
+      <Transition name="fade">
+        <div v-if="transferOwnerModalOpen" class="modal-overlay" @mousedown.self="closeTransferOwnerModal">
+          <div class="modal-box" @click.stop>
+            <h3>转移文件所有权</h3>
+            <p>将 <strong>{{ transferOwnerFile?.name }}</strong> 的所有权转移给：</p>
+            <select v-model="transferOwnerTarget" class="new-file-input">
+              <option value="" disabled>选择用户...</option>
+              <option v-for="u in userList" :key="u.username" :value="u.username">
+                {{ u.username }} ({{ u.role }})
+              </option>
+            </select>
+            <div class="modal-actions">
+              <button class="btn btn-cancel" @click="closeTransferOwnerModal">取消</button>
+              <button class="btn btn-confirm" :disabled="!transferOwnerTarget" @click="executeTransferOwner">确认转移</button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
     <!-- 底部状态栏 -->
     <div class="browser-footer">
       <ConnectionStatus :status="connectionStatus" />
       <span class="version-tag">{{ manualVersion }} {{ autoVersion }}</span>
     </div>
+
+    <!-- 用户管理 Modal -->
+    <UserManagementModal v-model:visible="userMgmtOpen" />
   </div>
 </template>
 
@@ -311,11 +384,13 @@
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { getSessionId } from '../api/client.js'
 import { useUiStore } from '../stores/uiStore.js'
+import { useAuthStore } from '../stores/authStore.js'
 import { t } from '../i18n.js'
 import { WsSyncClient } from '../utils/ws-client.js'
 import { setConnectionStatus, connectionStatus } from '../stores/connectionHealth.js'
-import { FilePlus, Upload, Trash2, Wrench } from '@lucide/vue'
+import { FilePlus, Upload, Trash2, Wrench, Users, Lock } from '@lucide/vue'
 import ConnectionStatus from './ConnectionStatus.vue'
+import UserManagementModal from './UserManagementModal.vue'
 
 const manualVersion = typeof __MANUAL_VERSION__ !== 'undefined' ? __MANUAL_VERSION__ : 'dev'
 const autoVersion = typeof __AUTO_VERSION__ !== 'undefined' ? __AUTO_VERSION__ : 'dev'
@@ -333,6 +408,18 @@ const deleting = ref(false)
 const newFileModalOpen = ref(false)
 const newFileName = ref('')
 const initialLoading = ref(true)
+
+// ── 权限相关 ──
+const authStore = useAuthStore()
+const showAllFiles = ref(false)  // 默认只显示当前用户拥有的文件
+const contextMenuOpen = ref(false)
+const contextMenuPos = ref({ x: 0, y: 0 })
+const contextMenuFile = ref(null)
+const transferOwnerModalOpen = ref(false)
+const transferOwnerFile = ref(null)
+const transferOwnerTarget = ref('')
+const userList = ref([])  // 管理员获取的用户列表
+const userMgmtOpen = ref(false)  // 用户管理 Modal
 
 // ── Snapshot Debug ──
 const showDebug = ref(false)
@@ -354,9 +441,11 @@ let _loadPromise = null    // loadFiles 请求去重
 let _lastErrorToast = 0    // 错误 toast 节流时间戳
 let _browserFailCount = 0  // 连续断连次数（用于 offline→dead 升级）
 
-// Escape 键关闭模态框（优先级：stealModal > deleteModal > newFileModal > importConfirm）
+// Escape 键关闭模态框（优先级：transferOwnerModal > contextMenu > stealModal > deleteModal > newFileModal > importConfirm）
 function handleKeydown(e) {
   if (e.key !== 'Escape') return
+  if (transferOwnerModalOpen.value) { closeTransferOwnerModal(); return }
+  if (contextMenuOpen.value) { contextMenuOpen.value = false; return }
   if (stealModalOpen.value) { closeStealModal(); return }
   if (deleteModalOpen.value) { closeDeleteModal(); return }
   if (newFileModalOpen.value) { closeNewFileModal(); return }
@@ -374,9 +463,14 @@ const displayedDeleteFiles = computed(() => {
   return pendingDeleteFiles.value.slice(0, 5)
 })
 
-// ── 搜索+排序后的显示列表 ──
+// ── 搜索+排序+权限过滤后的显示列表 ──
 const displayedFiles = computed(() => {
   let result = files.value
+
+  // 0. 权限过滤：默认只显示当前用户拥有的文件
+  if (!showAllFiles.value) {
+    result = result.filter(f => f.owner === authStore.username)
+  }
 
   // 1. 搜索过滤（按 file.name 包含关键字，大小写不敏感）
   const q = searchQuery.value.trim().toLowerCase()
@@ -535,7 +629,9 @@ function open(file) {
   // 防止重复点击
   if (openingSessionId.value === file.file_name) return
   openingSessionId.value = file.file_name
-  emit('open', file.file_name)
+  // 传递只读状态给父组件
+  const isReadOnly = !file.can_write
+  emit('open', { fileName: file.file_name, readOnly: isReadOnly })
   // 500ms 后重置
   setTimeout(() => { openingSessionId.value = null }, 500)
 }
@@ -651,8 +747,73 @@ function formatTime(ts) {
   return d.toLocaleString()
 }
 
+// ── 右键菜单 ──
+function onFileContextMenu(event, file) {
+  event.preventDefault()
+  event.stopPropagation()
+  contextMenuFile.value = file
+  contextMenuPos.value = { x: event.clientX, y: event.clientY }
+  contextMenuOpen.value = true
+}
+
+function closeContextMenu() {
+  contextMenuOpen.value = false
+  contextMenuFile.value = null
+}
+
+// ── 转移所有权 ──
+function openTransferOwnerModal() {
+  if (!contextMenuFile.value) return
+  transferOwnerFile.value = contextMenuFile.value
+  transferOwnerTarget.value = ''
+  closeContextMenu()
+  // 加载用户列表
+  if (authStore.isAdmin) {
+    authStore.fetchUsers().then(users => {
+      userList.value = users.filter(u => u.username !== authStore.username)
+    }).catch(e => {
+      useUiStore().showToast('获取用户列表失败: ' + e.message, true)
+    })
+  }
+  transferOwnerModalOpen.value = true
+}
+
+function closeTransferOwnerModal() {
+  transferOwnerModalOpen.value = false
+  transferOwnerFile.value = null
+  transferOwnerTarget.value = ''
+}
+
+async function executeTransferOwner() {
+  if (!transferOwnerFile.value || !transferOwnerTarget.value) return
+  try {
+    await authStore.changeFileOwner(transferOwnerFile.value.file_name || transferOwnerFile.value.name, transferOwnerTarget.value)
+    useUiStore().showToast(`文件所有权已转移给 ${transferOwnerTarget.value}`)
+    closeTransferOwnerModal()
+    await loadFiles()
+  } catch (e) {
+    useUiStore().showToast('转移所有权失败: ' + e.message, true)
+  }
+}
+
+// ── 接管文件（管理员将无主文件设为自己所有） ──
+async function executeTakeOver() {
+  if (!contextMenuFile.value) return
+  const file = contextMenuFile.value
+  closeContextMenu()
+  try {
+    await authStore.changeFileOwner(file.file_name || file.name, authStore.username)
+    useUiStore().showToast(`已接管文件: ${file.name}`)
+    await loadFiles()
+  } catch (e) {
+    useUiStore().showToast('接管文件失败: ' + e.message, true)
+  }
+}
+
 onMounted(() => {
   window.addEventListener('keydown', handleKeydown)
+  // 点击其他位置关闭右键菜单
+  window.addEventListener('click', closeContextMenu)
   // 建立 FileBrowser 独立 WS 连接
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
   const wsPort = parseInt(location.port) + 1
@@ -661,6 +822,7 @@ onMounted(() => {
   wsClient = new WsSyncClient({
     url: wsUrl,
     getSessionId: () => '',  // 服务端自动创建 session
+    getToken: () => useAuthStore().token,
     onMessage: (msg) => {
       // 收到锁状态变更广播时立即刷新文件列表
       if (msg.type === 'lock_stolen' || msg.type === 'file_locked') loadFiles()
@@ -674,6 +836,11 @@ onMounted(() => {
         // 重连中：连续失败多次后升级为 dead
         _browserFailCount++
         setConnectionStatus(_browserFailCount >= 3 ? 'dead' : 'offline')
+      } else if (status === 'auth_required') {
+        // 4010: token 失效，清除认证并通知父组件跳转登录页
+        const auth = useAuthStore()
+        auth.clearAuth()
+        window.dispatchEvent(new CustomEvent('auth-expired'))
       } else if (status === 'session_invalid' || status === 'permanent_failure') {
         // WS 永久断开，停止刷新并通知用户
         setConnectionStatus('dead')
@@ -694,6 +861,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown)
+  window.removeEventListener('click', closeContextMenu)
   if (refreshTimer) clearInterval(refreshTimer)
   if (wsClient) {
     wsClient.disconnect()
@@ -1173,4 +1341,92 @@ onUnmounted(() => {
 }
 .modified-yes { color: var(--accent); font-weight: 600; }
 .debug-empty { color: var(--text-dim); font-style: italic; }
+
+/* ── 权限相关样式 ── */
+.btn-toggle-files {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  padding: 6px 12px;
+  border-radius: var(--radius);
+  font-size: 12px;
+  cursor: pointer;
+  font-weight: 500;
+  margin-right: 8px;
+  transition: all 150ms;
+}
+.btn-toggle-files.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.btn-toggle-files:hover:not(.active) {
+  background: var(--bg-hover);
+}
+
+.col-owner {
+  width: 100px;
+  white-space: nowrap;
+}
+.owner-name {
+  display: inline-block;
+  padding: 2px 8px;
+  background: var(--bg-hover);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-dim);
+}
+.no-owner {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.readonly-badge {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 12px;
+  cursor: help;
+  vertical-align: middle;
+}
+.unowned-badge {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 11px;
+  cursor: help;
+  vertical-align: middle;
+  opacity: 0.5;
+}
+
+.file-row.readonly-row {
+  opacity: 0.75;
+}
+
+/* 右键菜单 */
+.ctx-menu {
+  position: fixed;
+  z-index: 2000;
+  min-width: 180px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 4px 0;
+  user-select: none;
+}
+.ctx-item {
+  padding: 8px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--text);
+  transition: background 100ms;
+}
+.ctx-item:hover:not(.disabled) {
+  background: var(--bg-hover);
+}
+.ctx-item.disabled {
+  opacity: 0.4;
+  cursor: default;
+  font-size: 12px;
+}
 </style>

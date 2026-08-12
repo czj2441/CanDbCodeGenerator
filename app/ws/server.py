@@ -18,6 +18,7 @@ from .transport import WsTransport
 from .router import MessageRouter
 from app.version import VERSION
 from app.ws.handlers._common import build_messages_summary
+from app.auth import get_auth_service
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +58,15 @@ class WsServer:
 
             session_id = msg.get("session_id", "")
 
+            # ── Token 认证 ──
+            token = msg.get("token", "")
+            auth = get_auth_service()
+            user_info = auth.validate_token(token)
+            if not user_info:
+                await ws.close(4010, "auth_required")
+                return
+            username = user_info["username"]
+
             sm = get_session_manager()
 
             # ── 验证 session ──
@@ -91,6 +101,10 @@ class WsServer:
                 except json.JSONDecodeError:
                     logger.warning("WS received malformed JSON, dropping message")
                     continue
+
+                # 注入用户上下文到 data dict（供 router/handler 使用）
+                if "data" in msg and isinstance(msg["data"], dict):
+                    msg["data"]["_username"] = username
 
                 if msg.get("type") == "ping":
                     # 心跳 + 锁续期 + 版本号推送

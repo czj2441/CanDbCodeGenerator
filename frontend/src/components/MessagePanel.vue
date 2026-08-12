@@ -1,5 +1,5 @@
 <template>
-  <div class="panel">
+  <div class="panel" :class="{ 'panel-readonly': store.readOnly }">
     <!-- 报文属性区域（报文列表 tab，或动态 tab 且无信号选中时） -->
     <template v-if="(ui.centerTab === 'messages' || isDynamicMsgTab) && msg">
       <div class="panel-section">

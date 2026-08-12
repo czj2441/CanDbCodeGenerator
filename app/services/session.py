@@ -18,6 +18,7 @@ class Session:
         self.id = session_id
         self.file_path = file_path          # 绑定的数据文件绝对路径
         self.db = db                         # CanDatabase 实例
+        self.owner: str = ""                 # 文件所有者用户名
         self.created_at = time.time()
         self.last_access = time.time()
         

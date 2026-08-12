@@ -1,5 +1,5 @@
 <template>
-  <div class="panel">
+  <div class="panel" :class="{ 'panel-readonly': store.readOnly }">
     <!-- 信号属性区域（动态报文 tab，有选中信号时显示） -->
     <template v-if="isDynamicMsgTab && selectedSig">
       <div class="panel-section">

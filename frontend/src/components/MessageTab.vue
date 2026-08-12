@@ -5,8 +5,8 @@
         {{ t('msgtable.allMessages') }} · {{ messageCount }} {{ t('msgtable.unit') }}
       </div>
       <div class="toolbar">
-        <button class="btn" @click="addMessage">{{ t('msgtable.add') }}</button>
-        <template v-if="multiSelect.isMultiSelect.value">
+        <button v-if="!store.readOnly" class="btn" @click="addMessage">{{ t('msgtable.add') }}</button>
+        <template v-if="!store.readOnly && multiSelect.isMultiSelect.value">
           <button class="btn" @click="batchEditModalOpen = true">{{ t('multiselect.batchEdit') }} ({{ multiSelect.selectedCount.value }})</button>
           <button class="btn btn-danger" @click="batchDeleteSelected">{{ t('multiselect.batchDelete') }}</button>
         </template>
@@ -84,7 +84,9 @@
               </template>
               <template v-else-if="col.key === 'msg_comment'"><input v-lazy-value="m.comment" @blur="e => isCellEditable(m.id) && update(m.id, 'comment', e.target.value)" :disabled="multiSelect.isMultiSelect.value" :readonly="!isCellEditable(m.id)"></template>
               <template v-else-if="col.key === 'msg_edit_signals'"><button class="vt-tag" @click.stop="jumpToSignals(m.id)">{{ t('msgtable.editSignals') }}</button></template>
-              <template v-else-if="col.key === 'msg_actions'"><button class="action-delete" @click.stop="deleteMessage(m.id)" title="删除">×</button></template>
+              <template v-else-if="col.key === 'msg_actions'">
+                              <button v-if="!store.readOnly" class="action-delete" @click.stop="deleteMessage(m.id)" title="删除">×</button>
+                            </template>
             </td>
           </tr>
         </tbody>
@@ -135,6 +137,7 @@ const ui = useUiStore()
 // ── 双击编辑状态 ──
 const editingKey = ref(null) // msgId | null
 function isCellEditable(msgId) {
+  if (store.readOnly) return false
   return editingKey.value === msgId
 }
 

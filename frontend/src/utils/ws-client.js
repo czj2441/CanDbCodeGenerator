@@ -91,11 +91,12 @@ export class ApiError extends Error {
 // ═══════════════════════════════════════════
 
 export class WsSyncClient {
-  constructor({ url, getSessionId, onMessage, onStatusChange }) {
+  constructor({ url, getSessionId, onMessage, onStatusChange, getToken }) {
     this.url = url
     this._getSessionId = getSessionId
     this.onMessage = onMessage
     this.onStatusChange = onStatusChange
+    this._getToken = getToken  // 认证 token 获取回调
     this._requestCounter = 0
     this._pendingRequests = new Map()  // requestId → { resolve, reject, timer }
     this._requestTimeout = 30000       // 30s
@@ -131,7 +132,8 @@ export class WsSyncClient {
       this.ws.send(JSON.stringify({
         type: 'hello',
         session_id: this._getSessionId(),
-        data_version: 0
+        data_version: 0,
+        token: this._getToken?.() || ''
       }))
 
       // 通知上层连接已建立（此回调可能触发 loadFiles 等请求）
@@ -157,6 +159,13 @@ export class WsSyncClient {
       if (event.code === 4003) {
         console.warn(`[WsSyncClient] Session invalid: ${event.reason}`)
         this.onStatusChange?.('session_invalid')
+        return
+      }
+
+      // 4010 = 认证失败（token 无效/过期），通知上层跳转登录
+      if (event.code === 4010) {
+        console.warn(`[WsSyncClient] Auth required: ${event.reason}`)
+        this.onStatusChange?.('auth_required')
         return
       }
 

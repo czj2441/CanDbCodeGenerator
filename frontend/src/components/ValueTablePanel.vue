@@ -1,5 +1,5 @@
 <template>
-  <div class="panel">
+  <div class="panel" :class="{ 'panel-readonly': editor.readOnly }">
     <template v-if="selectedName">
       <!-- 属性 section -->
       <div class="panel-section">

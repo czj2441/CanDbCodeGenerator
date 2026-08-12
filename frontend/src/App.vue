@@ -1,7 +1,11 @@
 <template>
   <div class="app" @contextmenu="onContextMenu">
+    <!-- 登录模式 -->
+    <LoginPage v-if="mode === 'login'" @login-success="onLoginSuccess" />
+    <!-- 强制改密模式 -->
+    <ChangePasswordPage v-else-if="mode === 'change-password'" @password-changed="onPasswordChanged" />
     <!-- 文件浏览器模式 -->
-    <FileBrowser v-if="mode === 'browser'" @open="openFile" @new="createNewFile" @import="importFileFromBrowser" />
+    <FileBrowser v-else-if="mode === 'browser'" @open="openFile" @new="createNewFile" @import="importFileFromBrowser" />
     <!-- 编辑器模式 -->
     <template v-else>
       <TopBar @back="goBack" />
@@ -145,10 +149,13 @@ import { useClipboardStore } from './stores/clipboard.js'
 import { useSignalsStore } from './stores/signals.js'
 import { useMessagesStore } from './stores/messages.js'
 import { useUiStore } from './stores/uiStore.js'
+import { useAuthStore } from './stores/authStore.js'
 import { connectionStatus, hasBeenConnected, resetConnection } from './stores/connectionHealth.js'
 import { t } from './i18n.js'
 import { getSessionId, setSessionId } from './api/client.js'
 import FileBrowser from './components/FileBrowser.vue'
+import LoginPage from './components/LoginPage.vue'
+import ChangePasswordPage from './components/ChangePasswordPage.vue'
 import TopBar from './components/TopBar.vue'
 import MessageTab from './components/MessageTab.vue'
 import SignalEditorTab from './components/SignalEditorTab.vue'
@@ -167,6 +174,7 @@ import { versionMismatch } from './utils/version-check.js'
 import { toHex } from './utils/format.js'
 
 const store = useCoreStore()
+const authStore = useAuthStore()
 const fileOps = useFileOperationsStore()
 const clipboard = useClipboardStore()
 const signals = useSignalsStore()
@@ -316,8 +324,8 @@ function _onVmDragEnd() {
 // versionMismatch 变化时初始化位置
 watchEffect(() => { if (versionMismatch.value) _initVmPos() })
 
-// 应用模式：'browser' | 'editor'
-const mode = ref('browser')
+// 应用模式：'login' | 'change-password' | 'browser' | 'editor'
+const mode = ref('login')
 
 function handleSessionStolen(stolenSessionId) {
   // WS lock_stolen 事件触发时调用
@@ -327,48 +335,54 @@ function handleSessionStolen(stolenSessionId) {
   doGoBack()
 }
 
-onMounted(() => {
+function onLoginSuccess(data) {
+  if (data.must_change_password) {
+    mode.value = 'change-password'
+  } else {
+    mode.value = 'browser'
+    _initBrowser()
+  }
+}
+
+function onPasswordChanged() {
   mode.value = 'browser'
+  _initBrowser()
+}
+
+function _initBrowser() {
+  // 原有 onMounted 中的浏览器初始化逻辑
   document.addEventListener('click', hideMenu)
   document.documentElement.setAttribute('data-theme', ui.theme)
 
-  // 监听 WS lock_stolen 导航事件
   navigateHandler = () => {
     if (mode.value === 'editor') {
-      doGoBack()  // 锁已被抢/会话失效，跳过脏检查直接返回
+      doGoBack()
     }
   }
   window.addEventListener('navigate-browser', navigateHandler)
 
-  // bfcache 恢复检测：浏览器前进/后退缓存恢复页面时，
-  // Vue 状态被冻结保留（mode='editor'），但服务端 session 已被 beforeunload 释放。
-  // 必须立即切回文件浏览器，避免断连遮罩闪烁和"会话不存在"错误。
   pageshowHandler = (e) => {
     if (e.persisted && mode.value === 'editor') {
       console.warn('[bfcache] page restored from cache, switching to browser')
-      store.stopEditorSync()   // 停止 WS + 健康检查（防止离线遮罩闪烁）
-      setSessionId('')         // 清除残留 session_id
-      resetConnection()        // 重置连接状态
-      store.resetEditorState() // 清理编辑器数据
-      mode.value = 'browser'   // 切回文件浏览器
-      // 等 FileBrowser 挂载后再提示，复用已有的 sessionLost 文案
+      store.stopEditorSync()
+      setSessionId('')
+      resetConnection()
+      store.resetEditorState()
+      mode.value = 'browser'
       nextTick(() => ui.showToast(t('toast.sessionLost'), false))
     }
   }
   window.addEventListener('pageshow', pageshowHandler)
 
-  // 页面关闭/刷新时：释放文件锁 + 确认对话框
   beforeUnloadHandler = (e) => {
     const sid = getSessionId()
     if (sid) {
       if (_isVersionReload) {
-        // 版本刷新：不带 abort=1，后端写快照保护未保存变更
         navigator.sendBeacon('/api/release?sid=' + encodeURIComponent(sid))
-        setSessionId('')  // 清除旧 ID，防止新页面 WS hello 携带已销毁的 session_id
+        setSessionId('')
       } else {
-        // 正常关闭/刷新：放弃变更
         navigator.sendBeacon('/api/release?sid=' + encodeURIComponent(sid) + '&abort=1')
-        setSessionId('')  // 清除 sessionStorage，防止 Ctrl+F5 后旧 ID 残留
+        setSessionId('')
       }
     }
     if (sid && store.backendDirty && !_isVersionReload) {
@@ -379,8 +393,37 @@ onMounted(() => {
   }
   window.addEventListener('beforeunload', beforeUnloadHandler)
 
-  // 初始版本检查（REST），后续通过 WS ping/pong 被动接收服务端版本
   store.checkVersion()
+}
+
+onMounted(async () => {
+  document.documentElement.setAttribute('data-theme', ui.theme)
+
+  // 监听认证过期事件（WS 4010 关闭码触发）
+  window.addEventListener('auth-expired', () => {
+    store.stopEditorSync()
+    store.resetEditorState()
+    setSessionId('')
+    resetConnection()
+    mode.value = 'login'
+  })
+
+  // 认证检查
+  if (authStore.token) {
+    const valid = await authStore.checkSession()
+    if (!valid) {
+      mode.value = 'login'
+      return
+    }
+    if (authStore.authMustChangePassword) {
+      mode.value = 'change-password'
+      return
+    }
+    mode.value = 'browser'
+    _initBrowser()
+  } else {
+    mode.value = 'login'
+  }
 })
 
 onUnmounted(() => {
@@ -407,8 +450,9 @@ onUnmounted(() => {
 })
 
 // 打开文件
-async function openFile(fileName) {
+async function openFile({ fileName, readOnly } = {}) {
   try {
+    store.readOnly = !!readOnly
     await fileOps.loadHistoryFile(fileName)
     mode.value = 'editor'
     // WS 连接已在 loadHistoryFile 中启动

@@ -15,6 +15,7 @@ Session Manager - 会话管理与自动持久化
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import threading
@@ -99,13 +100,14 @@ class SessionManager:
 
     # ── 会话 CRUD ──
 
-    def create(self, file_name: str, db) -> str:
+    def create(self, file_name: str, db, owner: str = "") -> str:
         """
         创建新会话。
 
         Args:
             file_name: 文件名（不含路径），如 "project.properties"
             db: CanDatabase 实例
+            owner: 文件所有者用户名
 
         Returns:
             session_id
@@ -131,6 +133,7 @@ class SessionManager:
         file_path = self._safe_path(file_name)
         with self._lock:
             session = Session(session_id, file_path, db)
+            session.owner = owner
             self._sessions[session_id] = session
             self._file_lock.register(session_id, file_path)
 
@@ -224,10 +227,15 @@ class SessionManager:
             self._file_lock.fire_lock_acquired(new_sid, file_path)
             return session
 
-    def save_as(self, original_session_id: str, new_name: str) -> str:
+    def save_as(self, original_session_id: str, new_name: str, owner: str = "") -> str:
         """另存为：克隆当前会话数据到新文件，创建新 session 并切换。
 
         原始会话在 WS 切换后由 server 层 mark_stale，心跳超时后自动清理。
+
+        Args:
+            original_session_id: 原始 session ID
+            new_name: 新文件名
+            owner: 新文件所有者用户名（另存为时设为当前用户）
 
         Returns:
             新 session_id
@@ -272,6 +280,14 @@ class SessionManager:
 
         # 创建新 session（含文件锁注册）并落盘
         new_sid = self.create(file_name, clone)
+        # 为新文件创建权限侧车文件
+        if owner:
+            perm_path = self._safe_path(file_name) + ".perm.json"
+            try:
+                with open(perm_path, 'w', encoding='utf-8') as f:
+                    json.dump({"owner": owner, "created_at": time.time()}, f)
+            except Exception as e:
+                logger.error("Failed to create perm file for %s: %s", file_name, e)
         logger.info("Save-as: sid=%s -> %s (new_sid=%s)",
                     original_session_id[:8], file_name, new_sid)
         return new_sid
@@ -322,11 +338,12 @@ class SessionManager:
             logger.info("Session destroyed: sid=%s", session_id[:8])
         return result
 
-    def list_history(self, exclude_session: str = '') -> list[dict]:
+    def list_history(self, exclude_session: str = '', requesting_user: str = '') -> list[dict]:
         """扫描 data 目录，返回所有历史文件记录。
         
         Args:
             exclude_session: 排除的会话 ID（当前已打开的会话不视为锁定）
+            requesting_user: 请求用户名（用于计算 can_write 字段）
         """
         import javaproperties
 
@@ -401,6 +418,20 @@ class SessionManager:
                 "is_modified": is_modified,
                 "has_snapshot": fname in snapshot_fnames,
             }
+            # 权限信息
+            if requesting_user:
+                try:
+                    from app.auth import get_auth_service
+                    auth = get_auth_service()
+                    perm = auth.get_file_permission(fname)
+                    entry["owner"] = perm.get("owner", "") if perm else ""
+                    entry["can_write"] = auth.can_write(fname, requesting_user)
+                except Exception:
+                    entry["owner"] = ""
+                    entry["can_write"] = False
+            else:
+                entry["owner"] = ""
+                entry["can_write"] = False
             # 活跃文件提供 session_id（供 steal_lock 使用）
             if fname in active_by_fname:
                 entry["session_id"] = active_by_fname[fname].id
@@ -430,6 +461,12 @@ class SessionManager:
                     logger.error("Failed to delete file %s: %s", file_path, e)
                     return False
                 logger.info("History file deleted: %s", file_name)
+                # 同步删除权限侧车文件
+                perm_path = file_path + ".perm.json"
+                try:
+                    os.remove(perm_path)
+                except FileNotFoundError:
+                    pass
                 return True
             return bool(sids_to_remove)
 

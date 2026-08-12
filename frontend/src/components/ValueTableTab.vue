@@ -5,7 +5,7 @@
         {{ t('valtable.allTables') }} · {{ sortedNames.length }} {{ t('valtable.unit') }}
       </div>
       <div class="toolbar">
-        <button class="btn" @click="addNewTable">{{ t('valtable.add') }}</button>
+        <button v-if="!editor.readOnly" class="btn" @click="addNewTable">{{ t('valtable.add') }}</button>
         <input class="search-input" type="text" v-model="searchQuery"
                :placeholder="t('valtable.search')" spellcheck="false">
         <div class="col-toggle-wrap" ref="colToggleRef">
@@ -56,12 +56,12 @@
                          @blur="e => commitRename(name, e)"
                          @keydown.enter.prevent="$event.target.blur()"
                          @keydown.escape.prevent="cancelRename(name, $event)"
-                         :readonly="editingName !== name">
+                         :readonly="editingName !== name || editor.readOnly">
                 </template>
                 <template v-else-if="col.key === 'vt_entries'"><input :value="entryCount(name)" readonly></template>
                 <template v-else-if="col.key === 'vt_refs'"><input :value="refCountMap.get(name) || 0" readonly></template>
                 <template v-else-if="col.key === 'vt_actions'">
-                  <button class="action-delete" @click.stop="deleteTable(name)" title="删除">×</button>
+                  <button v-if="!editor.readOnly" class="action-delete" @click.stop="deleteTable(name)" title="删除">×</button>
                 </template>
               </td>
             </tr>

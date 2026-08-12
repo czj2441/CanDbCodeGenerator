@@ -47,7 +47,7 @@ class NewFileHandler:
         new_db = CanDatabase(name)
         file_name = f"{name}.properties"
         try:
-            new_sid = self._sm.create(file_name, new_db)
+            new_sid = self._sm.create(file_name, new_db, owner=data.get("_username", ""))
         except FileNameExistsError:
             raise HandlerError("FILE_NAME_EXISTS", f"File '{file_name}' already exists")
         return HandlerResult(
@@ -91,7 +91,7 @@ class ImportFileHandler:
 
         file_name = f"{new_db.name}.properties"
         try:
-            new_sid = self._sm.create(file_name, new_db)
+            new_sid = self._sm.create(file_name, new_db, owner=data.get("_username", ""))
         except FileNameExistsError:
             raise HandlerError("FILE_NAME_EXISTS", f"File '{file_name}' already exists")
 
@@ -175,7 +175,7 @@ class CreateFileHandler:
             db = CanDatabase(db_name)
         file_name = f"{db_name}.properties"
         try:
-            sid = self._sm.create(file_name, db)
+            sid = self._sm.create(file_name, db, owner=data.get("_username", ""))
         except FileNameExistsError:
             raise HandlerError("FILE_NAME_EXISTS", f"File '{file_name}' already exists")
         return HandlerResult(data={
@@ -232,7 +232,8 @@ class SaveAsHandler:
         if not check or not check.strip("_"):
             raise HandlerError("VALUE_INVALID", "File name cannot be empty")
         try:
-            new_sid = self._sm.save_as(sid, new_name)
+            username = data.get("_username", "")
+            new_sid = self._sm.save_as(sid, new_name, owner=username)
         except FileNameExistsError:
             raise HandlerError("FILE_NAME_EXISTS", f"File '{new_name}' already exists")
         new_session = self._sm.get(new_sid)
@@ -263,5 +264,9 @@ class GetSessionsHandler:
 
     def __call__(self, data: dict) -> HandlerResult:
         current_sid = data.get("current_session_id", "")
-        sessions = self._sm.list_history(exclude_session=current_sid)
+        requesting_user = data.get("_username", "")
+        sessions = self._sm.list_history(
+            exclude_session=current_sid,
+            requesting_user=requesting_user
+        )
         return HandlerResult(data=sessions, session_id=current_sid)
