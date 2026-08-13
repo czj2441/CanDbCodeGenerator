@@ -32,6 +32,10 @@ class FileLockManager:
 
     # ── 活跃文件注册 ──
 
+    def register_viewer(self, session_id: str):
+        """注册 viewer session 心跳（不注册文件锁）。（调用方必须已持有 self._lock）"""
+        self._heartbeats[session_id] = time.time()
+
     def register(self, session_id: str, file_path: str):
         """注册文件被当前 session 占用。（调用方必须已持有 self._lock）"""
         norm_path = os.path.normpath(file_path)

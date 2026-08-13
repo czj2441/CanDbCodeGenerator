@@ -56,19 +56,6 @@ def build_undo_redo_events(session, db, action_type: str) -> tuple[list, int, li
     return events, new_version, integrity_errors
 
 
-def is_user_read_only(data: dict, file_name: str) -> bool:
-    """判断当前请求用户是否为只读（无写权限）。
-
-    基于请求中的 _username 字段和文件权限侧车文件判断。
-    无用户名或无 owner 的文件均视为只读。
-    """
-    username = data.get("_username", "")
-    if not username:
-        return True
-    from app.auth import get_auth_service
-    return not get_auth_service().can_write(file_name, username)
-
-
 def validate_file_name(file_name: str) -> str:
     """校验文件名安全性，防止路径穿越和头注入。返回清洗后的文件名。
 

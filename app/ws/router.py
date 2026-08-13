@@ -60,8 +60,6 @@ FILE_CREATE_TYPES = frozenset({'new_file', 'create_file'})
 FILE_IMPORT_TYPES = frozenset({'import_file'})
 # 免除写权限检查的操作
 WRITE_EXEMPT = frozenset({'save_as'})
-# 仅 admin 可执行的操作
-ADMIN_ONLY_OPERATIONS = frozenset({'change_file_owner'})
 # 仅 owner 可执行的操作
 OWNER_ONLY_OPERATIONS = frozenset({'steal_lock'})
 # 需要提取 file_name 的操作（用于权限检查）
@@ -108,6 +106,14 @@ class MessageRouter:
             return None
     
         logger.info("WS >>> type=%s requestId=%s session=%s", msg_type, req_id, sid)
+
+        # ── load_file 权限注入：在 handler 之前判定 read_only ──
+        if msg_type == 'load_file' and self._auth:
+            file_name = data.get("file_name", "")
+            username = data.get("_username", "")
+            data["_read_only"] = not (username and file_name and self._auth.can_write(file_name, username))
+        elif msg_type == 'load_file':
+            data["_read_only"] = True
 
         # ── Viewer session 服务端写保护 ──
         if msg_type in WRITE_OPERATIONS or msg_type in WRITE_EXEMPT:
@@ -216,7 +222,6 @@ class MessageRouter:
 
         权限模型：
         - WRITE_OPERATIONS：仅文件 owner 可执行
-        - ADMIN_ONLY_OPERATIONS：仅 admin 可执行
         - OWNER_ONLY_OPERATIONS：仅文件 owner 可执行
         - WRITE_EXEMPT (save_as)：免除写权限检查
         - FILE_CREATE_TYPES / FILE_IMPORT_TYPES：任何登录用户均可
@@ -247,12 +252,6 @@ class MessageRouter:
                 target = os.path.join(DATA_DIR, file_name)
                 if os.path.isfile(target):
                     return {"message": "import_file 仅允许创建新文件，不允许覆盖已有文件"}
-            return None
-
-        # admin-only 操作
-        if msg_type in ADMIN_ONLY_OPERATIONS:
-            if not self._auth.is_admin(username):
-                return {"message": "仅管理员可执行此操作"}
             return None
 
         # owner-only 操作 (steal_lock)

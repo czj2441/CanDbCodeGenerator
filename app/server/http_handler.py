@@ -23,12 +23,6 @@ SESSION_MGR = None
 # AUTH_SERVICE 由 lifecycle 模块在导入时注入。
 AUTH_SERVICE = None
 
-# 白名单：无需认证的路径前缀
-_AUTH_WHITELIST_PREFIXES = (
-    '/api/status', '/api/version', '/api/login',
-    '/api/export', '/api/release',
-)
-
 
 def _resp(success: bool, data: Any = None, error: str = "", details: dict | None = None) -> dict:
     """统一JSON响应格式。"""

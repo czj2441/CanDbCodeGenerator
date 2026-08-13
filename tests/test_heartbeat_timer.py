@@ -27,10 +27,6 @@ class TestHeartbeatTimerRecovery(unittest.TestCase):
         mgr._history_cache = {}
         mgr._data_dir = "/tmp/test"
         mgr._data_dir_real = "/tmp/test"
-        # Viewer session 跟踪字段
-        mgr._viewer_lock = threading.Lock()
-        mgr._viewer_sessions = set()
-        mgr._viewer_heartbeats = {}
 
         # get_stale_sessions 返回空列表（由测试用例覆盖）
         mgr._file_lock.get_stale_sessions.return_value = []
@@ -127,17 +123,10 @@ class TestHeartbeatTimerRecovery(unittest.TestCase):
 
         with patch.object(mgr, '_destroy', side_effect=ValueError("test error")):
             with patch.object(mgr, '_start_heartbeat_checker'):
-                # 捕获 print 输出
-                with patch('builtins.print') as mock_print:
+                with self.assertLogs('app.services.session_manager', level='ERROR') as cm:
                     mgr._cleanup_stale_heartbeats()
-                    # 应有 print 输出包含错误信息
-                    mock_print.assert_called_once()
-                    log_msg = mock_print.call_args[0][0]
-                    self.assertIn("[SessionManager]", log_msg)
-                    self.assertIn("ERROR", log_msg)
-                    # sid[:8] 截断
-                    self.assertIn("stale-se", log_msg)
-                    self.assertIn("test error", log_msg)
+                self.assertTrue(any("stale-se" in msg for msg in cm.output))
+                self.assertTrue(any("test error" in msg for msg in cm.output))
 
 
 class TestHeartbeatTimerIntegration(unittest.TestCase):
@@ -156,9 +145,6 @@ class TestHeartbeatTimerIntegration(unittest.TestCase):
         mgr._history_cache = {}
         mgr._data_dir = "/tmp/test"
         mgr._data_dir_real = "/tmp/test"
-        mgr._viewer_lock = threading.Lock()
-        mgr._viewer_sessions = set()
-        mgr._viewer_heartbeats = {}
         mgr._file_lock.get_stale_sessions.return_value = []
 
         # 先确认没有定时器
@@ -187,9 +173,6 @@ class TestHeartbeatTimerIntegration(unittest.TestCase):
         mgr._history_cache = {}
         mgr._data_dir = "/tmp/test"
         mgr._data_dir_real = "/tmp/test"
-        mgr._viewer_lock = threading.Lock()
-        mgr._viewer_sessions = set()
-        mgr._viewer_heartbeats = {}
         mgr._file_lock.get_stale_sessions.return_value = ["bad-session-id"]
 
         # 让 _destroy 抛异常
