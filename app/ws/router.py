@@ -109,6 +109,23 @@ class MessageRouter:
     
         logger.info("WS >>> type=%s requestId=%s session=%s", msg_type, req_id, sid)
 
+        # ── Viewer session 服务端写保护 ──
+        if msg_type in WRITE_OPERATIONS or msg_type in WRITE_EXEMPT:
+            session_id = data.get("session_id", "")
+            if session_id and self._session_mgr.is_viewer(session_id):
+                elapsed = (time.monotonic() - t0) * 1000
+                logger.warning("WS <<< type=%s VIEWER_WRITE_DENIED elapsed=%.1fms", msg_type, elapsed)
+                try:
+                    await self._transport.reply(ws, {
+                        "type": "error",
+                        "requestId": msg.get("requestId"),
+                        "code": "read_only",
+                        "message": "只读会话不允许执行此操作",
+                    })
+                except websockets.exceptions.ConnectionClosed:
+                    pass
+                return None
+
         # ── 权限拦截 ──
         if self._auth:
             perm_error = self._check_permission(msg_type, data)

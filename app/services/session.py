@@ -9,7 +9,7 @@ import time
 
 
 class Session:
-    """单个编辑会话。"""
+    """单个会话（编辑器或只读查看器）。"""
 
     # 撤销栈最大深度
     MAX_UNDO_SIZE = 50
@@ -21,6 +21,7 @@ class Session:
         self.owner: str = ""                 # 文件所有者用户名
         self.created_at = time.time()
         self.last_access = time.time()
+        self.is_viewer: bool = False         # True 表示只读查看器会话
         
         # 撤销/重做栈（RAM 中存储）
         self.undo_stack: list[dict] = []

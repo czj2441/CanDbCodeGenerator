@@ -199,6 +199,7 @@ class SessionManager:
                     db.modified = False
 
                 session = Session(new_sid, file_path, db)
+                session.is_viewer = True
                 self._sessions[new_sid] = session
                 with self._viewer_lock:
                     self._viewer_sessions.add(new_sid)
@@ -210,6 +211,8 @@ class SessionManager:
             # 先检查内存中是否已有该文件打开
             for session in self._sessions.values():
                 if os.path.basename(session.file_path) == file_name:
+                    if session.is_viewer:
+                        continue
                     # 检查锁
                     if session.id != exclude_session:
                         if self.is_file_locked(session.file_path, exclude_session=exclude_session):
@@ -357,7 +360,7 @@ class SessionManager:
         from .snapshot import write_snapshot
         count = 0
         with self._lock:
-            sids = list(self._sessions.keys())
+            sids = [sid for sid, s in self._sessions.items() if not s.is_viewer]
         for sid in sids:
             session = self.get(sid)
             if not session:
@@ -396,7 +399,11 @@ class SessionManager:
 
         # 构建 basename -> Session 的映射（用于优先使用内存数据）
         with self._lock:
-            active_by_fname = {os.path.basename(s.file_path): s for s in self._sessions.values()}
+            active_by_fname = {
+                os.path.basename(s.file_path): s
+                for s in self._sessions.values()
+                if not s.is_viewer
+            }
         
         def _safe_mtime(n):
             try:
@@ -489,6 +496,9 @@ class SessionManager:
                 self._sessions.pop(sid, None)
                 self._file_lock.unregister(sid)
                 self._file_lock.pop_heartbeat(sid)
+                with self._viewer_lock:
+                    self._viewer_sessions.discard(sid)
+                    self._viewer_heartbeats.pop(sid, None)
             # 删除磁盘文件
             file_path = self._safe_path(file_name)
             self._history_cache.pop(file_name, None)
@@ -514,12 +524,19 @@ class SessionManager:
     def _destroy(self, session_id: str, abort: bool = False) -> bool:
         # 清理 viewer 跟踪数据（无论是否为 viewer，都尝试移除，幂等）
         with self._viewer_lock:
+            is_vwr = session_id in self._viewer_sessions
             self._viewer_sessions.discard(session_id)
             self._viewer_heartbeats.pop(session_id, None)
 
         session = self._sessions.pop(session_id, None)
         if not session:
             return False
+
+        # Viewer 快捷销毁（无快照、无撤销栈、无文件锁）
+        if is_vwr:
+            logger.info("Viewer destroyed: sid=%s", session_id[:8])
+            return True
+
         file_name = os.path.basename(session.file_path)
         if abort:
             # 用户主动放弃变更：不写快照，并清理定时器可能已写入的旧快照
@@ -589,8 +606,11 @@ class SessionManager:
             return session_id in self._viewer_sessions
 
     def mark_stale(self, session_id: str):
-        """将心跳前推至即将超时。"""
+        """将心跳前推至即将超时（同时支持 editor 和 viewer）。"""
         self._file_lock.mark_stale(session_id)
+        with self._viewer_lock:
+            if session_id in self._viewer_heartbeats:
+                self._viewer_heartbeats[session_id] = time.time() - (HEARTBEAT_TIMEOUT - 10)
 
     # ── 撤销/重做委托 ──
 

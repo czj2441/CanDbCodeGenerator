@@ -136,9 +136,9 @@ class WsServer:
         finally:
             if session_id:
                 self._transport.unregister(session_id, ws)
-                # 断连时写快照（在 mark_stale 前，session 仍可获取）
+                # 断连时写快照（viewer session 跳过：db.modified 始终为 False）
                 session = sm.get(session_id)
-                if session:
+                if session and not session.is_viewer:
                     from app.services.snapshot import write_snapshot
                     try:
                         write_snapshot(session)
