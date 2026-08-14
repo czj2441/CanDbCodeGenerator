@@ -81,9 +81,6 @@
       <button class="btn-icon" :class="{ active: ui.showLogPanel }" @click="ui.showLogPanel = !ui.showLogPanel" :title="t('topbar.log')">
         <FileText :size="16" />
       </button>
-      <button class="btn-icon" @click="changePwdOpen = true" title="修改密码">
-        <KeyRound :size="16" />
-      </button>
     </div>
     <ConnectionStatus :status="connectionStatus" />
   </div>
@@ -135,8 +132,6 @@
     :source-filename="ui.ccodePreview.sourceFilename"
   />
 
-  <!-- 修改密码 Modal -->
-  <ChangePasswordModal v-model:visible="changePwdOpen" />
 </template>
 
 <script setup>
@@ -148,11 +143,10 @@ import { useUiStore } from '../stores/uiStore.js'
 import { connectionStatus } from '../stores/connectionHealth.js'
 import { t } from '../i18n.js'
 import { getSessionId } from '../api/client.js'
-import { ArrowLeft, Undo2, Redo2, Download, ChevronDown, Save, SaveAll, Moon, Sun, FileText, ShieldCheck, KeyRound } from '@lucide/vue'
+import { ArrowLeft, Undo2, Redo2, Download, ChevronDown, Save, SaveAll, Moon, Sun, FileText, ShieldCheck } from '@lucide/vue'
 import CcodePreviewModal from './CcodePreviewModal.vue'
 import ConnectionStatus from './ConnectionStatus.vue'
 import SaveDiffTooltip from './SaveDiffTooltip.vue'
-import ChangePasswordModal from './ChangePasswordModal.vue'
 
 defineEmits(['back'])
 
@@ -164,7 +158,6 @@ const exportDropdownOpen = ref(false)
 const exportWrapper = ref(null)
 const forceExportOpen = ref(false)
 const pendingExportFmt = ref('dbc')
-const changePwdOpen = ref(false)
 
 function setBusType(value) {
   store._wsRequest('edit_database', { fields: { bus_type: value } })

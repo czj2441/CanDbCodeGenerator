@@ -11,14 +11,6 @@
         >
           {{ showAllFiles ? '所有文件' : '我的文件' }}
         </button>
-        <button
-          v-if="authStore.isAdmin"
-          class="btn-icon"
-          @click="userMgmtOpen = true"
-          title="用户管理"
-        >
-          <Users :size="16" />
-        </button>
         <div class="btn-group">
           <button class="btn-icon" @click="createNew" :title="t('browser.newFileTooltip')">
             <FilePlus :size="16" />
@@ -45,25 +37,55 @@
           <Wrench :size="14" />
         </button>
       </div>
-      <!-- 搜索工具栏 -->
-      <div class="filter-bar">
-        <div class="search-wrapper">
-          <input
-            v-model="searchQuery"
-            class="search-input"
-            type="text"
-            :placeholder="t('browser.searchPlaceholder')"
-          />
-          <button
-            v-if="searchQuery"
-            class="search-clear-btn"
-            @click="searchQuery = ''"
-            :title="t('browser.searchClear')"
-          >✕</button>
+      <div class="header-spacer"></div>
+      <div class="header-right">
+        <!-- 搜索工具栏 -->
+        <div class="filter-bar">
+          <div class="search-wrapper">
+            <input
+              v-model="searchQuery"
+              class="search-input"
+              type="text"
+              :placeholder="t('browser.searchPlaceholder')"
+            />
+            <button
+              v-if="searchQuery"
+              class="search-clear-btn"
+              @click="searchQuery = ''"
+              :title="t('browser.searchClear')"
+            >✕</button>
+          </div>
+          <span class="result-count" v-if="searchQuery">
+            {{ t('browser.resultCount', { shown: displayedFiles.length, total: files.length }) }}
+          </span>
         </div>
-        <span class="result-count" v-if="searchQuery">
-          {{ t('browser.resultCount', { shown: displayedFiles.length, total: files.length }) }}
-        </span>
+        <button class="btn-icon" @click="ui.toggleTheme" title="切换主题">
+          <Moon v-if="ui.theme === 'dark'" :size="16" />
+          <Sun v-else :size="16" />
+        </button>
+        <div class="user-menu-wrapper" @click.stop>
+          <button class="user-menu-btn" @click="toggleUserMenu">
+            {{ authStore.username }}
+            <ChevronDown :size="14" />
+          </button>
+          <div v-if="userMenuOpen" class="user-menu-dropdown">
+            <div class="user-menu-header">
+              <span class="user-menu-name">{{ authStore.username }}</span>
+              <span class="user-menu-role">{{ authStore.role }}</span>
+            </div>
+            <div class="user-menu-divider"></div>
+            <div v-if="authStore.isAdmin" class="user-menu-item" @click="userMgmtOpen = true; userMenuOpen = false">
+              用户管理
+            </div>
+            <div class="user-menu-item" @click="changePwdOpen = true; userMenuOpen = false">
+              修改密码
+            </div>
+            <div class="user-menu-divider"></div>
+            <div class="user-menu-item user-menu-danger" @click="requestLogout">
+              退出登录
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -377,6 +399,25 @@
 
     <!-- 用户管理 Modal -->
     <UserManagementModal v-model:visible="userMgmtOpen" />
+
+    <!-- 修改密码 Modal -->
+    <ChangePasswordModal v-model:visible="changePwdOpen" />
+
+    <!-- 退出登录确认 -->
+    <Teleport to="body">
+      <Transition name="fade">
+        <div v-if="logoutConfirmOpen" class="modal-overlay" @mousedown.self="logoutConfirmOpen = false">
+          <div class="modal-box" @click.stop>
+            <h3>退出登录</h3>
+            <p>确定要退出当前账号吗？</p>
+            <div class="modal-actions">
+              <button class="btn btn-cancel" @click="logoutConfirmOpen = false">取消</button>
+              <button class="btn btn-confirm" @click="confirmLogout">确认退出</button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
@@ -388,9 +429,10 @@ import { useAuthStore } from '../stores/authStore.js'
 import { t } from '../i18n.js'
 import { WsSyncClient } from '../utils/ws-client.js'
 import { setConnectionStatus, connectionStatus } from '../stores/connectionHealth.js'
-import { FilePlus, Upload, Trash2, Wrench, Users, Lock } from '@lucide/vue'
+import { FilePlus, Upload, Trash2, Wrench, KeyRound, LogOut, ChevronDown, Moon, Sun } from '@lucide/vue'
 import ConnectionStatus from './ConnectionStatus.vue'
 import UserManagementModal from './UserManagementModal.vue'
+import ChangePasswordModal from './ChangePasswordModal.vue'
 
 const manualVersion = typeof __MANUAL_VERSION__ !== 'undefined' ? __MANUAL_VERSION__ : 'dev'
 const autoVersion = typeof __AUTO_VERSION__ !== 'undefined' ? __AUTO_VERSION__ : 'dev'
@@ -411,6 +453,7 @@ const initialLoading = ref(true)
 
 // ── 权限相关 ──
 const authStore = useAuthStore()
+const ui = useUiStore()
 const showAllFiles = ref(false)  // 默认只显示当前用户拥有的文件
 const contextMenuOpen = ref(false)
 const contextMenuPos = ref({ x: 0, y: 0 })
@@ -420,6 +463,9 @@ const transferOwnerFile = ref(null)
 const transferOwnerTarget = ref('')
 const userList = ref([])  // 管理员获取的用户列表
 const userMgmtOpen = ref(false)  // 用户管理 Modal
+const changePwdOpen = ref(false)    // 修改密码 Modal
+const userMenuOpen = ref(false)     // 用户下拉菜单
+const logoutConfirmOpen = ref(false) // 退出确认对话框
 
 // ── Snapshot Debug ──
 const showDebug = ref(false)
@@ -441,9 +487,11 @@ let _loadPromise = null    // loadFiles 请求去重
 let _lastErrorToast = 0    // 错误 toast 节流时间戳
 let _browserFailCount = 0  // 连续断连次数（用于 offline→dead 升级）
 
-// Escape 键关闭模态框（优先级：transferOwnerModal > contextMenu > stealModal > deleteModal > newFileModal > importConfirm）
+// Escape 键关闭模态框（优先级：logoutConfirm > userMenu > transferOwnerModal > contextMenu > stealModal > deleteModal > newFileModal > importConfirm）
 function handleKeydown(e) {
   if (e.key !== 'Escape') return
+  if (logoutConfirmOpen.value) { logoutConfirmOpen.value = false; return }
+  if (userMenuOpen.value) { userMenuOpen.value = false; return }
   if (transferOwnerModalOpen.value) { closeTransferOwnerModal(); return }
   if (contextMenuOpen.value) { contextMenuOpen.value = false; return }
   if (stealModalOpen.value) { closeStealModal(); return }
@@ -762,6 +810,34 @@ function closeContextMenu() {
   contextMenuFile.value = null
 }
 
+// ── 用户菜单 ──
+function toggleUserMenu(e) {
+  e.stopPropagation()
+  userMenuOpen.value = !userMenuOpen.value
+}
+
+function closeUserMenu() {
+  userMenuOpen.value = false
+}
+
+// 点击外部关闭右键菜单和用户菜单
+function handleClickOutside() {
+  closeContextMenu()
+  closeUserMenu()
+}
+
+// ── 退出登录 ──
+function requestLogout() {
+  userMenuOpen.value = false
+  logoutConfirmOpen.value = true
+}
+
+async function confirmLogout() {
+  logoutConfirmOpen.value = false
+  await authStore.logout()
+  window.dispatchEvent(new CustomEvent('auth-expired'))
+}
+
 // ── 转移所有权 ──
 function openTransferOwnerModal() {
   if (!contextMenuFile.value) return
@@ -814,7 +890,7 @@ async function executeTakeOver() {
 onMounted(() => {
   window.addEventListener('keydown', handleKeydown)
   // 点击其他位置关闭右键菜单
-  window.addEventListener('click', closeContextMenu)
+  window.addEventListener('click', handleClickOutside)
   // 建立 FileBrowser 独立 WS 连接
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
   const wsPort = parseInt(location.port) + 1
@@ -862,7 +938,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown)
-  window.removeEventListener('click', closeContextMenu)
+  window.removeEventListener('click', handleClickOutside)
   if (refreshTimer) clearInterval(refreshTimer)
   if (wsClient) {
     wsClient.disconnect()
@@ -1256,7 +1332,14 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px 0 0;
+  padding: 0;
+}
+
+.header-spacer { flex: 1; }
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .search-wrapper {
@@ -1430,4 +1513,27 @@ onUnmounted(() => {
   cursor: default;
   font-size: 12px;
 }
+
+.user-menu-wrapper { position: relative; }
+.user-menu-btn {
+  display: flex; align-items: center; gap: 4px;
+  padding: 4px 10px; border-radius: var(--radius);
+  background: var(--bg-panel); border: 1px solid var(--border);
+  color: var(--text); font-size: 13px; cursor: pointer;
+  transition: var(--transition);
+}
+.user-menu-btn:hover { background: var(--bg-hover); }
+.user-menu-dropdown {
+  position: absolute; top: 100%; right: 0; margin-top: 4px;
+  background: var(--bg-panel); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); box-shadow: var(--shadow);
+  z-index: 100; min-width: 160px; overflow: hidden;
+}
+.user-menu-header { padding: 10px 14px; }
+.user-menu-name { display: block; font-size: 13px; font-weight: 600; }
+.user-menu-role { display: block; font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.user-menu-divider { height: 1px; background: var(--border); margin: 4px 0; }
+.user-menu-item { padding: 8px 14px; font-size: 13px; cursor: pointer; }
+.user-menu-item:hover { background: var(--bg-hover); }
+.user-menu-danger { color: var(--danger); }
 </style>

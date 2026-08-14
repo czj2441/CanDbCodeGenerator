@@ -2,7 +2,7 @@
 /**
  * ChangePasswordModal — 普通用户修改密码 Modal。
  *
- * 所有用户可用，在 TopBar 中提供入口。
+ * 所有用户可用，在 FileBrowser 用户下拉菜单中提供入口。
  */
 import { ref } from 'vue'
 import { useAuthStore } from '../stores/authStore.js'
