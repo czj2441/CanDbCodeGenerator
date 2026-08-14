@@ -18,6 +18,9 @@
           <button class="btn-icon" @click="triggerImport" :title="t('browser.importFileTooltip')">
             <Upload :size="16" />
           </button>
+          <button class="btn-icon" @click="manualRefresh" :disabled="isRefreshing" :title="t('browser.refreshTooltip')">
+            <RefreshCw :size="16" :class="{ 'spin': isRefreshing }" />
+          </button>
           <button 
             v-if="selectedFiles.length > 0" 
             class="btn-icon btn-danger-icon"
@@ -429,7 +432,7 @@ import { useAuthStore } from '../stores/authStore.js'
 import { t } from '../i18n.js'
 import { WsSyncClient } from '../utils/ws-client.js'
 import { setConnectionStatus, connectionStatus } from '../stores/connectionHealth.js'
-import { FilePlus, Upload, Trash2, Wrench, KeyRound, LogOut, ChevronDown, Moon, Sun } from '@lucide/vue'
+import { FilePlus, Upload, Trash2, Wrench, KeyRound, LogOut, ChevronDown, Moon, Sun, RefreshCw } from '@lucide/vue'
 import ConnectionStatus from './ConnectionStatus.vue'
 import UserManagementModal from './UserManagementModal.vue'
 import ChangePasswordModal from './ChangePasswordModal.vue'
@@ -482,7 +485,7 @@ const importFileInput = ref(null)
 const importConfirmOpen = ref(false)
 const pendingImportFile = ref(null)
 let wsClient = null       // FileBrowser 独立 WS 连接
-let refreshTimer = null   // 周期性刷新列表
+const isRefreshing = ref(false)  // 手动刷新加载状态
 let _loadPromise = null    // loadFiles 请求去重
 let _lastErrorToast = 0    // 错误 toast 节流时间戳
 let _browserFailCount = 0  // 连续断连次数（用于 offline→dead 升级）
@@ -583,6 +586,21 @@ function loadFiles() {
   return _loadPromise
 }
 
+async function manualRefresh() {
+  if (isRefreshing.value) return
+  isRefreshing.value = true
+  try {
+    await loadFiles()
+    if (showDebug.value) await loadSnapshotDebug()
+  } finally {
+    isRefreshing.value = false
+  }
+}
+
+function handleVisibilityChange() {
+  if (!document.hidden) loadFiles()
+}
+
 async function loadSnapshotDebug() {
   if (!wsClient?.connected) return
   try {
@@ -670,19 +688,29 @@ async function executeDelete() {
   }
 }
 
-function open(file) {
-  // read-only 用户始终可以打开；编辑用户不可以打开已锁定的文件
-  if (file.is_locked && file.can_write) {
-    return
-  }
+async function open(file) {
   // 防止重复点击
   if (openingSessionId.value === file.file_name) return
   openingSessionId.value = file.file_name
-  // 传递只读状态给父组件
-  const isReadOnly = !file.can_write
-  emit('open', { fileName: file.file_name, readOnly: isReadOnly })
-  // 500ms 后重置
-  setTimeout(() => { openingSessionId.value = null }, 500)
+
+  try {
+    // 预检查：刷新文件列表获取最新锁状态和权限
+    await loadFiles()
+    const fresh = files.value.find(f => f.file_name === file.file_name)
+    if (!fresh) {
+      useUiStore().showToast(t('toast.fileLocked'), true)
+      return
+    }
+    // 刷新后如果文件已被其他 session 锁定（且当前用户有编辑意图），拒绝打开
+    if (fresh.is_locked && fresh.can_write) {
+      useUiStore().showToast(t('toast.fileLocked'), true)
+      return
+    }
+    // 使用最新数据
+    emit('open', { fileName: fresh.file_name, readOnly: !fresh.can_write })
+  } finally {
+    openingSessionId.value = null
+  }
 }
 
 function confirmSteal(file) {
@@ -922,24 +950,18 @@ onMounted(() => {
         // WS 永久断开，停止刷新并通知用户
         setConnectionStatus('dead')
         initialLoading.value = false
-        if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null }
         useUiStore().showToast(t('toast.sessionLost'), true)
       }
     }
   })
   wsClient.connect()
-
-  // 周期性刷新文件列表（3秒，比旧的 500ms 更宽松）
-  refreshTimer = setInterval(() => {
-    loadFiles()
-    if (showDebug.value) loadSnapshotDebug()
-  }, 3000)
+  document.addEventListener('visibilitychange', handleVisibilityChange)
 })
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown)
   window.removeEventListener('click', handleClickOutside)
-  if (refreshTimer) clearInterval(refreshTimer)
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
   if (wsClient) {
     wsClient.disconnect()
     wsClient = null
@@ -1075,6 +1097,7 @@ onUnmounted(() => {
 }
 .loading-text { color: var(--text-muted); font-size: 13px; }
 @keyframes browser-spin { to { transform: rotate(360deg); } }
+.spin { animation: browser-spin 0.8s linear infinite; }
 
 /* ── 正在打开的文件行 ── */
 .file-row.opening {
