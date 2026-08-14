@@ -395,7 +395,7 @@ def start_server_background(port: int = 8080, host: str = 'localhost',
     from app.ws.router import MessageRouter
     from app.ws.server import WsServer
 
-    ws_transport = WsTransport(port=port + 1)
+    ws_transport = WsTransport(host=host, port=port + 1)
     ws_router = MessageRouter(ws_transport, SESSION_MGR, auth_service=AUTH_SERVICE)
     _register_all_handlers(ws_router, SESSION_MGR, ws_transport)
 
