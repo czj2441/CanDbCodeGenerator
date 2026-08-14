@@ -116,7 +116,8 @@ class MessageRouter:
             data["_read_only"] = True
 
         # ── Viewer session 服务端写保护 ──
-        if msg_type in WRITE_OPERATIONS or msg_type in WRITE_EXEMPT:
+        # save_as (WRITE_EXEMPT) 不拦截：它克隆数据到新文件并创建 editor session，不修改原文件
+        if msg_type in WRITE_OPERATIONS:
             session_id = data.get("session_id", "")
             if session_id and self._session_mgr.is_viewer(session_id):
                 elapsed = (time.monotonic() - t0) * 1000
