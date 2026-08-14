@@ -208,7 +208,8 @@ class WsServer:
             self._transport.port,
             ping_interval=None,     # 禁用库内置 ping（由应用层心跳管理）
             close_timeout=5,
-            max_size=10 * 1024 * 1024  # 10MB
+            max_size=10 * 1024 * 1024,  # 10MB
+            reuse_address=True,    # 匹配 check_port_available 的 SO_REUSEADDR 行为
         ) as ws_server:
             self._ws_server = ws_server
             self._running = True

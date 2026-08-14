@@ -13,8 +13,14 @@ logger = logging.getLogger(__name__)
 
 
 def check_port_available(port: int) -> bool:
-    """检查端口是否可用。"""
+    """检查端口是否可用。
+
+    设置 SO_REUSEADDR 以匹配 HTTPServer 的实际绑定行为
+    （HTTPServer.allow_reuse_address = True），避免将
+    TIME_WAIT 状态的端口误判为不可用。
+    """
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             s.bind(('localhost', port))
             return True
@@ -100,7 +106,7 @@ def kill_process(pid: int) -> bool:
 
 def handle_port_conflict(port: int, auto_clean: bool = False) -> bool:
     """处理端口冲突，返回是否成功解决。"""
-    logger.error("端口 %d 已被占用", port)
+    logger.warning("端口 %d 已被占用", port)
 
     system = platform.system()
     pids = find_processes_on_port(port)
@@ -131,7 +137,26 @@ def handle_port_conflict(port: int, auto_clean: bool = False) -> bool:
         except Exception:
             pass
     else:
-        api_server_pids = pids[:10]
+        # Linux/macOS: 通过 /proc 或 ps 过滤 python/canmatrix 相关进程
+        for pid in pids[:10]:
+            cmdline = ''
+            try:
+                cmdline_path = f'/proc/{pid}/cmdline'
+                with open(cmdline_path, 'rb') as f:
+                    cmdline = f.read().replace(b'\x00', b' ').decode('utf-8', errors='replace').lower()
+            except (FileNotFoundError, PermissionError, OSError):
+                # macOS 无 /proc 或进程已退出，回退到 ps
+                try:
+                    result = subprocess.run(
+                        ['ps', '-p', str(pid), '-o', 'command='],
+                        capture_output=True, text=True, timeout=3
+                    )
+                    if result.returncode == 0:
+                        cmdline = result.stdout.strip().lower()
+                except Exception:
+                    pass
+            if cmdline and ('python' in cmdline or 'canmatrix' in cmdline or 'lifecycle' in cmdline):
+                api_server_pids.append(pid)
 
     if api_server_pids:
         logger.info("检测到 %d 个占用端口的进程：", len(api_server_pids))

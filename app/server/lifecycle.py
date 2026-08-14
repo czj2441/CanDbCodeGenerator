@@ -218,20 +218,26 @@ def main() -> None:
     auto_clean = args.auto_clean or args.force
     host = args.host
 
-    if auto_clean:
-        logger.info("启动模式：自动清理端口冲突")
-
     # 检查 HTTP + WS 双端口
     if not check_port_available(port) or not check_port_available(port + 1):
-        logger.info("端口 %d/%d 不可用，扫描可用端口...", port, port + 1)
-        alt = find_available_port(start=port + 2)
-        if alt is not None:
-            logger.info("自动切换到端口 %d/%d", alt, alt + 1)
-            port = alt
-        else:
-            logger.error("在 %d-%d 范围内未找到可用端口对。", port, port + 21)
-            logger.info("提示: 使用 --auto-clean 尝试清理，或手动指定其他端口。")
-            sys.exit(1)
+        resolved = False
+        if auto_clean:
+            logger.info("端口 %d/%d 不可用，尝试自动清理占用进程...", port, port + 1)
+            http_resolved = check_port_available(port) or handle_port_conflict(port, auto_clean=True)
+            ws_resolved = check_port_available(port + 1) or handle_port_conflict(port + 1, auto_clean=True)
+            resolved = http_resolved and ws_resolved
+            if resolved:
+                logger.info("端口清理成功，%d/%d 已释放", port, port + 1)
+        if not resolved:
+            logger.info("端口 %d/%d 不可用，扫描可用端口...", port, port + 1)
+            alt = find_available_port(start=port + 2)
+            if alt is not None:
+                logger.info("自动切换到端口 %d/%d", alt, alt + 1)
+                port = alt
+            else:
+                logger.error("在 %d-%d 范围内未找到可用端口对。", port, port + 21)
+                logger.info("提示: 使用 --auto-clean 尝试清理，或手动指定其他端口。")
+                sys.exit(1)
 
     server = ThreadingHTTPServer((host, port), ApiHandler)
     logger.info("CanMatrix Editor API server running at http://%s:%d", host, port)
@@ -362,18 +368,25 @@ class BackgroundServer:
             logger.error("HTTP server_close error: %s", e)
 
 
-def start_server_background(port: int = 8080, host: str = 'localhost') -> BackgroundServer:
+def start_server_background(port: int = 8080, host: str = 'localhost',
+                            auto_clean: bool = False) -> BackgroundServer:
     """在后台线程启动 API 服务器，返回 BackgroundServer 对象。"""
     setup_logging()
 
     # 端口可用性检查（HTTP + WS 双端口）
     if not check_port_available(port) or not check_port_available(port + 1):
-        alt = find_available_port(start=port)
-        if alt is not None:
-            logger.info("start_server_background: 端口 %d 不可用，切换到 %d", port, alt)
-            port = alt
-        else:
-            raise RuntimeError(f"端口 {port}/{port+1} 不可用且无替代端口")
+        resolved = False
+        if auto_clean:
+            http_resolved = check_port_available(port) or handle_port_conflict(port, auto_clean=True)
+            ws_resolved = check_port_available(port + 1) or handle_port_conflict(port + 1, auto_clean=True)
+            resolved = http_resolved and ws_resolved
+        if not resolved:
+            alt = find_available_port(start=port)
+            if alt is not None:
+                logger.info("start_server_background: 端口 %d 不可用，切换到 %d", port, alt)
+                port = alt
+            else:
+                raise RuntimeError(f"端口 {port}/{port+1} 不可用且无替代端口")
 
     server = ThreadingHTTPServer((host, port), ApiHandler)
     logger.info("CanMatrix Editor API server running at http://%s:%d", host, port)
