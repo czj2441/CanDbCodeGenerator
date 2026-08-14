@@ -40,6 +40,7 @@ class WsServer:
         hello 握手 → register → full_sync → 消息循环 → cleanup
         """
         session_id = None
+        sm = None
         try:
             # ── 等待 hello ──
             try:
@@ -136,6 +137,7 @@ class WsServer:
         finally:
             if session_id:
                 self._transport.unregister(session_id, ws)
+            if session_id and sm:
                 # 断连时写快照（viewer session 跳过：db.modified 始终为 False）
                 session = sm.get(session_id)
                 if session and not session.is_viewer:
