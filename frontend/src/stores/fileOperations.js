@@ -77,23 +77,12 @@ export const useFileOperationsStore = defineStore('fileOperations', {
     },
 
     /**
-     * 另存为：克隆当前会话数据到新文件，切换到新 session
+     * 另存为：克隆当前会话数据到新文件，保持当前 session 不变
      */
     async saveAs(name) {
       const editor = useCoreStore()
-      const undoRedo = useUndoRedoStore()
       try {
         const data = await editor._wsRequest('save_as', { name })
-        const sid = data.session_id
-        setSessionId(sid)
-        editor.currentFileName = data.file_name
-        useUiStore().closeAllMessageTabs()
-        editor.selectedMsgId = null
-        editor.messageCache = {}
-        editor.messages = {}
-        resetMessageIdGenerator()
-        editor._dataVersion = 0
-        undoRedo.clearUndoStack()
         useUiStore().showToast(t('toast.saveAs', { name: data.file_name }))
         editor.addLogEntry('info', `另存为: ${data.file_name}`)
       } catch (e) {

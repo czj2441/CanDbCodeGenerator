@@ -62,8 +62,6 @@ FILE_IMPORT_TYPES = frozenset({'import_file'})
 WRITE_EXEMPT = frozenset({'save_as'})
 # 仅 owner 可执行的操作
 OWNER_ONLY_OPERATIONS = frozenset({'steal_lock'})
-# 需要提取 file_name 的操作（用于权限检查）
-_FILE_NAME_OPERATIONS = WRITE_OPERATIONS | OWNER_ONLY_OPERATIONS | WRITE_EXEMPT | FILE_IMPORT_TYPES
 
 
 class MessageRouter:
@@ -162,7 +160,7 @@ class MessageRouter:
             # ── 文件创建后自动设置 owner ──
             if self._auth and result and msg_type in (FILE_CREATE_TYPES | FILE_IMPORT_TYPES):
                 username = data.get("_username", "")
-                file_name = self._extract_file_name(msg_type, data, result)
+                file_name = self._extract_file_name(data, result)
                 if username and file_name:
                     self._auth.set_file_permission(file_name, username)
     
@@ -290,7 +288,7 @@ class MessageRouter:
         import os
         return os.path.basename(session.file_path)
 
-    def _extract_file_name(self, msg_type: str, data: dict, result) -> str:
+    def _extract_file_name(self, data: dict, result) -> str:
         """从 handler 结果中提取新创建的文件名。"""
         # new_session_id 表示切换到了新文件
         if result.new_session_id:

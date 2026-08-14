@@ -275,9 +275,9 @@ class SessionManager:
         return None
 
     def save_as(self, original_session_id: str, new_name: str, owner: str = "") -> str:
-        """另存为：克隆当前会话数据到新文件，创建新 session 并切换。
+        """另存为：克隆当前会话数据到新文件，创建临时 session 用于写盘。
 
-        原始会话在 WS 切换后由 server 层 mark_stale，心跳超时后自动清理。
+        调用方应在写盘完成后 release_session(new_sid, abort=True) 清理孤儿 session。
 
         Args:
             original_session_id: 原始 session ID

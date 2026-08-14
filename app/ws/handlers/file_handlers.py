@@ -5,6 +5,8 @@ Save / NewFile / ImportFile / DownloadFile / CreateFile / LoadFile /
 SaveAs / DeleteFile / GetSessions
 """
 
+import os
+
 from app.models import CanDatabase
 from app.services import FileLockedError, FileNameExistsError
 from app.ws.router import HandlerResult, HandlerError
@@ -210,7 +212,7 @@ class LoadFileHandler:
 
 
 class SaveAsHandler:
-    """另存为：克隆当前会话数据到新文件，原始会话不受影响。"""
+    """另存为：克隆当前会话数据到新文件，保持当前 session 不变。"""
     def __init__(self, session_mgr):
         self._sm = session_mgr
 
@@ -237,10 +239,15 @@ class SaveAsHandler:
             new_sid = self._sm.save_as(sid, new_name, owner=username)
         except FileNameExistsError:
             raise HandlerError("FILE_NAME_EXISTS", f"File '{new_name}' already exists")
+        # 文件已落盘，取文件名后立即释放孤儿 session（清理文件锁和心跳）
         new_session = self._sm.get(new_sid)
+        file_name = os.path.basename(new_session.file_path)  # 含 .properties
+        self._sm.release_session(new_sid, abort=True)
+        # 补发锁释放广播，让其他用户的 FileBrowser 立即更新
+        self._sm.fire_lock_released(new_sid)
         return HandlerResult(
-            data={"session_id": new_sid, "file_name": _pure_file_name(new_session)},
-            session_id=sid, new_session_id=new_sid)
+            data={"file_name": file_name[:-11]},  # 去掉 .properties 后缀
+            session_id=sid)                        # 不设 new_session_id → 不触发切换
 
 
 class DeleteFileHandler:
