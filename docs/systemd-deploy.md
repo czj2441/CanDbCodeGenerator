@@ -40,7 +40,7 @@ chmod +x build.sh
 [Service]
 # 修改为你的实际项目路径
 WorkingDirectory=/opt/canmatrix
-ExecStart=/opt/canmatrix/venv/bin/python -m app.server.lifecycle --host 0.0.0.0 --no-browser
+ExecStart=/opt/canmatrix/venv/bin/python -m app.server.lifecycle --host 0.0.0.0 --no-browser --auto-clean
 ```
 
 **可调整的参数**：
@@ -49,12 +49,13 @@ ExecStart=/opt/canmatrix/venv/bin/python -m app.server.lifecycle --host 0.0.0.0 
 |------|--------|------|
 | `--host` | `0.0.0.0` | 绑定地址。`0.0.0.0` 允许外部访问，`127.0.0.1` 仅本机 |
 | `--port` | `8080` | HTTP 端口（WebSocket 自动使用 port+1） |
+| `--auto-clean` | 已启用 | 启动时自动清理端口残留进程，避免触发端口退避策略 |
 | `WorkingDirectory` | `/opt/canmatrix` | 项目安装目录 |
 
 示例：绑定到 9090 端口：
 
 ```ini
-ExecStart=/opt/canmatrix/venv/bin/python -m app.server.lifecycle --host 0.0.0.0 --port 9090 --no-browser
+ExecStart=/opt/canmatrix/venv/bin/python -m app.server.lifecycle --host 0.0.0.0 --port 9090 --no-browser --auto-clean
 ```
 
 ### 2.3 安装服务

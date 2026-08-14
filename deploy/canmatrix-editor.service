@@ -9,7 +9,8 @@ Type=simple
 
 # ── 路径配置（部署时按实际路径修改）──
 WorkingDirectory=/opt/canmatrix
-ExecStart=/opt/canmatrix/venv/bin/python -m app.server.lifecycle --host 0.0.0.0 --no-browser
+# --auto-clean: 启动时自动清理端口残留进程，避免触发端口退避策略
+ExecStart=/opt/canmatrix/venv/bin/python -m app.server.lifecycle --host 0.0.0.0 --no-browser --auto-clean
 
 # ── 间隔自恢复 ──
 Restart=on-failure
