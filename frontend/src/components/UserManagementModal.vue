@@ -5,7 +5,7 @@
  * 功能：用户列表、创建用户、删除用户、修改角色、重置密码。
  * 仅 admin 角色可见入口。
  */
-import { ref, onMounted } from 'vue'
+import { ref, watch } from 'vue'
 import { useAuthStore } from '../stores/authStore.js'
 import { useUiStore } from '../stores/uiStore.js'
 
@@ -114,8 +114,8 @@ async function doResetPassword() {
   }
 }
 
-onMounted(() => {
-  if (props.visible) fetchUsers()
+watch(() => props.visible, (val) => {
+  if (val) fetchUsers()
 })
 </script>
 
