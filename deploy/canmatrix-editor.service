@@ -1,0 +1,24 @@
+[Unit]
+Description=CanMatrix Editor - CAN Database Editor Service
+Documentation=https://github.com/your-org/CanDbCodeGenerator
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+# ── 路径配置（部署时按实际路径修改）──
+WorkingDirectory=/opt/canmatrix
+ExecStart=/opt/canmatrix/venv/bin/python -m app.server.lifecycle --host 0.0.0.0 --no-browser
+
+# ── 间隔自恢复 ──
+Restart=on-failure
+RestartSec=5
+
+# ── 日志输出 ──
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=canmatrix-editor
+
+[Install]
+WantedBy=multi-user.target
