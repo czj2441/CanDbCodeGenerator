@@ -27,7 +27,7 @@
 
     <div class="table-wrap">
       <div v-if="messageCount === 0" class="empty">{{ t('msgtable.empty') }}</div>
-      <table v-else class="message-table data-table" ref="tableRef" @keydown="onCellKeyDown">
+      <table v-else class="message-table data-table" :class="{ 'data-table-readonly': store.readOnly }" ref="tableRef" @keydown="onCellKeyDown">
         <colgroup>
           <col v-for="col in visibleColumns" :key="col.key"
                :style="{ width: normalizedPcts[col.key] + '%' }">

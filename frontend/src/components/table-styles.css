@@ -104,10 +104,13 @@
 }
 .data-table input.mono { font-family: var(--font-mono); }
 .data-table input:disabled {
-  opacity: 1;
-  cursor: pointer;
+  opacity: 0.55;
+  cursor: not-allowed;
 }
-.data-table input[readonly] { cursor: pointer; }
+.data-table input[readonly] {
+  cursor: default;
+  caret-color: transparent;
+}
 .data-table input[type="number"]::-webkit-inner-spin-button,
 .data-table input[type="number"]::-webkit-outer-spin-button {
   -webkit-appearance: none;
@@ -115,6 +118,17 @@
 }
 .data-table input[type="number"] {
   -moz-appearance: textfield;
+}
+
+/* ── 9. 只读模式 ── */
+.data-table-readonly input {
+  pointer-events: none;
+  user-select: none;
+}
+.data-table-readonly input:focus {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
 }
 
 /* ── 4. 排序 ── */

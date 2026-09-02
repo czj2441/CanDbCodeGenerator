@@ -40,7 +40,7 @@
       </div>
       <div v-else-if="signalCount === 0" class="empty" v-html="t('signal.empty')">
       </div>
-      <table v-else class="signal-table data-table" ref="tableRef" @keydown="onCellKeyDown">
+      <table v-else class="signal-table data-table" :class="{ 'data-table-readonly': store.readOnly }" ref="tableRef" @keydown="onCellKeyDown">
         <colgroup>
           <col v-for="col in visibleColumns" :key="col.key"
                :style="{ width: normalizedPcts[col.key] + '%' }">

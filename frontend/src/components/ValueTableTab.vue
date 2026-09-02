@@ -27,7 +27,7 @@
       <div v-if="filteredNames.length === 0" class="empty">
         {{ searchQuery ? t('valtable.noResults') : t('valtable.empty') }}
       </div>
-      <table v-else class="valtable-table data-table" ref="tableRef" @keydown="onCellKeyDown">
+      <table v-else class="valtable-table data-table" :class="{ 'data-table-readonly': editor.readOnly }" ref="tableRef" @keydown="onCellKeyDown">
         <colgroup>
           <col v-for="col in visibleColumns" :key="col.key"
                :style="{ width: normalizedPcts[col.key] + '%' }">
