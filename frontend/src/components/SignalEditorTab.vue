@@ -449,6 +449,13 @@ const { onCellKeyDown } = useTableNavigation(tableRef, visibleColumns, {
     const sig = sortedSignals.value[rowIdx]
     if (sig) ui.selectedSignalName = sig.name
   },
+  onStartEdit: (el) => {
+    if (store.readOnly) return false
+    const field = el.dataset.field
+    const sigName = el.closest('tr')?.dataset.sigId
+    if (!sigName || !field) return false
+    editingKey.value = { sigName, field }
+  },
 })
 </script>
 

@@ -375,6 +375,12 @@ const { onCellKeyDown } = useTableNavigation(tableRef, visibleColumns, {
     const msg = sortedMessages.value[rowIdx]
     if (msg) messages.selectMessage(msg.id)
   },
+  onStartEdit: (el) => {
+    if (store.readOnly) return false
+    const msgId = Number(el.closest('tr')?.dataset.msgId)
+    if (!msgId) return false
+    editingKey.value = msgId
+  },
 })
 </script>
 

@@ -3,6 +3,7 @@
  *
  * 提取自 SignalEditorTab / MessageTab / ValueTableTab 共用的方向键导航逻辑。
  * 编辑模式（isEditing 返回 true）时方向键保留在当前元素内，不触发单元格跳转。
+ * 浏览模式下按下可打印字符键时，自动进入编辑模式（类 Excel 行为）。
  * 调用方通过回调函数注入数据访问，composable 不直接依赖任何 store。
  *
  * @param {import('vue').Ref<HTMLTableElement|null>} tableRef - 表格 DOM 引用
@@ -12,15 +13,31 @@
  * @param {() => number} options.getTotalRows - 返回当前数据行总数
  * @param {() => boolean} options.isEditing - 返回当前是否处于编辑模式
  * @param {(rowIdx: number) => void} options.onRowSelect - 导航后同步行选中状态
+ * @param {(el: HTMLInputElement, rowIdx: number, colIdx: number, char: string) => boolean} [options.onStartEdit]
+ *   浏览模式下按下可打印字符时调用，进入编辑模式。
+ *   返回 false 表示权限不允许（如只读会话），此时不触发编辑。
  */
 
+import { nextTick } from 'vue'
+
 const NAV_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'])
+
+/** 判断按键是否为可打印字符（排除修饰键组合） */
+function isPrintableChar(e) {
+  return e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey
+}
+
+/** 判断字符是否可作为 number input 的合法起始输入 */
+function isValidNumberChar(ch) {
+  return /[0-9.\-eE]/.test(ch)
+}
 
 export function useTableNavigation(tableRef, visibleColumns, {
   nonNavigableCols,
   getTotalRows,
   isEditing,
   onRowSelect,
+  onStartEdit,
 }) {
   /** 从当前 DOM 元素定位所在行列索引 */
   function getCellPosition(el) {
@@ -59,6 +76,28 @@ export function useTableNavigation(tableRef, visibleColumns, {
   }
 
   function onCellKeyDown(e) {
+    // ── 浏览模式 + 可打印字符 → 自动进入编辑模式 ──
+    if (!isEditing() && onStartEdit && isPrintableChar(e)) {
+      const el = e.target
+      if (el.tagName === 'INPUT' && el.readOnly && tableRef.value?.contains(el)) {
+        // type="number" 输入框仅接受数字相关字符
+        if (el.type === 'number' && !isValidNumberChar(e.key)) return
+
+        const pos = getCellPosition(el)
+        if (pos && !nonNavigableCols.has(visibleColumns.value[pos.colIdx]?.key)) {
+          // 权限检查：onStartEdit 返回 false 表示只读会话不允许编辑
+          if (onStartEdit(el, pos.rowIdx, pos.colIdx, e.key) === false) return
+          e.preventDefault()
+          nextTick(() => {
+            el.select()
+            el.value = e.key
+            el.dispatchEvent(new Event('input', { bubbles: true }))
+          })
+          return
+        }
+      }
+    }
+
     if (!NAV_KEYS.has(e.key)) return
 
     // ── 编辑模式下禁止导航，方向键留在当前 input/select 内 ──

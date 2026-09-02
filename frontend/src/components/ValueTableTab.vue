@@ -219,6 +219,12 @@ const { onCellKeyDown } = useTableNavigation(tableRef, visibleColumns, {
   onRowSelect: (rowIdx) => {
     ui.selectedVtName = sortedFilteredNames.value[rowIdx]
   },
+  onStartEdit: (el) => {
+    if (editor.readOnly) return false
+    const name = el.closest('tr')?.dataset.vtName
+    if (!name) return false
+    editingName.value = name
+  },
 })
 
 // ── 新增表 ──
