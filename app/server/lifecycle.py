@@ -250,7 +250,7 @@ def main() -> None:
     from app.ws.server import WsServer
 
     ws_diag = WsDiagnostics(enabled=args.ws_debug)
-    ws_transport = WsTransport(port=port + 1, diagnostics=ws_diag)
+    ws_transport = WsTransport(host=host, port=port + 1, diagnostics=ws_diag)
     ws_router = MessageRouter(ws_transport, SESSION_MGR, auth_service=AUTH_SERVICE)
     _register_all_handlers(ws_router, SESSION_MGR, ws_transport)
 
