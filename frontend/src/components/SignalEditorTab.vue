@@ -320,6 +320,12 @@ function handleRowMouseDown(sigName, sigIndex, event) {
   if (isInteractive) {
     if (event.detail >= 2) {
       editingKey.value = { sigName, field: targetEl.dataset.field }
+    } else {
+      // 单击非当前编辑单元格时退出编辑模式
+      const ek = editingKey.value
+      if (ek && (ek.sigName !== sigName || ek.field !== targetEl.dataset.field)) {
+        editingKey.value = null
+      }
     }
     if (ui.selectedSignalName !== sigName) {
       ui.selectedSignalName = sigName

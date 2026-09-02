@@ -281,6 +281,11 @@ function handleRowMouseDown(msgId, msgIndex, event) {
         // 已选中但非编辑状态：进入编辑模式
         editingKey.value = msgId
       }
+    } else {
+      // 单击非当前编辑行时退出编辑模式
+      if (editingKey.value !== null && editingKey.value !== msgId) {
+        editingKey.value = null
+      }
     }
     messages.selectMessage(msgId)
     multiSelect.handleRowClick(msgId, msgIndex, {})
