@@ -25,7 +25,7 @@
               <div class="row">
                 <div class="field">
                   <label>{{ t('batch.startBit') }}</label>
-                  <input class="mono" type="number" v-model.number="form.startBit" min="0" max="63">
+                  <input class="mono" type="number" v-model.number="form.startBit" min="0" :max="currentMsgDlc * 8 - 1">
                 </div>
                 <div class="field">
                   <label>{{ t('batch.interval') }}</label>

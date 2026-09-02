@@ -269,7 +269,8 @@ function showDisplayStartBit() {
  */
 function modifyDisplayStartBit(displayValue) {
   if (!selectedSig.value) return
-  const msbValue = toStorageStartBit(displayValue, selectedSig.value.length, selectedSig.value.byte_order, 63, selectedSig.value.start_bit)
+  const maxBit = (msg.value?.dlc || 8) * 8 - 1
+  const msbValue = toStorageStartBit(displayValue, selectedSig.value.length, selectedSig.value.byte_order, maxBit, selectedSig.value.start_bit)
   const valueToSend = msbValue >= 0 ? msbValue : -1
   signals.updateSignal(ui.selectedSignalName, 'start_bit', valueToSend, msg.value?.id).catch(() => {})
 }

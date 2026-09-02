@@ -36,6 +36,8 @@ export function motorolaBitAtPosition(msb, pos) {
  *   例: pos=7, targetBit=10, len=8
  *       候选 MSB=1: 1→0→15→14→13→12→11→10  ✅ pos7=10
  *   → 返回 1（最接近 hintMsb 的那个）
+ *
+ * @param {number} maxBit - 最大 bit 编号，调用方应始终传入 dlc * 8 - 1（默认 63 仅兼容 CAN 2.0）
  */
 export function motorolaFindMsbByPosition(pos, length, targetBit, maxBit = 63, hintMsb = -1) {
   if (pos < 0 || pos >= length) return -1
@@ -109,6 +111,8 @@ export function toDisplayStartBit(storageStartBit, length, byteOrder) {
  * 用户输入 LSB → 存储 MSB
  *   用 motorolaFindMsbByPosition 反查: 哪个 MSB 的 LSB = 输入值
  *   无匹配返回 −1，由调用方报错
+ *
+ * @param {number} maxBit - 最大 bit 编号，调用方应始终传入 dlc * 8 - 1（默认 63 仅兼容 CAN 2.0）
  */
 export function toStorageStartBit(displayStartBit, length, byteOrder, maxBit = 63, hintMsb = -1) {
   if (!length || length <= 0) return displayStartBit
@@ -149,6 +153,7 @@ export function walkPosToBit(pos) {
  *             槽位越界（起点 < 0 或终点 > maxBit）→ 标记 invalid 跳过，不中止整批。
  *
  * @param {{startBit: number, length: number, interval: number, byteOrder: string, count: number, maxBit?: number}} opts
+ *   maxBit 调用方应始终传入 dlc * 8 - 1（默认 63 仅兼容 CAN 2.0）
  * @returns {Array<{start_bit: number, display_start_bit: number, valid: boolean}>}
  */
 export function computeBatchSignals({ startBit, length, interval, byteOrder, count, maxBit = 63 }) {
@@ -267,11 +272,14 @@ export function validStartBitRangeOptimized(length, byteOrder, dlc) {
     return { minStart: 0, maxStart: maxBit - length + 1 }
   }
 
-  // Motorola: 使用暴力搜索寻找合法范围（新算法允许任意 start_bit）
+  // Motorola: 暴力搜索合法范围
+  // 注意: MSB 可以超过 maxBit（如 MSB=527, len=64, maxBit=511 仍合法，因为 walk 的
+  // 所有 bit 仍在 [0,511] 内），因此搜索上界扩展至 maxBit + length
+  const searchMax = maxBit + length
   let minStart = -1
   let maxStart = -1
 
-  for (let s = 0; s <= maxBit; s++) {
+  for (let s = 0; s <= searchMax; s++) {
     const bits = getSignalBits(s, length, 'motorola')
     const allValid = Array.from(bits).every(b => b >= 0 && b <= maxBit)
     if (allValid) {
@@ -301,8 +309,10 @@ export function clampStartBit(candidate, length, byteOrder, dlc) {
     return Math.max(0, Math.min(maxBit - length + 1, candidate))
   }
 
-  // Motorola: 使用新算法，允许任意 start_bit
-  // 策略：从 candidate 开始，向两侧寻找最近的合法位置
+  // Motorola: 向两侧寻找最近的合法位置
+  // 注意: 合法 MSB 可以超过 maxBit（Motorola walk 的所有 bit 仍在 [0,maxBit] 内），
+  // 因此向上搜索的上界扩展至 maxBit + length
+  const searchMax = maxBit + length
 
   // 先检查 candidate 本身是否合法
   const candidateBits = getSignalBits(candidate, length, 'motorola')
@@ -322,12 +332,12 @@ export function clampStartBit(candidate, length, byteOrder, dlc) {
         bestDist = dist
         bestS = s
       }
-      break  // 找到第一个合法位置即可
+      break  // 向下搜索第一个合法位置即为最近
     }
   }
 
-  // 向上寻找
-  for (let s = candidate + 1; s <= maxBit; s++) {
+  // 向上寻找（上界扩展到 searchMax）
+  for (let s = candidate + 1; s <= searchMax; s++) {
     const bits = getSignalBits(s, length, 'motorola')
     const allValid = Array.from(bits).every(b => b >= 0 && b <= maxBit)
     if (allValid) {
@@ -336,7 +346,7 @@ export function clampStartBit(candidate, length, byteOrder, dlc) {
         bestDist = dist
         bestS = s
       }
-      break  // 找到第一个合法位置即可
+      break  // 向上搜索第一个合法位置即为最近
     }
   }
 

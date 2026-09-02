@@ -32,7 +32,7 @@ function isValidStartBit(s, length, byteOrder, maxBit) {
 
 function bruteNearestValid(candidate, length, byteOrder, maxBit) {
   if (length > maxBit + 1) return -1
-  if (byteOrder === 'little_endian') {
+  if (byteOrder === 'intel') {
     return Math.max(0, Math.min(maxBit - length + 1, candidate))
   }
   let bestS = -1
@@ -56,9 +56,9 @@ function assertRangeEqual(actual, expected, label) {
 }
 
 // ── Test matrix ──
-const dlcs = [1, 2, 4, 8]
+const dlcs = [1, 2, 4, 8, 12, 16, 24, 32, 64]
 const lengths = [1, 2, 3, 4, 7, 8, 9, 15, 16, 17, 31, 32, 33, 63, 64]
-const byteOrders = ['little_endian', 'big_endian']
+const byteOrders = ['intel', 'motorola']
 
 describe('validStartBitRangeOptimized', () => {
   for (const dlc of dlcs) {
@@ -68,7 +68,7 @@ describe('validStartBitRangeOptimized', () => {
         const label = `dlc=${dlc} maxBit=${maxBit} length=${length} byteOrder=${byteOrder}`
         it(label, () => {
           const expected = bruteMinMax(length, byteOrder, maxBit)
-          const actual = validStartBitRangeOptimized(length, byteOrder, maxBit)
+          const actual = validStartBitRangeOptimized(length, byteOrder, dlc)
           assertRangeEqual(actual, expected, label)
         })
       }
@@ -90,7 +90,7 @@ describe('clampStartBit', () => {
         for (const candidate of candidates) {
           it(`${labelPrefix} candidate=${candidate}`, () => {
             const expected = bruteNearestValid(candidate, length, byteOrder, maxBit)
-            const actual = clampStartBit(candidate, length, byteOrder, maxBit)
+            const actual = clampStartBit(candidate, length, byteOrder, dlc)
             assert.strictEqual(actual, expected, `${labelPrefix} candidate=${candidate}: expected ${expected} got ${actual}`)
           })
         }

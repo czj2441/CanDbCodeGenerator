@@ -433,7 +433,8 @@ function displayStartBit(sig) {
  * 转换失败时仍发送请求，由后端校验，错误在 DataErrorList 展示
  */
 function updateStartBit(sig, displayValue) {
-  const msbValue = toStorageStartBit(displayValue, sig.length, sig.byte_order, 63, sig.start_bit)
+  const maxBit = (msg.value?.dlc || 8) * 8 - 1
+  const msbValue = toStorageStartBit(displayValue, sig.length, sig.byte_order, maxBit, sig.start_bit)
   const valueToSend = msbValue >= 0 ? msbValue : -1
   signals.updateSignal(sig.name, 'start_bit', valueToSend, msg.value?.id).catch(() => {})
 }
