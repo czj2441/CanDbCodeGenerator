@@ -128,6 +128,7 @@ import { vLazyValue } from '../directives/lazyValue.js'
 import { sortByField, toggleSort, getSortIcon } from '../utils/sortHelper.js'
 import { useColumnResize } from '../composables/useColumnResize.js'
 import { useMultiSelect } from '../composables/useMultiSelect.js'
+import { useTableNavigation } from '../composables/useTableNavigation.js'
 import BatchEditModal from './BatchEditModal.vue'
 import SignalLayoutVisualizer from './SignalLayoutVisualizer.vue'
 
@@ -440,112 +441,15 @@ function updateStartBit(sig, displayValue) {
 }
 
 // ── 方向键单元格导航 ──
-const NON_NAVIGABLE_COLS = new Set(['actions'])
-
-/** 从当前 DOM 元素定位所在行列索引 */
-function getCellPosition(el) {
-  const td = el.closest('td')
-  if (!td) return null
-  const tr = td.parentElement
-  if (!tr || tr.tagName !== 'TR') return null
-  const tbody = tr.parentElement
-  if (!tbody || tbody.tagName !== 'TBODY') return null
-  const rowIdx = Array.from(tbody.children).indexOf(tr)
-  return { rowIdx, colIdx: td.cellIndex }
-}
-
-/** 获取目标单元格内的可编辑元素 */
-function getCellEditor(rowIdx, colIdx) {
-  const table = tableRef.value
-  if (!table) return null
-  const tbody = table.tBodies[0]
-  if (!tbody) return null
-  const row = tbody.rows[rowIdx]
-  if (!row) return null
-  const cell = row.cells[colIdx]
-  if (!cell) return null
-  return cell.querySelector('input:not([readonly]), select')
-}
-
-/** 从当前列出发，沿 direction 方向查找下一个可导航列 */
-function findNavigableCol(colIdx, direction) {
-  const cols = visibleColumns.value
-  let i = colIdx + direction
-  while (i >= 0 && i < cols.length) {
-    if (!NON_NAVIGABLE_COLS.has(cols[i].key)) return i
-    i += direction
-  }
-  return -1
-}
-
-function onCellKeyDown(e) {
-  const NAV_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'])
-  if (!NAV_KEYS.has(e.key)) return
-
-  const el = e.target
-  if (el.tagName !== 'INPUT' && el.tagName !== 'SELECT') return
-  if (!tableRef.value?.contains(el)) return
-
-  const pos = getCellPosition(el)
-  if (!pos) return
-
-  const cols = visibleColumns.value
-  const totalRows = sortedSignals.value?.length ?? 0
-  let { rowIdx, colIdx } = pos
-  let targetRow = rowIdx
-  let targetCol = colIdx
-
-  // ── 水平导航（左右） ──
-  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-    // 对 input：仅在光标处于边界时才导航
-    if (el.tagName === 'INPUT') {
-      // type="number" 等不支持 selectionStart/End，无光标概念，始终允许导航
-      const supportsSelection = el.type === 'text' || el.type === 'search' || el.type === 'url' || el.type === 'tel' || el.type === 'password' || el.type === ''
-      if (supportsSelection) {
-        if (e.key === 'ArrowLeft' && el.selectionStart > 0) return
-        if (e.key === 'ArrowRight' && el.selectionEnd < el.value.length) return
-      }
-    }
-    // select 元素：左右键同样导航（选项切换通过鼠标点击完成）
-
-    const dir = e.key === 'ArrowLeft' ? -1 : 1
-    const nextCol = findNavigableCol(colIdx, dir)
-    if (nextCol < 0) return
-    targetCol = nextCol
-  }
-
-  // ── 垂直导航（上下） ──
-  if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-    // select 元素：上下键同样导航（选项切换通过鼠标点击完成）
-
-    const dir = e.key === 'ArrowUp' ? -1 : 1
-    targetRow = rowIdx + dir
-    if (targetRow < 0 || targetRow >= totalRows) return
-
-    // 若当前列不可编辑，跳到最近的可编辑列
-    if (NON_NAVIGABLE_COLS.has(cols[colIdx]?.key)) {
-      const nextCol = findNavigableCol(colIdx, 1)
-      if (nextCol < 0) return
-      targetCol = nextCol
-    }
-  }
-
-  e.preventDefault()
-
-  // ── 聚焦目标 ──
-  const target = getCellEditor(targetRow, targetCol)
-  if (!target) return
-
-  target.focus()
-  if (target.tagName === 'INPUT') target.select()
-
-  // 确保目标行在视口内
-  target.closest('tr')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
-
-  // 同步行选中状态
-  const targetSig = sortedSignals.value[targetRow]
-  if (targetSig) ui.selectedSignalName = targetSig.name
-}
+const { onCellKeyDown } = useTableNavigation(tableRef, visibleColumns, {
+  nonNavigableCols: new Set(['actions']),
+  getTotalRows: () => sortedSignals.value?.length ?? 0,
+  isEditing: () => editingKey.value !== null,
+  onRowSelect: (rowIdx) => {
+    const sig = sortedSignals.value[rowIdx]
+    if (sig) ui.selectedSignalName = sig.name
+  },
+})
 </script>
 
 <style scoped>

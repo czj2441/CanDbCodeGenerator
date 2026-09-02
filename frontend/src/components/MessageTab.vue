@@ -113,6 +113,7 @@ import { vLazyValue } from '../directives/lazyValue.js'
 import { sortByField, toggleSort, getSortIcon } from '../utils/sortHelper.js'
 import { useColumnResize } from '../composables/useColumnResize.js'
 import { useMultiSelect } from '../composables/useMultiSelect.js'
+import { useTableNavigation } from '../composables/useTableNavigation.js'
 import BatchEditModal from './BatchEditModal.vue'
 
 const COLUMNS = [
@@ -366,92 +367,15 @@ function jumpToSignals(id) {
 }
 
 // ── 方向键单元格导航 ──
-const NON_NAVIGABLE_COLS = new Set(['msg_edit_signals', 'msg_actions', 'msg_bit_usage'])
-
-function getCellPosition(el) {
-  const td = el.closest('td')
-  if (!td) return null
-  const tr = td.parentElement
-  if (!tr || tr.tagName !== 'TR') return null
-  const tbody = tr.parentElement
-  if (!tbody || tbody.tagName !== 'TBODY') return null
-  const rowIdx = Array.from(tbody.children).indexOf(tr)
-  return { rowIdx, colIdx: td.cellIndex }
-}
-
-function getCellEditor(rowIdx, colIdx) {
-  const table = tableRef.value
-  if (!table) return null
-  const tbody = table.tBodies[0]
-  if (!tbody) return null
-  const row = tbody.rows[rowIdx]
-  if (!row) return null
-  const cell = row.cells[colIdx]
-  if (!cell) return null
-  return cell.querySelector('input:not([readonly]), select')
-}
-
-function findNavigableCol(colIdx, direction) {
-  const cols = visibleColumns.value
-  let i = colIdx + direction
-  while (i >= 0 && i < cols.length) {
-    if (!NON_NAVIGABLE_COLS.has(cols[i].key)) return i
-    i += direction
-  }
-  return -1
-}
-
-function onCellKeyDown(e) {
-  const NAV_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'])
-  if (!NAV_KEYS.has(e.key)) return
-
-  const el = e.target
-  if (el.tagName !== 'INPUT' && el.tagName !== 'SELECT') return
-  if (!tableRef.value?.contains(el)) return
-
-  const pos = getCellPosition(el)
-  if (!pos) return
-
-  const cols = visibleColumns.value
-  const totalRows = sortedMessages.value.length
-  let { rowIdx, colIdx } = pos
-  let targetRow = rowIdx
-  let targetCol = colIdx
-
-  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-    if (el.tagName === 'INPUT') {
-      const supportsSelection = el.type === 'text' || el.type === 'search' || el.type === 'url' || el.type === 'tel' || el.type === 'password' || el.type === ''
-      if (supportsSelection) {
-        if (e.key === 'ArrowLeft' && el.selectionStart > 0) return
-        if (e.key === 'ArrowRight' && el.selectionEnd < el.value.length) return
-      }
-    }
-    const dir = e.key === 'ArrowLeft' ? -1 : 1
-    const nextCol = findNavigableCol(colIdx, dir)
-    if (nextCol < 0) return
-    targetCol = nextCol
-  }
-
-  if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-    const dir = e.key === 'ArrowUp' ? -1 : 1
-    targetRow = rowIdx + dir
-    if (targetRow < 0 || targetRow >= totalRows) return
-    if (NON_NAVIGABLE_COLS.has(cols[colIdx]?.key)) {
-      const nextCol = findNavigableCol(colIdx, 1)
-      if (nextCol < 0) return
-      targetCol = nextCol
-    }
-  }
-
-  e.preventDefault()
-  const target = getCellEditor(targetRow, targetCol)
-  if (!target) return
-  target.focus()
-  if (target.tagName === 'INPUT') target.select()
-  target.closest('tr')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
-  const targetMsg = sortedMessages.value[targetRow]
-  if (targetMsg) messages.selectMessage(targetMsg.id)
-}
+const { onCellKeyDown } = useTableNavigation(tableRef, visibleColumns, {
+  nonNavigableCols: new Set(['msg_edit_signals', 'msg_actions', 'msg_bit_usage']),
+  getTotalRows: () => sortedMessages.value.length,
+  isEditing: () => editingKey.value !== null,
+  onRowSelect: (rowIdx) => {
+    const msg = sortedMessages.value[rowIdx]
+    if (msg) messages.selectMessage(msg.id)
+  },
+})
 </script>
 
 <style scoped>
