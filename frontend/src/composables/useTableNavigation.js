@@ -158,7 +158,6 @@ export function useTableNavigation(tableRef, visibleColumns, {
     if (!target) return
 
     target.focus()
-    if (target.tagName === 'INPUT') target.select()
 
     // 确保目标行在视口内
     target.closest('tr')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
