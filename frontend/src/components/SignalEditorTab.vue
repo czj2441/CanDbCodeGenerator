@@ -40,7 +40,7 @@
       </div>
       <div v-else-if="signalCount === 0" class="empty" v-html="t('signal.empty')">
       </div>
-      <table v-else class="signal-table data-table" :class="{ 'data-table-readonly': store.readOnly }" ref="tableRef" @keydown="onCellKeyDown">
+      <table v-else class="signal-table data-table" :class="{ 'data-table-readonly': store.readOnly }" ref="tableRef" @keydown="onCellKeyDown" @focusout="onTableFocusOut">
         <colgroup>
           <col v-for="col in visibleColumns" :key="col.key"
                :style="{ width: normalizedPcts[col.key] + '%' }">
@@ -167,6 +167,17 @@ const editingKey = ref(null) // { sigName, field } | null
 function isCellEditable(sigName) {
   if (store.readOnly) return false
   return editingKey.value && editingKey.value.sigName === sigName
+}
+
+/** input type 是否支持 setSelectionRange / selectionStart */
+const SELECTION_TYPES = new Set(['text', 'search', 'url', 'tel', 'password', ''])
+
+/** 清除当前聚焦输入框的文本选中状态 */
+function clearInputSelection() {
+  const el = document.activeElement
+  if (el?.tagName === 'INPUT' && SELECTION_TYPES.has(el.type)) {
+    el.setSelectionRange(0, 0)
+  }
 }
 
 // 动态 tab 时优先使用 prop，fallback 到全局 selectedMsgId
@@ -309,6 +320,7 @@ function handleRowMouseDown(sigName, sigIndex, event) {
   if (event.ctrlKey || event.metaKey || event.shiftKey) {
     multiSelect.handleRowClick(sigName, sigIndex, event)
     editingKey.value = null
+    clearInputSelection()
     if (isInteractive) event.preventDefault()
     return
   }
@@ -325,6 +337,7 @@ function handleRowMouseDown(sigName, sigIndex, event) {
       const ek = editingKey.value
       if (ek && (ek.sigName !== sigName || ek.field !== targetEl.dataset.field)) {
         editingKey.value = null
+        clearInputSelection()
       }
     }
     if (ui.selectedSignalName !== sigName) {
@@ -333,6 +346,7 @@ function handleRowMouseDown(sigName, sigIndex, event) {
     multiSelect.handleRowClick(sigName, sigIndex, {})
   } else {
     editingKey.value = null
+    clearInputSelection()
     if (ui.selectedSignalName === sigName) {
       ui.selectedSignalName = null
     } else {
@@ -387,6 +401,13 @@ function onKeyDown(e) {
   } else if (e.key === 'a' && !isInput) {
     e.preventDefault()
     multiSelect.toggleAll()
+  }
+}
+
+/** 输入框失焦时清除文本选中，防止“虚假编辑”外观 */
+function onTableFocusOut(e) {
+  if (e.target.tagName === 'INPUT' && SELECTION_TYPES.has(e.target.type)) {
+    e.target.setSelectionRange(0, 0)
   }
 }
 

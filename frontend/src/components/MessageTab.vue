@@ -27,7 +27,7 @@
 
     <div class="table-wrap">
       <div v-if="messageCount === 0" class="empty">{{ t('msgtable.empty') }}</div>
-      <table v-else class="message-table data-table" :class="{ 'data-table-readonly': store.readOnly }" ref="tableRef" @keydown="onCellKeyDown">
+      <table v-else class="message-table data-table" :class="{ 'data-table-readonly': store.readOnly }" ref="tableRef" @keydown="onCellKeyDown" @focusout="onTableFocusOut">
         <colgroup>
           <col v-for="col in visibleColumns" :key="col.key"
                :style="{ width: normalizedPcts[col.key] + '%' }">
@@ -140,6 +140,17 @@ const editingKey = ref(null) // msgId | null
 function isCellEditable(msgId) {
   if (store.readOnly) return false
   return editingKey.value === msgId
+}
+
+/** input type 是否支持 setSelectionRange / selectionStart */
+const SELECTION_TYPES = new Set(['text', 'search', 'url', 'tel', 'password', ''])
+
+/** 清除当前聚焦输入框的文本选中状态 */
+function clearInputSelection() {
+  const el = document.activeElement
+  if (el?.tagName === 'INPUT' && SELECTION_TYPES.has(el.type)) {
+    el.setSelectionRange(0, 0)
+  }
 }
 
 // ── 报文数量 + 排序后的报文数组 ──
@@ -265,6 +276,7 @@ function handleRowMouseDown(msgId, msgIndex, event) {
   if (event.ctrlKey || event.metaKey || event.shiftKey) {
     multiSelect.handleRowClick(msgId, msgIndex, event)
     editingKey.value = null
+    clearInputSelection()
     if (isInteractive) event.preventDefault()
     return
   }
@@ -285,14 +297,23 @@ function handleRowMouseDown(msgId, msgIndex, event) {
       // 单击非当前编辑行时退出编辑模式
       if (editingKey.value !== null && editingKey.value !== msgId) {
         editingKey.value = null
+        clearInputSelection()
       }
     }
     messages.selectMessage(msgId)
     multiSelect.handleRowClick(msgId, msgIndex, {})
   } else {
     editingKey.value = null
+    clearInputSelection()
     messages.selectMessage(msgId)
     multiSelect.handleRowClick(msgId, msgIndex, {})
+  }
+}
+
+/** 输入框失焦时清除文本选中，防止“虚假编辑”外观 */
+function onTableFocusOut(e) {
+  if (e.target.tagName === 'INPUT' && SELECTION_TYPES.has(e.target.type)) {
+    e.target.setSelectionRange(0, 0)
   }
 }
 
