@@ -115,7 +115,7 @@
 .data-table select:focus {
   background: transparent;
   border: 1px dashed var(--border);
-  outline: 1px dashed var(--border);
+  outline: 4px dashed var(--border);
   outline-offset: -2px;
   box-shadow: none;
 }
