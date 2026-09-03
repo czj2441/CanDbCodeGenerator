@@ -18,7 +18,7 @@
  *   返回 false 表示权限不允许（如只读会话），此时不触发编辑。
  */
 
-import { nextTick } from 'vue'
+import { nextTick, watch } from 'vue'
 
 const NAV_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'])
 
@@ -75,6 +75,19 @@ export function useTableNavigation(tableRef, visibleColumns, {
     return -1
   }
 
+  /**
+   * 捕获阶段：仅阻止方向键原生行为（防止 select 切选项 / input 移光标）。
+   * 通过 addEventListener({ capture: true }) 注册，由 watch(tableRef) 管理生命周期。
+   */
+  function captureKeyDown(e) {
+    if (NAV_KEYS.has(e.key) && !isEditing()) {
+      const t = e.target
+      if ((t.tagName === 'INPUT' || t.tagName === 'SELECT') && tableRef.value?.contains(t)) {
+        e.preventDefault()
+      }
+    }
+  }
+
   function onCellKeyDown(e) {
     // ── 浏览模式 + 可打印字符 → 自动进入编辑模式 ──
     if (!isEditing() && onStartEdit && isPrintableChar(e)) {
@@ -117,8 +130,6 @@ export function useTableNavigation(tableRef, visibleColumns, {
     let targetCol = colIdx
 
     // ── 水平导航（左右） ──
-    // 浏览模式下所有 input 均为 readonly，方向键始终在单元格间跳转
-    // （编辑模式已在上方 isEditing() 守卫生效时提前返回）
     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
 
       const dir = e.key === 'ArrowLeft' ? -1 : 1
@@ -129,8 +140,6 @@ export function useTableNavigation(tableRef, visibleColumns, {
 
     // ── 垂直导航（上下） ──
     if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-      // select 元素：上下键同样导航（选项切换通过鼠标点击完成）
-
       const dir = e.key === 'ArrowUp' ? -1 : 1
       targetRow = rowIdx + dir
       if (targetRow < 0 || targetRow >= totalRows) return
@@ -143,12 +152,11 @@ export function useTableNavigation(tableRef, visibleColumns, {
       }
     }
 
-    e.preventDefault()
-
     // ── 聚焦目标 ──
     const target = getCellEditor(targetRow, targetCol)
     if (!target) return
 
+    e.preventDefault()
     target.focus()
 
     // 确保目标行在视口内
@@ -157,6 +165,12 @@ export function useTableNavigation(tableRef, visibleColumns, {
     // 同步行选中状态
     onRowSelect(targetRow)
   }
+
+  // ── 捕获监听器生命周期管理：响应 v-if 条件渲染导致的 tableRef 变化 ──
+  watch(tableRef, (newEl, oldEl) => {
+    oldEl?.removeEventListener('keydown', captureKeyDown, { capture: true })
+    newEl?.addEventListener('keydown', captureKeyDown, { capture: true })
+  })
 
   return { onCellKeyDown }
 }
