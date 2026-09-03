@@ -193,6 +193,10 @@ class ApiHandler(BaseHTTPRequestHandler):
                 user = self._require_admin()
                 if user:
                     self._get_admin_users()
+            elif parts == ["api", "admin", "online-users"]:
+                user = self._require_admin()
+                if user:
+                    self._get_admin_online_users()
             else:
                 self._serve_static()
         except Exception as e:
@@ -478,6 +482,55 @@ class ApiHandler(BaseHTTPRequestHandler):
         for u in users:
             u["file_count"] = len(AUTH_SERVICE._get_user_files(u["username"]))
         self._send_json(200, _resp(True, users))
+
+    def _get_admin_online_users(self) -> None:
+        """GET /api/admin/online-users — 列出所有在线 WS 连接。"""
+        transport = getattr(self.__class__, '_ws_transport', None)
+        if not transport:
+            self._send_json(503, _resp(False, error="WS transport not available"))
+            return
+
+        # 1. 快照连接元数据（WsTransport._lock 保护）
+        conn_meta = transport.get_conn_meta_snapshot()
+
+        # 2. 快照 session 数据 + 心跳（SessionManager._lock 保护）
+        sessions_snapshot = {}
+        heartbeats_snapshot = {}
+        if SESSION_MGR:
+            with SESSION_MGR._lock:
+                for sid, s in SESSION_MGR._sessions.items():
+                    sessions_snapshot[sid] = {
+                        "file_name": os.path.basename(s.file_path),
+                        "is_viewer": s.is_viewer,
+                    }
+                heartbeats_snapshot = dict(SESSION_MGR._file_lock._heartbeats)
+
+        # 3. 聚合结果（锁外执行）
+        online_users = []
+        for sid, meta in conn_meta.items():
+            is_anon = sid.startswith("__anon_")
+            session_info = sessions_snapshot.get(sid, {})
+
+            if is_anon:
+                session_type = "浏览文件"
+                file_name = "—"
+                last_activity = meta.get("last_activity", 0)
+            else:
+                session_type = "viewer" if session_info.get("is_viewer") else "editor"
+                file_name = session_info.get("file_name", "—")
+                last_activity = heartbeats_snapshot.get(sid, meta.get("last_activity", 0))
+
+            online_users.append({
+                "session_id": sid[:8],
+                "username": meta.get("username", ""),
+                "ip": meta.get("ip", ""),
+                "last_activity": last_activity,
+                "file_name": file_name,
+                "session_type": session_type,
+            })
+
+        online_users.sort(key=lambda u: u["last_activity"], reverse=True)
+        self._send_json(200, _resp(True, online_users))
 
     def _post_admin_create_user(self) -> None:
         """POST /api/admin/users — 创建用户。"""

@@ -67,6 +67,7 @@ class WsServer:
                 await ws.close(4010, "auth_required")
                 return
             username = user_info["username"]
+            client_ip = ws.remote_address[0] if ws.remote_address else ""
 
             sm = get_session_manager()
 
@@ -82,7 +83,7 @@ class WsServer:
 
             # ── 注册 + full_sync ──
             if session_id:
-                self._transport.register(session_id, ws)
+                self._transport.register(session_id, ws, username=username, ip=client_ip)
                 sm.update_heartbeat(session_id)
                 logger.info("WS connected: session=%s", session_id[:8])
                 # 发送服务端版本号（前端用于校验）
@@ -92,7 +93,7 @@ class WsServer:
                 # 无 session_id 的连接（如 FileBrowser 观察者），
                 # 分配匿名 ID 并注册到 transport，使其能收到 broadcast_all 广播
                 session_id = f"__anon_{uuid.uuid4().hex[:8]}"
-                self._transport.register(session_id, ws)
+                self._transport.register(session_id, ws, username=username, ip=client_ip)
                 logger.info("WS connected: anonymous observer (%s)", session_id)
 
             # ── 消息循环 ──
@@ -112,6 +113,7 @@ class WsServer:
                     try:
                         await ws.send(json.dumps({"type": "pong", "data": VERSION}))
                         sm.update_heartbeat(session_id)
+                        self._transport.update_activity(session_id)
                     except Exception as e:
                         logger.error("WS ping handler error: %s", e)
 
@@ -125,7 +127,7 @@ class WsServer:
                         sm.release_session(session_id, abort=True)  # 立即释放旧 session 文件锁
                         logger.info("WS session switch: %s -> %s", session_id[:8], result.new_session_id[:8])
                         session_id = result.new_session_id
-                        self._transport.register(session_id, ws)
+                        self._transport.register(session_id, ws, username=username, ip=client_ip)
                         sm.update_heartbeat(session_id)
                         # session 切换后自动发送 full_sync
                         await self._send_full_sync(ws, session_id)

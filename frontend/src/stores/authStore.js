@@ -180,5 +180,12 @@ export const useAuthStore = defineStore('auth', {
       if (!json.success) throw new Error(json.error || '获取文件权限失败')
       return json.data
     },
+
+    async fetchOnlineUsers() {
+      const resp = await _fetch('/api/admin/online-users')
+      const json = await resp.json()
+      if (!json.success) throw new Error(json.error || '获取在线用户失败')
+      return json.data
+    },
   },
 })

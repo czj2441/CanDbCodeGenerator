@@ -128,15 +128,23 @@ class WsTransport:
         self.port = port
         self.loop: asyncio.AbstractEventLoop | None = None
         self._clients: dict[str, set] = {}  # session_id → {ws}
+        self._session_meta: dict[str, dict] = {}  # session_id → {username, ip, connected_at, last_activity}
         self._lock = threading.Lock()
         self.diag = diagnostics or WsDiagnostics(enabled=False)
 
     # ── 连接管理 ──
 
-    def register(self, session_id: str, ws):
-        """注册连接到指定 session。"""
+    def register(self, session_id: str, ws, *, username: str = "", ip: str = ""):
+        """注册连接到指定 session，同时记录用户元数据。"""
+        now = time.time()
         with self._lock:
             self._clients.setdefault(session_id, set()).add(ws)
+            self._session_meta.setdefault(session_id, {
+                "username": username,
+                "ip": ip,
+                "connected_at": now,
+                "last_activity": now,
+            })
         with self.diag._counter_lock:
             self.diag.connects += 1
         self.diag.info("ws_connect", session=session_id[:8])
@@ -149,9 +157,24 @@ class WsTransport:
                 clients.discard(ws)
                 if not clients:
                     del self._clients[session_id]
+                    self._session_meta.pop(session_id, None)
         with self.diag._counter_lock:
             self.diag.disconnects += 1
         self.diag.info("ws_disconnect", session=session_id[:8])
+
+    # ── 连接元数据 ──
+
+    def update_activity(self, session_id: str):
+        """更新 session 的最后活跃时间（心跳时调用）。"""
+        with self._lock:
+            meta = self._session_meta.get(session_id)
+            if meta:
+                meta["last_activity"] = time.time()
+
+    def get_conn_meta_snapshot(self) -> dict[str, dict]:
+        """返回所有活跃连接元数据的浅拷贝快照（线程安全）。"""
+        with self._lock:
+            return {sid: dict(meta) for sid, meta in self._session_meta.items()}
 
     # ── 单播（请求-响应） ──
 
@@ -224,6 +247,7 @@ class WsTransport:
         for sid in all_sids:
             with self._lock:
                 clients = self._clients.pop(sid, set())
+                self._session_meta.pop(sid, None)
             for ws in clients:
                 try:
                     asyncio.run_coroutine_threadsafe(

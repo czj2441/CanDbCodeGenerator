@@ -80,6 +80,9 @@
             <div v-if="authStore.isAdmin" class="user-menu-item" @click="userMgmtOpen = true; userMenuOpen = false">
               用户管理
             </div>
+            <div v-if="authStore.isAdmin" class="user-menu-item" @click="onlineUsersOpen = true; userMenuOpen = false">
+              在线用户
+            </div>
             <div class="user-menu-item" @click="changePwdOpen = true; userMenuOpen = false">
               修改密码
             </div>
@@ -406,6 +409,9 @@
     <!-- 修改密码 Modal -->
     <ChangePasswordModal v-model:visible="changePwdOpen" />
 
+    <!-- 在线用户 Modal -->
+    <OnlineUsersModal v-model:visible="onlineUsersOpen" />
+
     <!-- 退出登录确认 -->
     <Teleport to="body">
       <Transition name="fade">
@@ -436,6 +442,7 @@ import { FilePlus, Upload, Trash2, Wrench, KeyRound, LogOut, ChevronDown, Moon, 
 import ConnectionStatus from './ConnectionStatus.vue'
 import UserManagementModal from './UserManagementModal.vue'
 import ChangePasswordModal from './ChangePasswordModal.vue'
+import OnlineUsersModal from './OnlineUsersModal.vue'
 
 const manualVersion = typeof __MANUAL_VERSION__ !== 'undefined' ? __MANUAL_VERSION__ : 'dev'
 const autoVersion = typeof __AUTO_VERSION__ !== 'undefined' ? __AUTO_VERSION__ : 'dev'
@@ -467,6 +474,7 @@ const transferOwnerTarget = ref('')
 const userList = ref([])  // 管理员获取的用户列表
 const userMgmtOpen = ref(false)  // 用户管理 Modal
 const changePwdOpen = ref(false)    // 修改密码 Modal
+const onlineUsersOpen = ref(false)  // 在线用户 Modal
 const userMenuOpen = ref(false)     // 用户下拉菜单
 const logoutConfirmOpen = ref(false) // 退出确认对话框
 
@@ -490,11 +498,12 @@ let _loadPromise = null    // loadFiles 请求去重
 let _lastErrorToast = 0    // 错误 toast 节流时间戳
 let _browserFailCount = 0  // 连续断连次数（用于 offline→dead 升级）
 
-// Escape 键关闭模态框（优先级：logoutConfirm > userMenu > transferOwnerModal > contextMenu > stealModal > deleteModal > newFileModal > importConfirm）
+// Escape 键关闭模态框（优先级：logoutConfirm > userMenu > onlineUsers > transferOwnerModal > contextMenu > stealModal > deleteModal > newFileModal > importConfirm）
 function handleKeydown(e) {
   if (e.key !== 'Escape') return
   if (logoutConfirmOpen.value) { logoutConfirmOpen.value = false; return }
   if (userMenuOpen.value) { userMenuOpen.value = false; return }
+  if (onlineUsersOpen.value) { onlineUsersOpen.value = false; return }
   if (transferOwnerModalOpen.value) { closeTransferOwnerModal(); return }
   if (contextMenuOpen.value) { contextMenuOpen.value = false; return }
   if (stealModalOpen.value) { closeStealModal(); return }
