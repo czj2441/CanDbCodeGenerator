@@ -111,6 +111,14 @@
   cursor: default;
   caret-color: transparent;
 }
+.data-table input[readonly]:focus,
+.data-table select:focus {
+  background: transparent;
+  border: 1px dashed var(--border);
+  outline: 1px dashed var(--border);
+  outline-offset: -2px;
+  box-shadow: none;
+}
 .data-table input[type="number"]::-webkit-inner-spin-button,
 .data-table input[type="number"]::-webkit-outer-spin-button {
   -webkit-appearance: none;
@@ -121,11 +129,13 @@
 }
 
 /* ── 9. 只读模式 ── */
-.data-table-readonly input {
+.data-table-readonly input,
+.data-table-readonly select {
   pointer-events: none;
   user-select: none;
 }
-.data-table-readonly input:focus {
+.data-table-readonly input:focus,
+.data-table-readonly select:focus {
   background: transparent;
   border-color: transparent;
   box-shadow: none;
