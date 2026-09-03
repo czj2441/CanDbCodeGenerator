@@ -4,6 +4,9 @@
  * 提取自 SignalEditorTab / MessageTab / ValueTableTab 共用的方向键导航逻辑。
  * 编辑模式（isEditing 返回 true）时方向键保留在当前元素内，不触发单元格跳转。
  * 浏览模式下按下可打印字符键时，自动进入编辑模式（类 Excel 行为）。
+ * 浏览模式下按 F2 或 Enter 进入编辑模式（光标置于末尾，不替换值）。
+ * 编辑模式下按 Enter 确认当前编辑并移动到同列下一行（最后一行仅确认）。
+ * 编辑模式下 F2 无操作。
  * 调用方通过回调函数注入数据访问，composable 不直接依赖任何 store。
  *
  * @param {import('vue').Ref<HTMLTableElement|null>} tableRef - 表格 DOM 引用
@@ -16,6 +19,8 @@
  * @param {(el: HTMLInputElement, rowIdx: number, colIdx: number, char: string) => boolean} [options.onStartEdit]
  *   浏览模式下按下可打印字符时调用，进入编辑模式。
  *   返回 false 表示权限不允许（如只读会话），此时不触发编辑。
+ * @param {() => void} [options.onEndEdit]
+ *   编辑模式下 Enter 确认时调用，清除编辑状态（如 editingKey.value = null）。
  */
 
 import { nextTick, watch } from 'vue'
@@ -38,6 +43,7 @@ export function useTableNavigation(tableRef, visibleColumns, {
   isEditing,
   onRowSelect,
   onStartEdit,
+  onEndEdit,
 }) {
   /** 从当前 DOM 元素定位所在行列索引 */
   function getCellPosition(el) {
@@ -89,6 +95,57 @@ export function useTableNavigation(tableRef, visibleColumns, {
   }
 
   function onCellKeyDown(e) {
+    // ── 编辑模式 + Enter → 确认并移至下一行同列 ──
+    if (e.key === 'Enter' && isEditing()) {
+      const el = e.target
+      if ((el.tagName === 'INPUT' || el.tagName === 'SELECT') && tableRef.value?.contains(el)) {
+        e.preventDefault()
+        const td = el.closest('td')
+        const tr = td?.parentElement
+        const colIdx = td?.cellIndex
+        if (!tr || colIdx == null) return
+
+        // 1) blur 触发 @blur 保存（此时 editingKey 仍有效，isCellEditable 为 true）
+        if (el.tagName === 'INPUT') el.blur()
+        // 2) 清除编辑状态（可选回调，组件通过 onEndEdit 注入）
+        onEndEdit?.()
+        // 3) 焦点移至同列下一行（最后一行仅确认不下移）
+        nextTick(() => {
+          const nextTr = tr.nextElementSibling
+          if (!nextTr || nextTr.tagName !== 'TR') return
+          const nextEl = nextTr.cells[colIdx]?.querySelector('input, select')
+          if (!nextEl) return
+          nextEl.focus()
+          nextEl.closest('tr')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+          const tbody = tableRef.value?.tBodies[0]
+          if (tbody) {
+            const nextRowIdx = Array.from(tbody.children).indexOf(nextTr)
+            if (nextRowIdx >= 0) onRowSelect(nextRowIdx)
+          }
+        })
+        return
+      }
+    }
+
+    // ── 浏览模式 + F2/Enter → 进入编辑模式（光标置于末尾）──
+    if (!isEditing() && onStartEdit && (e.key === 'F2' || e.key === 'Enter')) {
+      const el = e.target
+      if (el.tagName === 'INPUT' && el.readOnly && tableRef.value?.contains(el)) {
+        const pos = getCellPosition(el)
+        if (pos && !nonNavigableCols.has(visibleColumns.value[pos.colIdx]?.key)) {
+          if (onStartEdit(el, pos.rowIdx, pos.colIdx, '') === false) return
+          e.preventDefault()
+          nextTick(() => {
+            try {
+              const len = el.value.length
+              el.setSelectionRange(len, len)
+            } catch { /* type="number" 等不支持 setSelectionRange */ }
+          })
+          return
+        }
+      }
+    }
+
     // ── 浏览模式 + 可打印字符 → 自动进入编辑模式 ──
     if (!isEditing() && onStartEdit && isPrintableChar(e)) {
       const el = e.target

@@ -54,7 +54,6 @@
                 <template v-if="col.key === 'vt_name'">
                   <input v-lazy-value="name"
                          @blur="e => commitRename(name, e)"
-                         @keydown.enter.prevent="$event.target.blur()"
                          @keydown.escape.prevent="cancelRename(name, $event)"
                          :readonly="editingName !== name || editor.readOnly">
                 </template>
@@ -225,6 +224,7 @@ const { onCellKeyDown } = useTableNavigation(tableRef, visibleColumns, {
     if (!name) return false
     editingName.value = name
   },
+  onEndEdit: () => { editingName.value = null },
 })
 
 // ── 新增表 ──

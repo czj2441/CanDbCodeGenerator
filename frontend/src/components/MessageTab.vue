@@ -414,6 +414,7 @@ const { onCellKeyDown } = useTableNavigation(tableRef, visibleColumns, {
     if (!msgId) return false
     editingKey.value = msgId
   },
+  onEndEdit: () => { editingKey.value = null },
 })
 </script>
 

@@ -490,6 +490,7 @@ const { onCellKeyDown } = useTableNavigation(tableRef, visibleColumns, {
     if (!sigName || !field) return false
     editingKey.value = { sigName, field }
   },
+  onEndEdit: () => { editingKey.value = null },
 })
 </script>
 
