@@ -172,12 +172,11 @@ function isCellEditable(sigName) {
 /** input type 是否支持 setSelectionRange / selectionStart */
 const SELECTION_TYPES = new Set(['text', 'search', 'url', 'tel', 'password', ''])
 
-/** 清除当前聚焦输入框的文本选中状态 */
-function clearInputSelection() {
+/** 提交当前编辑并退出编辑模式：先 blur 触发 @blur 保存，再清除编辑状态 */
+function commitAndExitEdit() {
   const el = document.activeElement
-  if (el?.tagName === 'INPUT' && SELECTION_TYPES.has(el.type)) {
-    el.setSelectionRange(0, 0)
-  }
+  if (el?.tagName === 'INPUT') el.blur()
+  editingKey.value = null
 }
 
 // 动态 tab 时优先使用 prop，fallback 到全局 selectedMsgId
@@ -313,18 +312,16 @@ function handleRowMouseDown(sigName, sigIndex, event) {
 
   const isCheckbox = targetEl.type === 'checkbox'
 
-  // Checkbox 点击：清除编辑模式，不干扰多选状态，交给 @change 处理
+  // Checkbox 点击：提交当前编辑并退出，不干扰多选状态，交给 @change 处理
   if (isCheckbox) {
-    editingKey.value = null
-    clearInputSelection()
+    commitAndExitEdit()
     return
   }
 
   // Ctrl/Shift + Click → 多选（preventDefault 阻止浏览器聚焦 input，避免进入编辑状态）
   if (event.ctrlKey || event.metaKey || event.shiftKey) {
     multiSelect.handleRowClick(sigName, sigIndex, event)
-    editingKey.value = null
-    clearInputSelection()
+    commitAndExitEdit()
     if (isInteractive) event.preventDefault()
     return
   }
@@ -335,13 +332,14 @@ function handleRowMouseDown(sigName, sigIndex, event) {
   // 点击输入/选择元素 → 双击进入编辑模式
   if (isInteractive) {
     if (event.detail >= 2) {
+      // 双击新单元格前，先提交上一个编辑
+      if (editingKey.value) commitAndExitEdit()
       editingKey.value = { sigName, field: targetEl.dataset.field }
     } else {
-      // 单击非当前编辑单元格时退出编辑模式
+      // 单击非当前编辑单元格时提交并退出编辑模式
       const ek = editingKey.value
       if (ek && (ek.sigName !== sigName || ek.field !== targetEl.dataset.field)) {
-        editingKey.value = null
-        clearInputSelection()
+        commitAndExitEdit()
       }
     }
     if (ui.selectedSignalName !== sigName) {
@@ -349,8 +347,7 @@ function handleRowMouseDown(sigName, sigIndex, event) {
     }
     multiSelect.handleRowClick(sigName, sigIndex, {})
   } else {
-    editingKey.value = null
-    clearInputSelection()
+    commitAndExitEdit()
     if (ui.selectedSignalName === sigName) {
       ui.selectedSignalName = null
     } else {
