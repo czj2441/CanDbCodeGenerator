@@ -23,9 +23,11 @@ export const useMessagesStore = defineStore('messages', {
 
     /**
      * 选中报文
+     * 如果已选中同一报文且缓存存在，跳过重复的 get_message 请求
      */
     selectMessage(id) {
       const editor = useCoreStore()
+      if (editor.selectedMsgId === id && editor.messageCache[id] != null) return
       editor.selectedMsgId = id
       this.loadSelectedMessage()
     },
@@ -39,6 +41,7 @@ export const useMessagesStore = defineStore('messages', {
       try {
         editor.messageCache[editor.selectedMsgId] = await editor._wsRequest('get_message', { msg_id: editor.selectedMsgId })
       } catch (e) {
+        delete editor.messageCache[editor.selectedMsgId]  // 清除可能过期的缓存，确保下次 selectMessage 会重新拉取
         useUiStore().showToast(e.message, true)
       }
     },
@@ -105,6 +108,7 @@ export const useMessagesStore = defineStore('messages', {
             editor.selectedMsgId = result.id
           }
         }
+        // 先更新缓存（处理 ID 变更等非选中报文场景）
         if (result) {
           const cacheId = result?.id != null ? result.id : targetId
           editor.messageCache[cacheId] = result
