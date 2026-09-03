@@ -64,12 +64,6 @@ export function useTableNavigation(tableRef, visibleColumns, {
     return cell.querySelector('input, select')
   }
 
-  /** 判断 input 类型是否支持 setSelectionRange / selectionStart */
-  function supportsSelection(el) {
-    const t = el.type
-    return t === 'text' || t === 'search' || t === 'url' || t === 'tel' || t === 'password' || t === ''
-  }
-  
   /** 从当前列出发，沿 direction 方向查找下一个可导航列 */
   function findNavigableCol(colIdx, direction) {
     const cols = visibleColumns.value
@@ -113,11 +107,6 @@ export function useTableNavigation(tableRef, visibleColumns, {
     if (el.tagName !== 'INPUT' && el.tagName !== 'SELECT') return
     if (!tableRef.value?.contains(el)) return
 
-    // 方向键导航前清除残留的文本选中状态（number 等类型不支持 setSelectionRange）
-    if (el.tagName === 'INPUT' && supportsSelection(el)) {
-      el.setSelectionRange(0, 0)
-    }
-
     const pos = getCellPosition(el)
     if (!pos) return
 
@@ -128,16 +117,9 @@ export function useTableNavigation(tableRef, visibleColumns, {
     let targetCol = colIdx
 
     // ── 水平导航（左右） ──
+    // 浏览模式下所有 input 均为 readonly，方向键始终在单元格间跳转
+    // （编辑模式已在上方 isEditing() 守卫生效时提前返回）
     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-      // 对 input：仅在光标处于边界时才导航
-      if (el.tagName === 'INPUT') {
-        // type="number" 等不支持 selectionStart/End，无光标概念，始终允许导航
-        if (supportsSelection(el)) {
-          if (e.key === 'ArrowLeft' && el.selectionStart > 0) return
-          if (e.key === 'ArrowRight' && el.selectionEnd < el.value.length) return
-        }
-      }
-      // select 元素：左右键同样导航（选项切换通过鼠标点击完成）
 
       const dir = e.key === 'ArrowLeft' ? -1 : 1
       const nextCol = findNavigableCol(colIdx, dir)

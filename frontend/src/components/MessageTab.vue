@@ -269,8 +269,12 @@ function handleRowMouseDown(msgId, msgIndex, event) {
 
   const isCheckbox = targetEl.type === 'checkbox'
 
-  // Checkbox 点击：不干扰多选状态，交给 @change 处理
-  if (isCheckbox) return
+  // Checkbox 点击：清除编辑模式，不干扰多选状态，交给 @change 处理
+  if (isCheckbox) {
+    editingKey.value = null
+    clearInputSelection()
+    return
+  }
 
   // Ctrl/Shift + Click → 多选（preventDefault 阻止浏览器聚焦 input，避免进入编辑状态）
   if (event.ctrlKey || event.metaKey || event.shiftKey) {
@@ -394,7 +398,7 @@ function jumpToSignals(id) {
 
 // ── 方向键单元格导航 ──
 const { onCellKeyDown } = useTableNavigation(tableRef, visibleColumns, {
-  nonNavigableCols: new Set(['msg_edit_signals', 'msg_actions', 'msg_bit_usage']),
+  nonNavigableCols: new Set(['_cb', 'msg_edit_signals', 'msg_actions', 'msg_bit_usage']),
   getTotalRows: () => sortedMessages.value.length,
   isEditing: () => editingKey.value !== null,
   onRowSelect: (rowIdx) => {
