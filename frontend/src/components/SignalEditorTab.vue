@@ -364,10 +364,13 @@ function onKeyDown(e) {
   const isInput = e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable
   const ctrl = e.ctrlKey || e.metaKey
 
-  // Escape 退出编辑模式
+  // Escape 退出编辑模式但保持焦点
   if (e.key === 'Escape' && isInput && editingKey.value) {
     editingKey.value = null
-    e.target.blur()
+    // 还原输入值到 store 原始值，但不失去焦点
+    if (e.target.__lastCommitted !== undefined) {
+      e.target.value = String(e.target.__lastCommitted ?? '')
+    }
     e.preventDefault()
     return
   }
