@@ -70,27 +70,43 @@ class ApiHandler(BaseHTTPRequestHandler):
     # ── 认证辅助 ──
 
     def _authenticate(self) -> dict | None:
-        """从 Authorization 头提取 token 并验证。返回 {username, role} 或 None。"""
+        """从 Authorization 头提取 token 并验证（会话 token 或 PAT）。
+
+        返回 {username, role, auth_type} 或 None。
+        """
         auth_header = self.headers.get("Authorization", "")
         if not auth_header.startswith("Bearer "):
             return None
         token = auth_header[7:]
         if not AUTH_SERVICE:
             return None
-        return AUTH_SERVICE.validate_token(token)
+        return AUTH_SERVICE.validate_token_or_pat(token)
 
     def _require_auth(self) -> dict | None:
-        """要求认证，失败时自动发送 401 响应并返回 None。"""
+        """要求认证（会话 token 或 PAT），失败时自动发送 401 响应并返回 None。"""
         user = self._authenticate()
         if not user:
             self._send_json(401, _resp(False, error="认证失败，请重新登录"))
             return None
         return user
 
-    def _require_admin(self) -> dict | None:
-        """要求 admin 角色，失败时自动发送 403 响应并返回 None。"""
+    def _require_session_auth(self) -> dict | None:
+        """要求会话 token 认证。PAT → 403，未认证 → 401，均返回 None。"""
         user = self._require_auth()
-        if user and not AUTH_SERVICE.is_admin(user["username"]):
+        if user and user.get("auth_type") != "session":
+            self._send_json(403, _resp(False, error="此操作不支持个人访问令牌"))
+            return None
+        return user
+
+    def _require_admin(self) -> dict | None:
+        """要求 admin 角色 + 会话 token，失败时自动发送 403 响应并返回 None。"""
+        user = self._require_auth()
+        if not user:
+            return None
+        if user.get("auth_type") != "session":
+            self._send_json(403, _resp(False, error="此操作不支持个人访问令牌"))
+            return None
+        if not AUTH_SERVICE.is_admin(user["username"]):
             self._send_json(403, _resp(False, error="仅管理员可执行此操作"))
             return None
         return user
@@ -186,6 +202,10 @@ class ApiHandler(BaseHTTPRequestHandler):
             # 认证路由
             elif parts == ["api", "me"]:
                 self._get_me()
+            elif parts == ["api", "tokens"]:
+                user = self._require_session_auth()
+                if user:
+                    self._get_tokens(user)
             elif parts == ["api", "file-permission"]:
                 self._get_file_permission()
             # 管理员路由
@@ -223,6 +243,10 @@ class ApiHandler(BaseHTTPRequestHandler):
                 self._post_logout()
             elif parts == ["api", "change-password"]:
                 self._post_change_password()
+            elif parts == ["api", "tokens"]:
+                user = self._require_session_auth()
+                if user:
+                    self._post_tokens(user)
             elif parts == ["api", "admin", "users"]:
                 user = self._require_admin()
                 if user:
@@ -277,7 +301,11 @@ class ApiHandler(BaseHTTPRequestHandler):
         self._last_status = 200
         try:
             parts = self._path_parts()
-            if len(parts) == 4 and parts[:3] == ["api", "admin", "users"]:
+            if len(parts) == 3 and parts[:2] == ["api", "tokens"]:
+                user = self._require_session_auth()
+                if user:
+                    self._delete_tokens(parts[2], user)
+            elif len(parts) == 4 and parts[:3] == ["api", "admin", "users"]:
                 user = self._require_admin()
                 if user:
                     self._delete_admin_user(parts[3], user["username"])
@@ -425,7 +453,10 @@ class ApiHandler(BaseHTTPRequestHandler):
         }))
 
     def _post_logout(self) -> None:
-        """POST /api/logout — 用户登出。"""
+        """POST /api/logout — 用户登出（仅会话 token，拒绝 PAT）。"""
+        user = self._require_session_auth()
+        if not user:
+            return
         auth_header = self.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
             AUTH_SERVICE.revoke_token(auth_header[7:])
@@ -448,8 +479,8 @@ class ApiHandler(BaseHTTPRequestHandler):
         self._send_json(200, _resp(True, user_data))
 
     def _post_change_password(self) -> None:
-        """POST /api/change-password — 修改密码。"""
-        user = self._require_auth()
+        """POST /api/change-password — 修改密码（仅会话 token，拒绝 PAT）。"""
+        user = self._require_session_auth()
         if not user:
             return
         try:
@@ -472,6 +503,47 @@ class ApiHandler(BaseHTTPRequestHandler):
         # 密码修改成功后重新签发 token
         new_token = AUTH_SERVICE.create_token(user["username"])
         self._send_json(200, _resp(True, {"token": new_token}))
+
+    # ── PAT 自助端点（仅会话 token） ──
+
+    def _get_tokens(self, user: dict) -> None:
+        """GET /api/tokens — 列出当前用户的 PAT。"""
+        self._send_json(200, _resp(True, AUTH_SERVICE.list_pats(user["username"])))
+
+    def _post_tokens(self, user: dict) -> None:
+        """POST /api/tokens — 创建 PAT。
+
+        body: {"name": str(1..64), "expires_days": int | null}（int 时 1..3650）。
+        """
+        try:
+            body = self._read_json_body()
+        except Exception:
+            self._send_json(400, _resp(False, error="无效的请求体"))
+            return
+        if not isinstance(body, dict):
+            self._send_json(400, _resp(False, error="无效的请求体"))
+            return
+        name = body.get("name")
+        if not isinstance(name, str) or not 1 <= len(name) <= 64:
+            self._send_json(400, _resp(False, error="name 必须是 1..64 个字符的字符串"))
+            return
+        expires_days = body.get("expires_days")
+        if expires_days is not None and (
+            isinstance(expires_days, bool)
+            or not isinstance(expires_days, int)
+            or not 1 <= expires_days <= 3650
+        ):
+            self._send_json(400, _resp(False, error="expires_days 必须是 null 或 1..3650 的整数"))
+            return
+        result = AUTH_SERVICE.create_pat(user["username"], name, expires_days)
+        self._send_json(200, _resp(True, result))
+
+    def _delete_tokens(self, token_id: str, user: dict) -> None:
+        """DELETE /api/tokens/{id} — 吊销当前用户的 PAT。"""
+        if AUTH_SERVICE.revoke_pat(user["username"], token_id):
+            self._send_json(200, _resp(True))
+        else:
+            self._send_json(404, _resp(False, error="令牌不存在"))
 
     # ── 管理员端点 ──
 
@@ -613,8 +685,8 @@ class ApiHandler(BaseHTTPRequestHandler):
         self._send_json(200, _resp(True, {"file_name": file_name, "owner": new_owner}))
 
     def _get_file_permission(self) -> None:
-        """GET /api/file-permission?file=xxx — 获取文件所有者信息。"""
-        user = self._require_auth()
+        """GET /api/file-permission?file=xxx — 获取文件所有者信息（仅会话 token，拒绝 PAT）。"""
+        user = self._require_session_auth()
         if not user:
             return
         parsed = urllib.parse.urlparse(self.path)
