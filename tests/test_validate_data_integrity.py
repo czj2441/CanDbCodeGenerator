@@ -7,9 +7,11 @@ from app.models.signal import Signal
 
 
 def _make_msg(msg_id: int, name: str = "TestMsg", dlc: int = 8,
-              signals: list[Signal] | None = None) -> Message:
-    """创建测试报文。"""
-    msg = Message(id=msg_id, name=name, dlc=dlc, signals=signals or [])
+              signals: list[Signal] | dict[str, Signal] | None = None) -> Message:
+    """创建测试报文。signals 支持 list（按信号名转 dict）或显式 dict（如构造重名信号）。"""
+    if isinstance(signals, list):
+        signals = {s.name: s for s in signals}
+    msg = Message(id=msg_id, name=name, dlc=dlc, signals=signals or {})
     return msg
 
 
@@ -62,10 +64,11 @@ class TestFullValidateBaseline:
     def test_signal_name_duplicate(self):
         """重复信号名应检测到 signal_name_duplicate。"""
         db = CanDatabase()
-        db.add_message(_make_msg(0x100, "Msg", 8, [
-            _make_sig("DupSig", 0, 8),
-            _make_sig("DupSig", 8, 8),
-        ]))
+        # dict 按 key 区分信号；两个信号 name 相同 → 触发 signal_name_duplicate
+        db.add_message(_make_msg(0x100, "Msg", 8, {
+            "dup_a": _make_sig("DupSig", 0, 8),
+            "dup_b": _make_sig("DupSig", 8, 8),
+        }))
         errors = db.full_validate()
         assert any(e["type"] == "signal_name_duplicate" for e in errors)
 
@@ -135,7 +138,7 @@ class TestFullValidateBaseline:
         assert len(db._validation_cache[0x100]) == 1  # factor_zero
 
         # 修复错误后全量扫描应重建缓存
-        db.messages[0x100].signals[0].factor = 1.0
+        db.messages[0x100].signals["S"].factor = 1.0
         errors = db.full_validate()
         assert errors == []
         assert db._validation_cache[0x100] == []
@@ -153,7 +156,7 @@ class TestIncrementalValidation:
         db.full_validate()
 
         # 编辑信号：设置 factor=0 制造错误
-        db.messages[0x100].signals[0].factor = 0
+        db.messages[0x100].signals["S1"].factor = 0
         incremental = db.validate_data_integrity({0x100})
         full = db.full_validate()
         assert _error_types(incremental) == _error_types(full)
@@ -167,7 +170,7 @@ class TestIncrementalValidation:
 
         # 添加重叠信号
         new_sig = _make_sig("Overlap", 4, 8)
-        db.messages[0x100].signals.append(new_sig)
+        db.messages[0x100].signals[new_sig.name] = new_sig
         incremental = db.validate_data_integrity({0x100})
         full = db.full_validate()
         assert _error_types(incremental) == _error_types(full)
@@ -193,7 +196,7 @@ class TestIncrementalValidation:
         db.full_validate()
 
         # 修改多个报文
-        db.messages[0x100].signals[0].factor = 0
+        db.messages[0x100].signals["S0"].factor = 0
         db.messages[0x105].name = ""
         incremental = db.validate_data_integrity({0x100, 0x105})
         full = db.full_validate()
@@ -241,7 +244,7 @@ class TestFallbackOnDeletedMsgId:
         db.full_validate()
 
         # 修改 0x200
-        db.messages[0x200].signals[0].factor = 0  # 制造错误
+        db.messages[0x200].signals["S2"].factor = 0  # 制造错误
         # 仅传 0x200（存在）→ 增量模式
         errors = db.validate_data_integrity({0x200})
         assert any(e["type"] == "factor_zero" and e["msg_id"] == 0x200 for e in errors)
@@ -256,7 +259,7 @@ class TestCacheConsistency:
         db.add_message(_make_msg(0x100, "Msg1", 8, [_make_sig("S", 0, 8)]))
         db.full_validate()
 
-        db.messages[0x100].signals[0].factor = 0
+        db.messages[0x100].signals["S"].factor = 0
         incremental = db.validate_data_integrity({0x100})
         full = db.full_validate()
         assert _error_types(incremental) == _error_types(full)
@@ -290,7 +293,7 @@ class TestCacheConsistency:
         db.add_message(_make_msg(0x100, "Msg", 8, [_make_sig("S", factor=0)]))
         db.full_validate()
         # 修复
-        db.messages[0x100].signals[0].factor = 1.0
+        db.messages[0x100].signals["S"].factor = 1.0
         # 缓存仍有旧的 factor_zero 错误
         # 但 full_validate 应返回空
         export_errors = db.validate_for_dbc_export()
