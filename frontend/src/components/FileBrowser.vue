@@ -86,6 +86,9 @@
             <div class="user-menu-item" @click="changePwdOpen = true; userMenuOpen = false">
               修改密码
             </div>
+            <div class="user-menu-item" @click="tokensOpen = true; userMenuOpen = false">
+              {{ t('tokens.title') }}
+            </div>
             <div class="user-menu-divider"></div>
             <div class="user-menu-item user-menu-danger" @click="requestLogout">
               退出登录
@@ -409,6 +412,9 @@
     <!-- 修改密码 Modal -->
     <ChangePasswordModal v-model:visible="changePwdOpen" />
 
+    <!-- 访问令牌 Modal -->
+    <TokenManagementModal v-model:visible="tokensOpen" />
+
     <!-- 在线用户 Modal -->
     <OnlineUsersModal v-model:visible="onlineUsersOpen" />
 
@@ -442,6 +448,7 @@ import { FilePlus, Upload, Trash2, Wrench, KeyRound, LogOut, ChevronDown, Moon, 
 import ConnectionStatus from './ConnectionStatus.vue'
 import UserManagementModal from './UserManagementModal.vue'
 import ChangePasswordModal from './ChangePasswordModal.vue'
+import TokenManagementModal from './TokenManagementModal.vue'
 import OnlineUsersModal from './OnlineUsersModal.vue'
 
 const manualVersion = typeof __MANUAL_VERSION__ !== 'undefined' ? __MANUAL_VERSION__ : 'dev'
@@ -474,6 +481,7 @@ const transferOwnerTarget = ref('')
 const userList = ref([])  // 管理员获取的用户列表
 const userMgmtOpen = ref(false)  // 用户管理 Modal
 const changePwdOpen = ref(false)    // 修改密码 Modal
+const tokensOpen = ref(false)       // 访问令牌 Modal
 const onlineUsersOpen = ref(false)  // 在线用户 Modal
 const userMenuOpen = ref(false)     // 用户下拉菜单
 const logoutConfirmOpen = ref(false) // 退出确认对话框

@@ -97,6 +97,31 @@ export const useAuthStore = defineStore('auth', {
       this.authMustChangePassword = false
     },
 
+    // ── 访问令牌 (PAT) ──
+
+    async listTokens() {
+      const resp = await _fetch('/api/tokens')
+      const json = await resp.json()
+      if (!json.success) throw new Error(json.error || '获取令牌列表失败')
+      return json.data
+    },
+
+    async createToken(name, expiresDays) {
+      const resp = await _fetch('/api/tokens', {
+        method: 'POST',
+        body: JSON.stringify({ name, expires_days: expiresDays }),
+      })
+      const json = await resp.json()
+      if (!json.success) throw new Error(json.error || '创建令牌失败')
+      return json.data
+    },
+
+    async revokeToken(id) {
+      const resp = await _fetch(`/api/tokens/${encodeURIComponent(id)}`, { method: 'DELETE' })
+      const json = await resp.json()
+      if (!json.success) throw new Error(json.error || '吊销令牌失败')
+    },
+
     setAuth(token, username, role) {
       this.token = token
       this.username = username
