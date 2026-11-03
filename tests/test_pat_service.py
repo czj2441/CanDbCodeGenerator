@@ -24,6 +24,7 @@ def auth(tmp_path, monkeypatch):
     """构造隔离到 tmp_path 的 AuthService（不触碰仓库 config/data）。"""
     monkeypatch.setattr(auth_service, "CONFIG_DIR", str(tmp_path))
     monkeypatch.setattr(auth_service, "USERS_FILE", str(tmp_path / "users.json"))
+    monkeypatch.setattr(auth_service, "USERS_DEFAULT_FILE", str(tmp_path / "users.json.default"))
     monkeypatch.setattr(auth_service, "PATS_FILE", str(tmp_path / "pats.json"))
     monkeypatch.setattr(auth_service, "DATA_DIR", str(tmp_path))
     return AuthService()
