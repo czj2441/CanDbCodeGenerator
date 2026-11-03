@@ -23,6 +23,14 @@ from app.auth import get_auth_service
 logger = logging.getLogger(__name__)
 
 
+def _authenticate_ws_token(token: str) -> dict | None:
+    """WS hello 握手认证：接受会话 token 或 PAT。
+
+    返回 {username, role, auth_type}，auth_type 为 "session" 或 "pat"；无效 → None。
+    """
+    return get_auth_service().validate_token_or_pat(token)
+
+
 class WsServer:
     """WebSocket 服务端 — 管理连接生命周期 + 消息路由。"""
 
@@ -59,10 +67,9 @@ class WsServer:
 
             session_id = msg.get("session_id", "")
 
-            # ── Token 认证 ──
+            # ── Token 认证（会话 token 或 PAT） ──
             token = msg.get("token", "")
-            auth = get_auth_service()
-            user_info = auth.validate_token(token)
+            user_info = _authenticate_ws_token(token)
             if not user_info:
                 await ws.close(4010, "auth_required")
                 return
