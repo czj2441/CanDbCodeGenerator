@@ -29,6 +29,7 @@ else:
 
 USERS_FILE = os.path.join(CONFIG_DIR, 'users.json')
 USERS_DEFAULT_FILE = os.path.join(CONFIG_DIR, 'users.json.default')
+PATS_FILE = os.path.join(CONFIG_DIR, 'pats.json')
 
 # 与 file_persistence.DATA_DIR 保持一致
 if getattr(sys, 'frozen', False):
@@ -63,6 +64,11 @@ def _generate_salt() -> str:
     return secrets.token_hex(16)
 
 
+def _hash_token(token: str) -> str:
+    """SHA-256 哈希 PAT token（无盐，落盘只存哈希）。"""
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
 class AuthService:
     """用户认证 + Token 管理 + 文件所有权服务。"""
 
@@ -71,12 +77,16 @@ class AuthService:
         self._token_ttl_hours: int = DEFAULT_TOKEN_TTL_HOURS
         self._tokens: dict[str, dict] = {}  # {token: {username, expires_at}}
         self._token_lock = threading.Lock()
+        self._pats: list[dict] = []  # PAT 记录（{id, name, username, token_hash, created_at, expires_at, last_used_at, revoked}）
+        self._pats_lock = threading.Lock()
         self._config_path: str = USERS_FILE
+        self._pats_path: str = PATS_FILE
         self._watchdog_observer = None
 
         # 初始化配置
         self._ensure_config_exists()
         self._load_config()
+        self._load_pats()
 
     # ── 配置管理 ──
 
@@ -322,12 +332,120 @@ class AuthService:
                 del self._tokens[t]
 
     def cleanup_expired(self):
-        """清理过期 token（由心跳定时器附带调用）。"""
+        """清理过期 token（由心跳定时器附带调用），并把 PAT 的 last_used_at 落盘。"""
         now = time.time()
         with self._token_lock:
             expired = [t for t, v in self._tokens.items() if now > v["expires_at"]]
             for t in expired:
                 del self._tokens[t]
+        with self._pats_lock:
+            self._save_pats()
+
+    # ── PAT（个人访问令牌） ──
+
+    def _load_pats(self):
+        """加载 pats.json 到内存，文件不存在则视为空列表。"""
+        if not os.path.isfile(self._pats_path):
+            self._pats = []
+            return
+        with open(self._pats_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        self._pats = data.get("tokens", [])
+        logger.info("PAT store loaded: %d token(s)", len(self._pats))
+
+    def _save_pats(self):
+        """将 PAT 记录原子写回 pats.json（tmp + os.replace，同 _save_config）。"""
+        tmp = self._pats_path + ".tmp"
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump({"tokens": self._pats}, f, indent=2, ensure_ascii=False)
+        os.replace(tmp, self._pats_path)
+
+    def create_pat(self, username: str, name: str, expires_days: int | None = None) -> dict:
+        """创建 PAT。明文 token 仅此一次返回，落盘只存 SHA-256 哈希。"""
+        token = "pat_" + secrets.token_hex(32)
+        now = time.time()
+        record = {
+            "id": secrets.token_hex(8),
+            "name": name,
+            "username": username,
+            "token_hash": _hash_token(token),
+            "created_at": now,
+            "expires_at": now + expires_days * 86400 if expires_days is not None else None,
+            "last_used_at": None,
+            "revoked": False,
+        }
+        with self._pats_lock:
+            self._pats.append(record)
+            self._save_pats()
+        return {
+            "id": record["id"],
+            "name": record["name"],
+            "username": record["username"],
+            "token": token,
+            "created_at": record["created_at"],
+            "expires_at": record["expires_at"],
+        }
+
+    def list_pats(self, username: str) -> list[dict]:
+        """列出用户的 PAT（不含 token 明文与哈希）。"""
+        with self._pats_lock:
+            return [
+                {
+                    "id": p["id"],
+                    "name": p["name"],
+                    "created_at": p["created_at"],
+                    "expires_at": p["expires_at"],
+                    "last_used_at": p["last_used_at"],
+                }
+                for p in self._pats
+                if p["username"] == username
+            ]
+
+    def revoke_pat(self, username: str, token_id: str) -> bool:
+        """吊销指定 PAT。仅本人可吊销，不存在或非本人返回 False。"""
+        with self._pats_lock:
+            for p in self._pats:
+                if p["id"] == token_id and p["username"] == username:
+                    p["revoked"] = True
+                    self._save_pats()
+                    return True
+        return False
+
+    def validate_pat(self, token: str) -> dict | None:
+        """验证 PAT。吊销/过期/用户已删/未知 → None。
+
+        有效时更新 last_used_at（内存暂存，随 cleanup_expired 落盘）。
+        """
+        token_hash = _hash_token(token)
+        with self._pats_lock:
+            record = None
+            for p in self._pats:
+                if p["token_hash"] == token_hash:
+                    record = p
+                    break
+            if record is None or record.get("revoked"):
+                return None
+            expires_at = record.get("expires_at")
+            if expires_at is not None and time.time() > expires_at:
+                return None
+            user = self._find_user(record["username"])
+            if not user:
+                return None
+            record["last_used_at"] = time.time()
+            return {"username": record["username"], "role": user.get("role", "user")}
+
+    def validate_token_or_pat(self, token: str) -> dict | None:
+        """先验证会话 token（滑动续期），未命中再验证 PAT。
+
+        返回 {username, role, auth_type}，auth_type 为 "session" 或 "pat"。
+        """
+        session = self.validate_token(token)
+        if session:
+            return {**session, "auth_type": "session"}
+        pat = self.validate_pat(token)
+        if pat:
+            return {**pat, "auth_type": "pat"}
+        return None
 
     # ── 用户查询 ──
 
@@ -408,6 +526,10 @@ class AuthService:
         self._users = [u for u in self._users if u["username"] != username]
         self._save_config()
         self.revoke_user_tokens(username)
+        # 清空该用户的 PAT 记录
+        with self._pats_lock:
+            self._pats = [p for p in self._pats if p["username"] != username]
+            self._save_pats()
         return {"success": True}
 
     def update_user_role(self, username: str, role: str, operator: str = "") -> dict:
