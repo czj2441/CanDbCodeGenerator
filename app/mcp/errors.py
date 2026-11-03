@@ -17,3 +17,13 @@ class BackendError(Exception):
         self.code = code
         self.message = message
         self.details = details if details is not None else {}
+
+    @property
+    def status(self) -> int | None:
+        """HTTP 状态码（解析自 code 的 f"HTTP_{status}" 形式）；非 HTTP 错误码时 None。"""
+        if not self.code.startswith("HTTP_"):
+            return None
+        try:
+            return int(self.code[len("HTTP_"):])
+        except ValueError:
+            return None

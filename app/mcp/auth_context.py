@@ -36,8 +36,9 @@ def get_current_pat() -> str | None:
 async def require_user() -> dict:
     """校验当前 PAT 并返回 {"username", "role"}。
 
-    调后端 GET /api/me 校验，同一 PAT 的结果缓存 60 秒；
-    无 PAT 或校验失败 → ToolError。
+    调后端 GET /api/me 校验，同一 PAT 的结果缓存 60 秒。
+    无 PAT 或令牌被拒（HTTP 401 / 2xx 但 {"success": false}）→ ToolError「未认证：…」；
+    其余后端故障（HTTP_5xx、连接失败、超时等）原样传播 BackendError，保留 code/message/details。
     """
     pat = get_current_pat()
     if not pat:
@@ -49,7 +50,10 @@ async def require_user() -> dict:
     try:
         resp_body = await get_backend().request("GET", "/api/me")
     except BackendError as exc:
-        raise ToolError(AUTH_ERROR_MESSAGE) from exc
+        status = exc.status
+        if status == 401 or (status is not None and 200 <= status < 300):
+            raise ToolError(AUTH_ERROR_MESSAGE) from exc
+        raise
     data = resp_body["data"]
     user = {"username": data["username"], "role": data["role"]}
     _me_cache[pat] = (now + _ME_CACHE_TTL, user)

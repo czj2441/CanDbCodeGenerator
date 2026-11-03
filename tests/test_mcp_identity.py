@@ -11,13 +11,16 @@ import asyncio
 
 import httpx
 import pytest
+from mcp.server.mcpserver.exceptions import ToolError
 
 from app.mcp import auth_context
 from app.mcp.auth_context import get_current_pat, require_user, set_current_pat
 from app.mcp.backend import BackendClient
+from app.mcp.errors import BackendError
 from app.mcp.server import build_app, canmatrix_whoami
 
 ME_OK = {"success": True, "data": {"username": "alice", "role": "user"}}
+AUTH_ERROR_MESSAGE = "未认证：请在 Authorization: Bearer <PAT> 中提供个人访问令牌"
 
 
 @pytest.fixture(autouse=True)
@@ -107,3 +110,68 @@ def test_require_user_caches_me_calls(monkeypatch):
     assert first == {"username": "alice", "role": "user"}
     assert second == {"username": "alice", "role": "user"}
     assert len(seen) == 1
+
+
+def test_require_user_without_pat_raises_tool_error():
+    """无 PAT → ToolError「未认证：…」。"""
+
+    async def run():
+        set_current_pat(None)
+        await require_user()
+
+    with pytest.raises(ToolError) as exc_info:
+        asyncio.run(run())
+    assert str(exc_info.value) == AUTH_ERROR_MESSAGE
+
+
+def test_require_user_invalid_token_raises_tool_error(monkeypatch):
+    """/api/me 401（令牌无效/过期/吊销）→ ToolError「未认证：…」。"""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, json={"success": False, "data": None, "error": "认证失败，请重新登录"})
+
+    _stub_backend(monkeypatch, "tok-invalid", handler)
+
+    async def run():
+        set_current_pat("tok-invalid")
+        await require_user()
+
+    with pytest.raises(ToolError) as exc_info:
+        asyncio.run(run())
+    assert str(exc_info.value) == AUTH_ERROR_MESSAGE
+
+
+def test_require_user_success_false_envelope_raises_tool_error(monkeypatch):
+    """2xx 但 {"success": false}（令牌被拒）→ ToolError「未认证：…」。"""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"success": False, "data": None, "error": "认证失败，请重新登录"})
+
+    _stub_backend(monkeypatch, "tok-envelope", handler)
+
+    async def run():
+        set_current_pat("tok-envelope")
+        await require_user()
+
+    with pytest.raises(ToolError) as exc_info:
+        asyncio.run(run())
+    assert str(exc_info.value) == AUTH_ERROR_MESSAGE
+
+
+def test_require_user_propagates_backend_error(monkeypatch):
+    """/api/me 500 → BackendError 原样传播（message 含后端错误，不含「未认证」）。"""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, json={"success": False, "data": None, "error": "内部错误"})
+
+    _stub_backend(monkeypatch, "tok-500", handler)
+
+    async def run():
+        set_current_pat("tok-500")
+        await require_user()
+
+    with pytest.raises(BackendError) as exc_info:
+        asyncio.run(run())
+    assert exc_info.value.code == "HTTP_500"
+    assert exc_info.value.message == "内部错误"
+    assert "未认证" not in str(exc_info.value)
