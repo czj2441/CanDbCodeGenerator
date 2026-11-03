@@ -4,7 +4,9 @@
 {"type": "ok", "requestId", "data", "new_version"} 或
 {"type": "error", "requestId", "code", "message", "details"}（见 app/ws/router.py）。
 
-后台任务周期发 {"type": "ping"}（保活 + 后端锁续期），并按空闲 TTL 回收池内连接。
+后台任务周期发 {"type": "ping"}（后端侧续期：会话/文件锁不被后端心跳超时回收）。
+会话池空闲 TTL **仅由工具调用 call() 刷新，心跳 ping 不刷新**——被遗忘的会话到期
+自动关连接出池（后端断连逻辑自行处理快照/锁释放）。
 """
 from __future__ import annotations
 
@@ -25,8 +27,8 @@ from app.mcp.errors import BackendError
 logger = logging.getLogger(__name__)
 
 # ── 超时数值（测试可注入覆盖） ──
-PING_INTERVAL = 30.0   # 后台心跳间隔（秒）：保活 + 后端锁续期
-IDLE_TTL = 1800.0      # 会话池空闲 TTL（秒）：30 分钟无活动 → 关连接出池
+PING_INTERVAL = 30.0   # 后台心跳间隔（秒）：后端侧续期（会话/锁不被后端心跳超时回收）
+IDLE_TTL = 1800.0      # 会话池空闲 TTL（秒）：30 分钟无工具调用 → 关连接出池
 HELLO_TIMEOUT = 5.0    # hello 握手探测超时（秒）
 
 # 创建类消息：响应 data.session_id 即新会话 ID（open_session 据此登记入池）
@@ -117,7 +119,7 @@ class WsConnection:
         self._wake.set()  # 唤醒后台任务：按池的空闲 TTL 重算检查节奏
 
     def idle_expired(self, idle_ttl: float) -> bool:
-        """是否空闲超时（活动 = 调用 + 心跳）。"""
+        """是否空闲超时。空闲计时仅由 call() 刷新，心跳 ping 不刷新。"""
         return time.monotonic() - self._last_activity > idle_ttl
 
     # ── 请求响应 ──
@@ -136,7 +138,7 @@ class WsConnection:
         self._pending[req_id] = fut
         try:
             await self._ws.send(json.dumps({"type": msg_type, "requestId": req_id, "data": data}))
-            self._last_activity = time.monotonic()  # 调用活动：刷新空闲计时
+            self._last_activity = time.monotonic()  # 工具调用刷新空闲计时（TTL 只认 call()）
             msg = await fut
         finally:
             self._pending.pop(req_id, None)
@@ -176,7 +178,7 @@ class WsConnection:
                 await self.close()
 
     async def _loop(self):
-        """后台任务：空闲 TTL 回收 + 周期 ping（保活 + 后端锁续期）。"""
+        """后台任务：空闲 TTL 回收（只认 call()）+ 周期 ping（后端侧续期）。"""
         next_ping = time.monotonic() + self._ping_interval
         try:
             while True:
@@ -188,7 +190,7 @@ class WsConnection:
                     self._wake.clear()
                 except asyncio.TimeoutError:
                     pass
-                # 空闲 TTL：无活动超过 TTL → 自动关连接出池
+                # 空闲 TTL：无工具调用超过 TTL → 自动关连接出池（心跳不续计时）
                 if self._pool is not None and self.idle_expired(self._pool.idle_ttl):
                     logger.info("WS 连接空闲超过 %.0fs，自动关闭出池", self._pool.idle_ttl)
                     await self.close()
@@ -196,7 +198,7 @@ class WsConnection:
                 if time.monotonic() >= next_ping:
                     next_ping = time.monotonic() + self._ping_interval
                     await self._ws.send(json.dumps({"type": "ping"}))
-                    self._last_activity = time.monotonic()  # 心跳保活：刷新空闲计时
+                    # 后端侧续期（后端心跳超时不回收会话/锁）；不刷新空闲 TTL
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -232,7 +234,8 @@ class SessionPool:
     """WS 会话池 — 按 (username, session_id) 隔离，空闲 TTL 自动关连接出池。
 
     - key 含 username：A 用户的连接绝不暴露给 B 用户（越权调用只能由后端权限拦截）。
-    - 空闲计时按连接活动（调用 + 心跳）刷新；超过 idle_ttl 无活动 → 关连接出池。
+    - 空闲计时**仅由工具调用 call() 刷新，心跳 ping 不刷新**：被遗忘的会话到期
+      自动关连接出池（后端断连逻辑自行处理快照/锁释放）。
     - 控制连接（无 session）按 username 共享一条（供 get_sessions 等）。
     """
 
