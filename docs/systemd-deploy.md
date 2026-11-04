@@ -252,3 +252,84 @@ sudo systemctl disable canmatrix-editor
 sudo rm /etc/systemd/system/canmatrix-editor.service
 sudo systemctl daemon-reload
 ```
+
+---
+
+## 八、MCP 服务器（canmatrix_mcp）部署
+
+MCP 服务器是一个独立的 Streamable HTTP 服务，让 AI 客户端（OpenCode、Claude Code 等）
+以任意用户的 PAT（个人访问令牌）身份调用 CanMatrix 的全部编辑能力。它依赖
+`canmatrix-editor` 后端（HTTP 8080 + WS 8081……实际 WS 端口为 HTTP 端口 +1），自身默认监听
+`127.0.0.1:8081`。
+
+### 8.1 安装与启动
+
+```bash
+# 复制 service 文件到 systemd 目录
+sudo cp deploy/canmatrix-mcp.service /etc/systemd/system/
+
+# 重载 systemd 配置
+sudo systemctl daemon-reload
+
+# 设置开机自启并启动
+sudo systemctl enable canmatrix-mcp
+sudo systemctl start canmatrix-mcp
+
+# 查看状态与日志
+sudo systemctl status canmatrix-mcp
+sudo journalctl -u canmatrix-mcp -f
+```
+
+**环境变量**（在 unit 的 `Environment=` 中配置）：
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `CANMATRIX_BACKEND_URL` | `http://127.0.0.1:8080` | 后端 API 地址（WS 端口自动取 +1） |
+| `CANMATRIX_MCP_HOST` | `127.0.0.1` | MCP 监听地址 |
+| `CANMATRIX_MCP_PORT` | `8081` | MCP 监听端口 |
+
+### 8.2 安全建议
+
+MCP 服务携带的是**长期 PAT**，等同任意用户的编辑权限，安全要求高于普通 Web 页面：
+
+1. **务必绑定 `127.0.0.1`**：`CANMATRIX_MCP_HOST` 保持回环地址，**不要**把 `8081`
+   直接暴露到公网。MCP 端点没有 HTTPS/TLS 层，明文暴露等于泄露令牌。
+2. **对外访问走 HTTPS 反向代理**：由 nginx 终结 TLS 并转发到本机 `8081`，
+   PAT 只在加密信道内传输。
+3. 客户端经 `Authorization: Bearer <PAT>` 头认证；PAT 一旦泄露应立即在
+   文件列表页 → 访问令牌 中吊销。
+
+nginx 反代示例（`/etc/nginx/sites-available/canmatrix-mcp`）：
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name mcp.example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/mcp.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/mcp.example.com/privkey.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:8081;
+        proxy_http_version 1.1;
+        # Streamable HTTP 需要 SSE 长连接
+        proxy_set_header Host $host;
+        proxy_set_header Connection "";
+        proxy_buffering off;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+}
+```
+
+> **再次强调**：反向代理与 MCP 服务之间仅本机 `127.0.0.1` 通信，勿在防火墙中开放
+> `8081` 端口，勿以 `CANMATRIX_MCP_HOST=0.0.0.0` 运行。
+
+### 8.3 卸载
+
+```bash
+sudo systemctl stop canmatrix-mcp
+sudo systemctl disable canmatrix-mcp
+sudo rm /etc/systemd/system/canmatrix-mcp.service
+sudo systemctl daemon-reload
+```

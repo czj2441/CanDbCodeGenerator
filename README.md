@@ -127,6 +127,87 @@ git commit -m "修改 EngineSpeed 因子"
 ```
 独立的信号块，只显示实际变更的字段，人类和 Git 都能精准理解。
 
+## MCP 服务器
+
+CanMatrix Editor 附带一个集中托管的 **Streamable HTTP MCP 服务器**（服务名 `canmatrix_mcp`），
+让 AI 客户端（OpenCode、Claude Code 等）以任意用户身份完成全部编辑操作——新建/导入文件、
+增删改报文与信号、管理值表、校验、导出与保存。业务逻辑全部留在后端，MCP 服务器只是薄客户端。
+
+### 获取 PAT（个人访问令牌）
+
+MCP 服务器以 `Authorization: Bearer <PAT>` 头认证身份。PAT 的创建路径：
+
+**文件列表页 → 用户菜单 → 访问令牌**
+
+在弹窗中填写备注名与有效期（永不 / 30 天 / 90 天 / 自定义），创建后一次性展示明文令牌
+（`pat_` + 64 位十六进制），请立即复制保存；列表支持随时吊销。
+
+### 启动
+
+```bash
+# 依赖后端已在 http://127.0.0.1:8080 运行（python -m app.server.lifecycle）
+venv/bin/python -m app.mcp
+```
+
+默认监听 `127.0.0.1:8081`，端点路径 `/mcp`。可用环境变量覆盖：
+`CANMATRIX_BACKEND_URL`（后端地址）、`CANMATRIX_MCP_HOST`、`CANMATRIX_MCP_PORT`。
+生产部署见 [systemd 部署指南](docs/systemd-deploy.md)。
+
+### 客户端接入
+
+**OpenCode**（`opencode.json`，项目根目录或 `~/.config/opencode/opencode.json`）：
+
+```json
+{
+  "mcp": {
+    "canmatrix": {
+      "type": "remote",
+      "url": "http://127.0.0.1:8081/mcp",
+      "enabled": true,
+      "headers": {
+        "Authorization": "Bearer pat_你的令牌"
+      }
+    }
+  }
+}
+```
+
+**Claude Code**（项目根 `.mcp.json` 或 `claude mcp add`）：
+
+```json
+{
+  "mcpServers": {
+    "canmatrix": {
+      "type": "http",
+      "url": "http://127.0.0.1:8081/mcp",
+      "headers": {
+        "Authorization": "Bearer pat_你的令牌"
+      }
+    }
+  }
+}
+```
+
+> 通过 HTTPS 反向代理对外暴露时，把 `url` 换成代理地址即可；令牌切勿提交进仓库。
+
+### 工具面一览
+
+| 类别 | 工具 |
+|------|------|
+| 身份 | `canmatrix_whoami` |
+| 文件/会话 | `canmatrix_list_files`、`canmatrix_open_file`、`canmatrix_create_file`、`canmatrix_import_file`、`canmatrix_save`、`canmatrix_save_as`、`canmatrix_close_session`、`canmatrix_get_summary`、`canmatrix_export` |
+| 报文 | `canmatrix_list_messages`、`canmatrix_get_message`、`canmatrix_add_message`、`canmatrix_edit_message`、`canmatrix_batch_edit_messages`、`canmatrix_delete_message`、`canmatrix_batch_delete_messages` |
+| 信号 | `canmatrix_list_signals`、`canmatrix_get_signal`、`canmatrix_add_signal`、`canmatrix_batch_add_signals`、`canmatrix_edit_signal`、`canmatrix_batch_edit_signals`、`canmatrix_delete_signal`、`canmatrix_batch_delete_signals` |
+| 值表 | `canmatrix_list_value_tables`、`canmatrix_add_value_table`、`canmatrix_update_value_table`、`canmatrix_rename_value_table`、`canmatrix_delete_value_table` |
+| 校验/历史 | `canmatrix_get_data_errors`、`canmatrix_undo`、`canmatrix_redo`、`canmatrix_get_save_diff` |
+
+### 权限与边界
+
+- PAT 仅有**编辑权限**：打开他人文件得到**只读会话**（`can_write=false`），写操作会被后端
+  拒绝并提示文件所有者；管理、改密、登出、令牌管理等端点对 PAT 一律返回 403。
+- **不提供** `delete_file`、`steal_lock` 及任何管理类工具，也不能查看调试快照。
+- `canmatrix_import_file` 只收内联内容，不接受服务器路径。
+
 ## 项目结构
 
 ```
