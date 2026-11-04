@@ -1,5 +1,12 @@
-"""MCP 层错误类型。"""
+"""MCP 层错误类型与工具错误统一映射。"""
 from __future__ import annotations
+
+from mcp.server.mcpserver.exceptions import ToolError
+
+# 文件被占时附上的提示（占用者信息在消息上文）。
+FILE_LOCKED_HINT = "文件被他人占用，占用者信息见上文"
+# 只读会话写入被拒时附上的可执行提示。
+READONLY_WRITE_HINT = "文件所有者可写，联系其授权或由其编辑"
 
 
 class BackendError(Exception):
@@ -27,3 +34,18 @@ class BackendError(Exception):
             return int(self.code[len("HTTP_"):])
         except ValueError:
             return None
+
+
+def tool_error(e: BackendError) -> ToolError:
+    """BackendError → ToolError 统一映射（工具层共用，Task 8/9/11 复用）。
+
+    基础形如 f"{message}（{code}）"（保留后端中文原文）；按语义附可执行提示：
+    - FILE_LOCKED：附「文件被他人占用，占用者信息见上文」；
+    - 只读会话写入被拒（read_only/permission_denied）：附「文件所有者可写，联系其授权或由其编辑」。
+    """
+    message = f"{e.message}（{e.code}）"
+    if e.code == "FILE_LOCKED":
+        message = f"{message}；{FILE_LOCKED_HINT}"
+    elif e.code in ("read_only", "permission_denied"):
+        message = f"{message}；{READONLY_WRITE_HINT}"
+    return ToolError(message)

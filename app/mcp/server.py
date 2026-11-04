@@ -8,6 +8,7 @@ from mcp.types import ToolAnnotations
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.mcp.auth_context import require_user, set_current_pat
+from app.mcp.tools_session import register_tools
 
 mcp = MCPServer("canmatrix_mcp")
 
@@ -54,3 +55,7 @@ def build_app() -> ASGIApp:
 async def canmatrix_whoami() -> dict:
     """返回当前令牌对应的用户名与角色。"""
     return await require_user()
+
+
+# 注册文件/会话工具（Task 7）
+register_tools(mcp)
