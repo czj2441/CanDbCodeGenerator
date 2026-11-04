@@ -2,6 +2,7 @@
 
 覆盖 Task 7 的工具行为（真实后端，live_backend 夹具）：
 - create/save/close/open 往返（open_file 的 can_write 按 owner==用户 判定）
+- create_file 空白填充名按 handler 规则归一化（不 strip）→ owner 侧车与文件同键
 - 内联最小 DBC 导入 → export properties 含信号名
 - alice 开着文件时 bob open → 成功返回只读会话，标注 is_locked/locked_by=alice
 - owner 二次 open 被自己另一会话占锁 → ToolError 文案含占用者
@@ -80,6 +81,31 @@ def test_create_open_save_close_roundtrip(live_backend, monkeypatch):
             assert opened["session_id"] and opened["session_id"] != sid
             assert opened["can_write"] is True  # alice 是文件所有者
             assert opened["is_locked"] is False  # 无锁标注
+        finally:
+            await pool.aclose_all()
+
+    asyncio.run(run())
+
+
+def test_create_file_padded_name_keeps_ownership(live_backend, monkeypatch):
+    """带前后空白的 name 按 handler 规则归一化（不 strip）：
+    文件名 " pad_file .properties" 与 owner 侧车同键，创建者 can_write=True 且能 save。"""
+
+    async def run():
+        pool = _prepare(live_backend, monkeypatch)
+        try:
+            set_current_pat(live_backend["pat_alice"])
+            created = await canmatrix_create_file(" pad_file ")
+            assert created["file_name"] == " pad_file .properties"  # 原样 + .properties，不 strip
+
+            # owner 侧车键与真实文件一致 → 创建者可写、自己的 save 可过权限检查
+            saved = await canmatrix_save(created["session_id"])
+            assert saved["message"] == "保存成功"
+
+            await canmatrix_close_session(created["session_id"])
+            opened = await canmatrix_open_file(" pad_file .properties")
+            assert opened["file_name"] == " pad_file .properties"
+            assert opened["can_write"] is True
         finally:
             await pool.aclose_all()
 

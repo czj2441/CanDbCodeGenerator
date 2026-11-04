@@ -109,11 +109,13 @@ async def canmatrix_create_file(name: str, content: dict | None = None) -> dict:
     """新建文件（可带初始数据库内容 dict），创建者成为文件所有者。
 
     data 额外带 file_name：router 的 owner 侧车接线按请求 data.file_name 提取
-    （CreateFileHandler 不设 new_session_id，见 MessageRouter._extract_file_name），
-    与 handler 计算的 file_name 规则保持一致（空名 → Untitled.properties）。
+    （CreateFileHandler 不设 new_session_id，见 MessageRouter._extract_file_name）。
+    file_name 推导必须与 CreateFileHandler 完全一致：空/纯空白 → "Untitled"，
+    其余**原样**（不 strip）+ ".properties"（handler 用未 strip 的 db_name 建文件，
+    validate_file_name 允许空格）——否则侧车与真实文件错键，创建者失去所有权。
     """
     await require_user()
-    base = name.strip() if isinstance(name, str) and name.strip() else "Untitled"
+    base = name if name and str(name).strip() else "Untitled"
     backend = get_backend()
     try:
         _, result = await backend.open_session(
