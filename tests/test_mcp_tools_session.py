@@ -3,7 +3,8 @@
 覆盖 Task 7 的工具行为（真实后端，live_backend 夹具）：
 - create/save/close/open 往返（open_file 的 can_write 按 owner==用户 判定）
 - 内联最小 DBC 导入 → export properties 含信号名
-- alice 开着文件时 bob open → ToolError 文案含占用者 "alice"
+- alice 开着文件时 bob open → 成功返回只读会话，标注 is_locked/locked_by=alice
+- owner 二次 open 被自己另一会话占锁 → ToolError 文案含占用者
 - bob 只读会话调 save → ToolError 文案含所有者提示
 - list_files 分页信封 + items 含 file_name/owner/is_locked
 - export c_source 返回非空 content（HTTP /api/export，120s 超时约定）
@@ -78,6 +79,7 @@ def test_create_open_save_close_roundtrip(live_backend, monkeypatch):
             assert opened["signal_count"] == 0
             assert opened["session_id"] and opened["session_id"] != sid
             assert opened["can_write"] is True  # alice 是文件所有者
+            assert opened["is_locked"] is False  # 无锁标注
         finally:
             await pool.aclose_all()
 
@@ -106,8 +108,9 @@ def test_import_dbc_then_export_properties(live_backend, monkeypatch):
     asyncio.run(run())
 
 
-def test_open_locked_file_reports_owner(live_backend, monkeypatch):
-    """alice 开着文件（持锁）时 bob open → ToolError 文案含 "alice"。"""
+def test_open_locked_file_readonly_shows_lock_owner(live_backend, monkeypatch):
+    """alice 占锁时 bob open → 成功返回只读会话（与 Web 端一致），
+    can_write=False，结果含 is_locked=True、locked_by="alice"。"""
 
     async def run():
         pool = _prepare(live_backend, monkeypatch)
@@ -117,10 +120,31 @@ def test_open_locked_file_reports_owner(live_backend, monkeypatch):
             assert created["session_id"]  # 会话保持打开 → 文件锁被 alice 持有
 
             set_current_pat(live_backend["pat_bob"])
+            opened = await canmatrix_open_file("locked_by_alice.properties")
+            assert opened["session_id"]
+            assert opened["can_write"] is False   # bob 非 owner → 只读会话
+            assert opened["is_locked"] is True
+            assert opened["locked_by"] == "alice"  # 占用者来自 get_sessions
+        finally:
+            await pool.aclose_all()
+
+    asyncio.run(run())
+
+
+def test_owner_reopen_locked_file_reports_owner(live_backend, monkeypatch):
+    """owner 二次 open 被自己另一会话占锁 → ToolError 文案含占用者。"""
+
+    async def run():
+        pool = _prepare(live_backend, monkeypatch)
+        try:
+            set_current_pat(live_backend["pat_alice"])
+            created = await canmatrix_create_file("own_lock")
+            assert created["session_id"]  # 第一个会话保持打开 → 占锁
+
             with pytest.raises(ToolError) as exc_info:
-                await canmatrix_open_file("locked_by_alice.properties")
+                await canmatrix_open_file("own_lock.properties")
             msg = str(exc_info.value)
-            assert "alice" in msg
+            assert "alice" in msg        # 占用者（=owner，也是调用者自己）
             assert "FILE_LOCKED" in msg
         finally:
             await pool.aclose_all()

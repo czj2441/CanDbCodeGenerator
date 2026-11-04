@@ -7,7 +7,6 @@ control/close_session，见 app/mcp/ws.py），导出走 HTTP GET /api/export；
 from __future__ import annotations
 
 import re
-from urllib.parse import quote
 
 import httpx
 from mcp.server.mcpserver.exceptions import ToolError
@@ -53,19 +52,7 @@ def _find_file_entry(entries: list[dict], file_name: str) -> dict | None:
     return None
 
 
-async def _resolve_owner(backend, file_name: str, entry: dict | None) -> str:
-    """文件 owner（权限侧车 data/{file_name}.perm.json）；owner 空串 → ""。
 
-    裁定路径：HTTP GET /api/file-permission（需认证，BackendClient 带 PAT）。
-    当前后端拒绝 PAT（403，见 app/server/http_handler._get_file_permission 与
-    tests/test_http_pat_endpoints.py），被拒/失败时回退 WS get_sessions 条目的
-    owner（同一权限侧车数据），保证 can_write 判定可用。
-    """
-    try:
-        resp = await backend.request("GET", f"/api/file-permission?file={quote(file_name)}")
-        return str((resp.get("data") or {}).get("owner", "") or "")
-    except BackendError:
-        return str((entry or {}).get("owner", "") or "")
 
 
 # ── 九个工具 ──
@@ -80,32 +67,32 @@ async def canmatrix_list_files(limit: int = 50, offset: int = 0) -> dict:
 
 
 async def canmatrix_open_file(file_name: str) -> dict:
-    """打开文件并创建会话，返回 session_id 与 can_write（owner==当前用户，owner 空 → False）。
+    """打开文件并创建会话，返回 session_id、can_write 与锁标注。
 
-    文件被占用时直接报错并给出占用者/所有者（而非死等或静默降级只读）。
+    - can_write：WS get_sessions 条目的 owner == 当前用户（owner 空串 → False，
+      与后端严格所有权一致）。
+    - 打开被占文件与 Web 端一致（只读其他用户的，和用户的权限一样）：非 owner
+      正常得到只读会话，结果标注 is_locked/locked_by（占用者来自 get_sessions；
+      严格所有权下持锁者即 owner）；owner 被自己另一会话占锁时后端抛 FILE_LOCKED，
+      映射时补占用者信息。
     """
     user = await require_user()
     backend = get_backend()
     entries = await _list_file_entries(backend)
-    entry = _find_file_entry(entries, file_name)
-
-    # 锁预检：被占文件不静默降级只读，报错并给占用者/所有者信息
-    if entry is not None and entry.get("is_locked"):
-        raise tool_error(BackendError(
-            "FILE_LOCKED", f"文件 {file_name} 已被占用（占用者：{entry.get('owner') or '未知'}）"))
+    entry = _find_file_entry(entries, file_name) or {}
+    owner = str(entry.get("owner", "") or "")
+    is_locked = bool(entry.get("is_locked"))
 
     try:
         _, result = await backend.open_session(
             "load_file", {"file_name": file_name, "current_session_id": ""})
     except BackendError as e:
-        if e.code == "FILE_LOCKED":  # 预检后的兜底（如期间被抢占）：补占用者信息
-            owner = (entry or {}).get("owner") or "未知"
+        if e.code == "FILE_LOCKED":  # owner 被自己的会话占锁：补占用者信息
             raise tool_error(BackendError(
-                "FILE_LOCKED", f"文件 {file_name} 已被占用（占用者：{owner}）", e.details)) from e
+                "FILE_LOCKED", f"文件 {file_name} 已被占用（占用者：{owner or '未知'}）", e.details)) from e
         raise tool_error(e) from e
 
     data = result.data or {}
-    owner = await _resolve_owner(backend, file_name, entry)
     return {
         "session_id": data.get("session_id") or result.new_session_id or "",
         "file_name": data.get("file_name", file_name),
@@ -113,6 +100,8 @@ async def canmatrix_open_file(file_name: str) -> dict:
         "message_count": data.get("message_count", 0),
         "signal_count": data.get("signal_count", 0),
         "can_write": bool(owner) and owner == user["username"],
+        "is_locked": is_locked,
+        "locked_by": owner if is_locked else "",
     }
 
 
@@ -252,7 +241,7 @@ def register_tools(mcp) -> None:
         annotations=ToolAnnotations(read_only_hint=True),
     )(canmatrix_list_files)
     mcp.tool(
-        description="打开文件并创建会话；文件被占用时报错并给出占用者，can_write 表示当前用户是否可写",
+        description="打开文件并创建会话；can_write 表示当前用户是否可写；文件被占时非 owner 得只读会话并标注 is_locked/locked_by（占用者）",
         annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False),
     )(canmatrix_open_file)
     mcp.tool(
