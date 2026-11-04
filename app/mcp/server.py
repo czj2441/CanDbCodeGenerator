@@ -8,7 +8,11 @@ from mcp.types import ToolAnnotations
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.mcp.auth_context import require_user, set_current_pat
-from app.mcp.tools_session import register_tools
+from app.mcp.tools_history import register_tools as _register_history
+from app.mcp.tools_messages import register_tools as _register_messages
+from app.mcp.tools_session import register_tools as _register_session
+from app.mcp.tools_signals import register_tools as _register_signals
+from app.mcp.tools_value_tables import register_tools as _register_value_tables
 
 mcp = MCPServer("canmatrix_mcp")
 
@@ -58,4 +62,9 @@ async def canmatrix_whoami() -> dict:
 
 
 # 注册文件/会话工具（Task 7）
-register_tools(mcp)
+_register_session(mcp)
+# 注册报文/信号/值表/校验历史工具（Task 8-11）
+_register_messages(mcp)
+_register_signals(mcp)
+_register_value_tables(mcp)
+_register_history(mcp)
