@@ -1,0 +1,42 @@
+<evaluation>
+  <qa_pair>
+    <question>在固定种子数据 EvalSeed.properties 中，信号数最多的报文叫什么名字？只回答报文名。</question>
+    <answer>EngineStatus</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>固定种子数据 EvalSeed.properties 里一共有多少个信号？只回答一个整数。</question>
+    <answer>7</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>固定种子数据 EvalSeed.properties 中，哪个报文存在数据完整性错误？只回答报文名。</question>
+    <answer>BrakeStatus</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>上述数据完整性错误的 type 字段值是什么？只回答类型字符串。</question>
+    <answer>factor_zero</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>触发该数据完整性错误的信号叫什么名字？只回答信号名。</question>
+    <answer>BrakeFault</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>固定种子数据中 EngineSpeed 信号的 factor 是多少？只回答数值。</question>
+    <answer>0.5</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>固定种子数据中 EngineSpeed 信号的 offset 是多少？只回答数值。</question>
+    <answer>-10</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>固定种子数据中 EngineStatus 报文的 CAN ID（十六进制）是多少？回答时带 0x 前缀。</question>
+    <answer>0x100</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>固定种子数据中 DoorState 信号引用的值描述表叫什么名字？只回答表名。</question>
+    <answer>Vt_DoorState</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>该值描述表中 value=1 对应的标签文本是什么？只回答标签文本。</question>
+    <answer>Open</answer>
+  </qa_pair>
+</evaluation>
