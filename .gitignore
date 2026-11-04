@@ -51,6 +51,7 @@ frontend/package-lock.json
 data/
 snapshots/
 config/users.json
+config/pats.json
 
 # Temp files (test screenshots & scripts)
 temp/
