@@ -149,9 +149,11 @@ MCP 服务器以 `Authorization: Bearer <PAT>` 头认证身份。PAT 的创建�
 venv/bin/python -m app.mcp
 ```
 
-默认监听 `127.0.0.1:8081`，端点路径 `/mcp`。可用环境变量覆盖：
+默认监听 `127.0.0.1:8082`，端点路径 `/mcp`。可用环境变量覆盖：
 `CANMATRIX_BACKEND_URL`（后端地址）、`CANMATRIX_MCP_HOST`、`CANMATRIX_MCP_PORT`。
 生产部署见 [systemd 部署指南](docs/systemd-deploy.md)。
+
+> 端口用 8082 而非 8081：后端 WS 端口固定为 HTTP 端口 +1（默认 8081），MCP 需避开。
 
 ### 客户端接入
 
@@ -162,7 +164,7 @@ venv/bin/python -m app.mcp
   "mcp": {
     "canmatrix": {
       "type": "remote",
-      "url": "http://127.0.0.1:8081/mcp",
+      "url": "http://127.0.0.1:8082/mcp",
       "enabled": true,
       "headers": {
         "Authorization": "Bearer pat_你的令牌"
@@ -179,7 +181,7 @@ venv/bin/python -m app.mcp
   "mcpServers": {
     "canmatrix": {
       "type": "http",
-      "url": "http://127.0.0.1:8081/mcp",
+      "url": "http://127.0.0.1:8082/mcp",
       "headers": {
         "Authorization": "Bearer pat_你的令牌"
       }
