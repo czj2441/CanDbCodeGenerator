@@ -7,9 +7,13 @@ import socket
 import subprocess
 import platform
 import time
-from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+# 三元组绑定端口偏移：HTTP = P、WS = P + WS_PORT_OFFSET、MCP = P + MCP_PORT_OFFSET。
+# 所有端口派生处统一引用这两个常量，避免各文件硬编码 +1/+2 漂移。
+WS_PORT_OFFSET = 1
+MCP_PORT_OFFSET = 2
 
 
 def check_port_available(port: int) -> bool:
@@ -207,16 +211,3 @@ def handle_port_conflict(port: int, auto_clean: bool = False) -> bool:
         logger.info("  1. 终止占用端口的程序")
         logger.info("  2. 使用其他端口启动：python -m app.server.lifecycle <端口号>")
         return False
-
-
-def find_available_port(start: int = 8080, max_attempts: int = 10) -> Optional[int]:
-    """从 start 开始向上扫描，找到 HTTP+WS 双端口均可用的端口。
-    
-    步进 2（确保 port, port+1 对不重叠），最多检查 max_attempts 个候选。
-    返回可用的 HTTP 端口号，或 None。
-    """
-    for offset in range(0, max_attempts * 2, 2):
-        port = start + offset
-        if check_port_available(port) and check_port_available(port + 1):
-            return port
-    return None

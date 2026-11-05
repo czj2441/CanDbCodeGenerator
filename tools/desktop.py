@@ -648,6 +648,7 @@ class MainWindow:
             from app.server import (
                 start_server_background,
                 check_port_available,
+                WS_PORT_OFFSET,
             )
             bundle = self.server_ref[0]
 
@@ -665,7 +666,7 @@ class MainWindow:
                 time.sleep(0.25)
                 if not http_ok and check_port_available(self.port):
                     http_ok = True
-                if not ws_ok and check_port_available(self.port + 1):
+                if not ws_ok and check_port_available(self.port + WS_PORT_OFFSET):
                     ws_ok = True
                 if http_ok and ws_ok:
                     break
@@ -676,13 +677,13 @@ class MainWindow:
                     f"(HTTP:{http_ok} WS:{ws_ok})，仍尝试重启"
                 )
 
-            self._append_log(f"[Desktop] 端口 {self.port}/{self.port+1} 状态: HTTP={http_ok} WS={ws_ok}")
+            self._append_log(f"[Desktop] 端口 {self.port}/{self.port+WS_PORT_OFFSET} 状态: HTTP={http_ok} WS={ws_ok}")
 
             # 3. 重启
             try:
                 new_bundle = start_server_background(self.port)
                 self.server_ref[0] = new_bundle
-                self._append_log(f"[Desktop] 后端已重启，端口 {self.port}/{self.port+1}")
+                self._append_log(f"[Desktop] 后端已重启，端口 {self.port}/{self.port+WS_PORT_OFFSET}")
                 self.form.Invoke(System.Action(lambda: self._set_status('running')))
             except Exception as e:
                 self._append_log(f"[Desktop] 重启失败: {e}")
@@ -758,6 +759,8 @@ def main():
         start_server_background,
         check_port_available,
         handle_port_conflict,
+        WS_PORT_OFFSET,
+        MCP_PORT_OFFSET,
     )
 
     # ── 日志捕获 ──
@@ -767,18 +770,20 @@ def main():
     from app.logging_config import setup_logging
     setup_logging()  # 确保 logger handler 指向 StdoutCatcher
 
-    # ── 选择可用端口（HTTP + WS 双端口） ──
+    # ── 端口（默认 8080；HTTP/WS/MCP 三元组，不做自动寻找） ──
     port = 8080
-    if not check_port_available(port) or not check_port_available(port + 1):
-        print(f"[WARN] 端口 {port} 或 {port+1} 被占用，尝试自动清理...")
-        if not handle_port_conflict(port, auto_clean=True):
-            from app.server.port_utils import find_available_port
-            alt = find_available_port(start=8082)
-            if alt is not None:
-                port = alt
-            else:
-                print("[ERROR] 无法找到可用端口对（HTTP+WS），退出。")
-                sys.exit(1)
+    if (not check_port_available(port)
+            or not check_port_available(port + WS_PORT_OFFSET)
+            or not check_port_available(port + MCP_PORT_OFFSET)):
+        print(f"[WARN] 端口 {port}/{port+WS_PORT_OFFSET}/{port+MCP_PORT_OFFSET} 被占用，尝试自动清理...")
+        for p in (port, port + WS_PORT_OFFSET, port + MCP_PORT_OFFSET):
+            if not check_port_available(p):
+                handle_port_conflict(p, auto_clean=True)
+        if (not check_port_available(port)
+                or not check_port_available(port + WS_PORT_OFFSET)
+                or not check_port_available(port + MCP_PORT_OFFSET)):
+            print(f"[ERROR] 端口 {port}/{port+WS_PORT_OFFSET}/{port+MCP_PORT_OFFSET} 仍被占用，无法启动。")
+            sys.exit(1)
 
     # ── 启动后端 ──
     server = start_server_background(port)

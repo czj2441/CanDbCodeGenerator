@@ -1,4 +1,8 @@
-"""python -m app.mcp — 以 uvicorn 启动 MCP 服务器（Streamable HTTP）。
+"""python -m app.mcp — 以 uvicorn 独立启动 MCP 服务器（Streamable HTTP）。
+
+⚠️ 生产环境不再使用本入口：MCP 已内嵌进后端（见 app/mcp/runner.py），
+随 `python -m app.server.lifecycle` 自动拉起（端口 = HTTP + 2）。本入口仅用于
+脱离后端单独调试 MCP 时使用。
 
 环境变量：
 - CANMATRIX_BACKEND_URL：后端 API 地址（默认 http://127.0.0.1:8080）

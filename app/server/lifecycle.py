@@ -96,7 +96,12 @@ _check_dependencies()
 from app.services import init_session_manager
 from app.models import CanDatabase
 from .http_handler import ApiHandler
-from .port_utils import check_port_available, handle_port_conflict, find_available_port
+from .port_utils import (
+    check_port_available,
+    handle_port_conflict,
+    WS_PORT_OFFSET,
+    MCP_PORT_OFFSET,
+)
 from app.auth import init_auth_service
 
 logger = logging.getLogger(__name__)
@@ -188,8 +193,11 @@ def main() -> None:
 使用示例:
   python -m app.server.lifecycle                  # 默认端口 8080
   python -m app.server.lifecycle 9090             # 指定端口 9090
-  python -m app.server.lifecycle --auto-clean     # 自动清理端口冲突
+  python -m app.server.lifecycle --auto-clean     # 端口被占用时自动终止旧进程后启动
   python -m app.server.lifecycle -p 9090 --auto-clean  # 组合使用
+
+端口模型：HTTP = P、WS = P + 1、MCP = P + 2（三元组绑定，同一进程内启动）。
+默认行为：检测到端口被占用（可能存在另一实例）时**拒绝启动**，需 --auto-clean 才会终止旧进程。
 """
     )
 
@@ -198,7 +206,7 @@ def main() -> None:
     parser.add_argument('-p', '--port-opt', type=int, default=None,
                         help='服务器端口号 (覆盖位置参数)')
     parser.add_argument('--auto-clean', action='store_true',
-                        help='自动清理端口冲突（无需用户确认）')
+                        help='端口被占用时自动终止旧进程后启动（默认：检测到占用则拒绝启动）')
     parser.add_argument('--force', action='store_true',
                         help='强制模式（同 --auto-clean）')
     parser.add_argument('--ws-debug', action='store_true',
@@ -218,30 +226,36 @@ def main() -> None:
     auto_clean = args.auto_clean or args.force
     host = args.host
 
-    # 检查 HTTP + WS 双端口
-    if not check_port_available(port) or not check_port_available(port + 1):
-        resolved = False
+    # 检查 HTTP + WS + MCP 三端口（三元组绑定）。有占用时默认**拒绝启动**，避免产生多个实例。
+    if (not check_port_available(port)
+            or not check_port_available(port + WS_PORT_OFFSET)
+            or not check_port_available(port + MCP_PORT_OFFSET)):
         if auto_clean:
-            logger.info("端口 %d/%d 不可用，尝试自动清理占用进程...", port, port + 1)
+            logger.info("端口 %d/%d/%d 不可用，尝试自动清理占用进程...",
+                        port, port + WS_PORT_OFFSET, port + MCP_PORT_OFFSET)
             http_resolved = check_port_available(port) or handle_port_conflict(port, auto_clean=True)
-            ws_resolved = check_port_available(port + 1) or handle_port_conflict(port + 1, auto_clean=True)
-            resolved = http_resolved and ws_resolved
-            if resolved:
-                logger.info("端口清理成功，%d/%d 已释放", port, port + 1)
-        if not resolved:
-            logger.info("端口 %d/%d 不可用，扫描可用端口...", port, port + 1)
-            alt = find_available_port(start=port + 2)
-            if alt is not None:
-                logger.info("自动切换到端口 %d/%d", alt, alt + 1)
-                port = alt
-            else:
-                logger.error("在 %d-%d 范围内未找到可用端口对。", port, port + 21)
-                logger.info("提示: 使用 --auto-clean 尝试清理，或手动指定其他端口。")
+            ws_resolved = check_port_available(port + WS_PORT_OFFSET) or handle_port_conflict(port + WS_PORT_OFFSET, auto_clean=True)
+            mcp_resolved = check_port_available(port + MCP_PORT_OFFSET) or handle_port_conflict(port + MCP_PORT_OFFSET, auto_clean=True)
+            if not (http_resolved and ws_resolved and mcp_resolved):
+                logger.error("端口 %d/%d/%d 仍被占用，无法启动",
+                             port, port + WS_PORT_OFFSET, port + MCP_PORT_OFFSET)
                 sys.exit(1)
+            logger.info("端口清理成功，%d/%d/%d 已释放",
+                        port, port + WS_PORT_OFFSET, port + MCP_PORT_OFFSET)
+        else:
+            # 保护：拒绝启动（不自动换端口，防止多个实例同时写同一份数据）
+            logger.error(
+                "端口 %d/%d/%d 已被占用，可能存在另一个 CanMatrix 实例正在运行",
+                port, port + WS_PORT_OFFSET, port + MCP_PORT_OFFSET,
+            )
+            logger.info("解决方式：")
+            logger.info("  1. 先停止旧实例（如 systemctl stop canmatrix-editor）")
+            logger.info("  2. 或加 --auto-clean 自动终止旧进程后启动")
+            sys.exit(1)
 
     server = ThreadingHTTPServer((host, port), ApiHandler)
     logger.info("CanMatrix Editor API server running at http://%s:%d", host, port)
-    logger.info("WS port: %d", port + 1)
+    logger.info("WS port: %d", port + WS_PORT_OFFSET)
     logger.info("Press Ctrl+C to stop.")
 
     # ── WebSocket 服务启动 ──
@@ -250,7 +264,7 @@ def main() -> None:
     from app.ws.server import WsServer
 
     ws_diag = WsDiagnostics(enabled=args.ws_debug)
-    ws_transport = WsTransport(host=host, port=port + 1, diagnostics=ws_diag)
+    ws_transport = WsTransport(host=host, port=port + WS_PORT_OFFSET, diagnostics=ws_diag)
     ws_router = MessageRouter(ws_transport, SESSION_MGR, auth_service=AUTH_SERVICE)
     _register_all_handlers(ws_router, SESSION_MGR, ws_transport)
 
@@ -275,6 +289,11 @@ def main() -> None:
     ws_thread = ws_server.start_in_thread()
 
     ApiHandler._ws_transport = ws_transport
+
+    # ── MCP 服务器启动（与 HTTP/WS 绑定：MCP 端口 = HTTP 端口 + 2）──
+    from app.mcp.runner import EmbeddedMcpServer
+    mcp_server = EmbeddedMcpServer(host, port)
+    mcp_server.start()
 
     if args.ws_debug:
         logger.info("WebSocket diagnostics enabled")
@@ -309,6 +328,11 @@ def main() -> None:
         logger.info("Shutting down...")
     finally:
         AUTH_SERVICE.stop_watchdog()
+        # 关闭 MCP server（内嵌 uvicorn 线程）
+        try:
+            mcp_server.stop()
+        except Exception as e:
+            logger.error("MCP shutdown error: %s", e)
         # 关闭 WS server（独立线程，安全调用）
         try:
             ws_server.shutdown(timeout=3)
@@ -323,14 +347,15 @@ def main() -> None:
 
 
 class BackgroundServer:
-    """HTTP + WS 服务器的统一生命周期管理。"""
+    """HTTP + WS + MCP 服务器的统一生命周期管理。"""
 
-    def __init__(self, http_server, ws_server, ws_transport, port, auth_service=None):
+    def __init__(self, http_server, ws_server, ws_transport, port, auth_service=None, mcp_server=None):
         self._http = http_server
         self._ws = ws_server
         self._ws_transport = ws_transport
         self._port = port
         self._auth_service = auth_service
+        self._mcp_server = mcp_server
         self._stopped = False
         self._lock = threading.Lock()
 
@@ -340,7 +365,11 @@ class BackgroundServer:
 
     @property
     def ws_port(self) -> int:
-        return self._port + 1
+        return self._port + WS_PORT_OFFSET
+
+    @property
+    def mcp_port(self) -> int:
+        return self._port + MCP_PORT_OFFSET
 
     def shutdown(self):
         with self._lock:
@@ -350,6 +379,12 @@ class BackgroundServer:
 
         if self._auth_service:
             self._auth_service.stop_watchdog()
+
+        if self._mcp_server:
+            try:
+                self._mcp_server.stop()
+            except Exception as e:
+                logger.error("MCP shutdown error: %s", e)
 
         try:
             self._ws.shutdown(timeout=5)
@@ -373,20 +408,25 @@ def start_server_background(port: int = 8080, host: str = 'localhost',
     """在后台线程启动 API 服务器，返回 BackgroundServer 对象。"""
     setup_logging()
 
-    # 端口可用性检查（HTTP + WS 双端口）
-    if not check_port_available(port) or not check_port_available(port + 1):
-        resolved = False
+    # 端口可用性检查（HTTP + WS + MCP 三端口）。有占用时默认拒绝启动（保护：防多实例）。
+    if (not check_port_available(port)
+            or not check_port_available(port + WS_PORT_OFFSET)
+            or not check_port_available(port + MCP_PORT_OFFSET)):
         if auto_clean:
             http_resolved = check_port_available(port) or handle_port_conflict(port, auto_clean=True)
-            ws_resolved = check_port_available(port + 1) or handle_port_conflict(port + 1, auto_clean=True)
-            resolved = http_resolved and ws_resolved
-        if not resolved:
-            alt = find_available_port(start=port)
-            if alt is not None:
-                logger.info("start_server_background: 端口 %d 不可用，切换到 %d", port, alt)
-                port = alt
-            else:
-                raise RuntimeError(f"端口 {port}/{port+1} 不可用且无替代端口")
+            ws_resolved = check_port_available(port + WS_PORT_OFFSET) or handle_port_conflict(port + WS_PORT_OFFSET, auto_clean=True)
+            mcp_resolved = check_port_available(port + MCP_PORT_OFFSET) or handle_port_conflict(port + MCP_PORT_OFFSET, auto_clean=True)
+            if not (http_resolved and ws_resolved and mcp_resolved):
+                raise RuntimeError(
+                    f"端口 {port}/{port + WS_PORT_OFFSET}/{port + MCP_PORT_OFFSET} 清理失败，仍被占用"
+                )
+            logger.info("start_server_background: 端口清理成功，%d/%d/%d 已释放",
+                        port, port + WS_PORT_OFFSET, port + MCP_PORT_OFFSET)
+        else:
+            raise RuntimeError(
+                f"端口 {port}/{port + WS_PORT_OFFSET}/{port + MCP_PORT_OFFSET} 已被占用，"
+                f"可能存在另一个实例；传 auto_clean=True 可终止旧进程"
+            )
 
     server = ThreadingHTTPServer((host, port), ApiHandler)
     logger.info("CanMatrix Editor API server running at http://%s:%d", host, port)
@@ -395,7 +435,7 @@ def start_server_background(port: int = 8080, host: str = 'localhost',
     from app.ws.router import MessageRouter
     from app.ws.server import WsServer
 
-    ws_transport = WsTransport(host=host, port=port + 1)
+    ws_transport = WsTransport(host=host, port=port + WS_PORT_OFFSET)
     ws_router = MessageRouter(ws_transport, SESSION_MGR, auth_service=AUTH_SERVICE)
     _register_all_handlers(ws_router, SESSION_MGR, ws_transport)
 
@@ -421,6 +461,11 @@ def start_server_background(port: int = 8080, host: str = 'localhost',
 
     ApiHandler._ws_transport = ws_transport
 
+    # ── MCP 服务器启动（与 HTTP/WS 绑定：MCP 端口 = HTTP 端口 + 2）──
+    from app.mcp.runner import EmbeddedMcpServer
+    mcp_server = EmbeddedMcpServer(host, port)
+    mcp_server.start()
+
     if not hasattr(start_server_background, '_initialized'):
         start_server_background._initialized = True
 
@@ -437,7 +482,8 @@ def start_server_background(port: int = 8080, host: str = 'localhost',
 
     server_thread = threading.Thread(target=server.serve_forever, daemon=True)
     server_thread.start()
-    return BackgroundServer(server, ws_server, ws_transport, port, auth_service=AUTH_SERVICE)
+    return BackgroundServer(server, ws_server, ws_transport, port,
+                            auth_service=AUTH_SERVICE, mcp_server=mcp_server)
 
 
 if __name__ == '__main__':

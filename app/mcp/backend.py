@@ -12,6 +12,7 @@ import httpx
 
 from app.mcp.errors import BackendError
 from app.mcp.ws import CallResult, WsConnection, get_session_pool
+from app.server.port_utils import WS_PORT_OFFSET
 
 # 后端 API 默认地址（可用环境变量 CANMATRIX_BACKEND_URL 覆盖）。
 DEFAULT_BACKEND_URL = "http://127.0.0.1:8080"
@@ -19,12 +20,22 @@ DEFAULT_BACKEND_URL = "http://127.0.0.1:8080"
 # PAT → 用户名缓存（/api/me 解析一次即可）
 _PAT_USERNAME_CACHE: dict[str, str] = {}
 
+# 程序化后端地址覆盖：由内嵌启动（app/mcp/runner.py）设置，指向本进程后端。
+# 优先级高于环境变量 CANMATRIX_BACKEND_URL；未设置（如独立进程/测试）时回退到 env。
+_backend_url_override: str | None = None
+
+
+def set_backend_url(url: str) -> None:
+    """设置后端 API 地址（内嵌运行时由 lifecycle 调用，指向本进程后端）。"""
+    global _backend_url_override
+    _backend_url_override = url
+
 
 def _derive_ws_url(base_url: str) -> str:
-    """由 HTTP 地址推导 WS 地址（WS 端口 = HTTP 端口 + 1，见 app/server/lifecycle.py）。"""
+    """由 HTTP 地址推导 WS 地址（WS 端口 = HTTP 端口 + WS_PORT_OFFSET，见 app/server/lifecycle.py）。"""
     parsed = urlparse(base_url)
     scheme = "wss" if parsed.scheme == "https" else "ws"
-    port = (parsed.port or (443 if parsed.scheme == "https" else 80)) + 1
+    port = (parsed.port or (443 if parsed.scheme == "https" else 80)) + WS_PORT_OFFSET
     return f"{scheme}://{parsed.hostname}:{port}"
 
 
@@ -136,11 +147,15 @@ class BackendClient:
 
 
 def get_backend() -> BackendClient:
-    """构造当前请求对应的后端客户端（当前 PAT + 环境变量 CANMATRIX_BACKEND_URL）。"""
+    """构造当前请求对应的后端客户端（当前 PAT + 后端地址）。
+
+    后端地址优先级：set_backend_url() 覆盖 > 环境变量 CANMATRIX_BACKEND_URL > 默认 8080。
+    """
     # 延迟导入：auth_context 顶层导入本模块的 get_backend，避免循环依赖。
     from app.mcp.auth_context import get_current_pat
 
     return BackendClient(
-        base_url=os.environ.get("CANMATRIX_BACKEND_URL", DEFAULT_BACKEND_URL),
+        base_url=_backend_url_override
+        or os.environ.get("CANMATRIX_BACKEND_URL", DEFAULT_BACKEND_URL),
         token=get_current_pat() or "",
     )

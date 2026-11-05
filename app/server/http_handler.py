@@ -13,6 +13,7 @@ from http.server import BaseHTTPRequestHandler
 from typing import Any
 
 from app.version import VERSION
+from app.server.port_utils import MCP_PORT_OFFSET
 
 logger = logging.getLogger(__name__)
 
@@ -351,11 +352,12 @@ class ApiHandler(BaseHTTPRequestHandler):
 
         地址动态计算，不写死 127.0.0.1：
         - 主机 = 请求 Host 头的主机名（服务器部署后即用户访问的地址/域名）
-        - 端口 = 环境变量 CANMATRIX_MCP_PORT（默认 8082，与 app.mcp 一致）
+        - 端口 = 后端 HTTP 端口 + MCP_PORT_OFFSET（MCP 内嵌绑定，与后端同源派生三元组）
         - 协议 = 环境变量 CANMATRIX_MCP_SCHEME（默认 http，HTTPS 反代时设 https）
         """
         host = _host_from_header(self.headers.get("Host", ""))
-        port = int(os.environ.get("CANMATRIX_MCP_PORT", "8082"))
+        http_port = self.server.server_address[1] if self.server else 8080
+        port = http_port + MCP_PORT_OFFSET
         scheme = os.environ.get("CANMATRIX_MCP_SCHEME", "http").rstrip(":")
         url = f"{scheme}://{host}:{port}/mcp"
         self._send_json(200, _resp(True, {"url": url, "host": host, "port": port, "path": "/mcp"}))

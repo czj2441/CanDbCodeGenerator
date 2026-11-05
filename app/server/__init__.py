@@ -1,7 +1,12 @@
 """app.server — HTTP 服务层。"""
 
 from .http_handler import ApiHandler
-from .port_utils import check_port_available, handle_port_conflict, find_available_port
+from .port_utils import (
+    check_port_available,
+    handle_port_conflict,
+    WS_PORT_OFFSET,
+    MCP_PORT_OFFSET,
+)
 
 _LAZY_EXPORTS = {
     'main': '.lifecycle',
@@ -20,6 +25,7 @@ def __getattr__(name: str):
 
 
 __all__ = [
-    'ApiHandler', 'check_port_available', 'handle_port_conflict', 'find_available_port',
+    'ApiHandler', 'check_port_available', 'handle_port_conflict',
+    'WS_PORT_OFFSET', 'MCP_PORT_OFFSET',
     'main', 'start_server_background', 'BackgroundServer', 'SESSION_MGR',
 ]
