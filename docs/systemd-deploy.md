@@ -48,8 +48,8 @@ ExecStart=/opt/canmatrix/venv/bin/python -m app.server.lifecycle --host 0.0.0.0 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
 | `--host` | `0.0.0.0` | 绑定地址。`0.0.0.0` 允许外部访问，`127.0.0.1` 仅本机 |
-| `--port` | `8080` | HTTP 端口（WebSocket 自动使用 port+1） |
-| `--auto-clean` | 已启用 | 启动时自动清理端口残留进程，避免触发端口退避策略 |
+| `--port` | `8080` | HTTP 端口（WebSocket 自动用 `port+1`、MCP 自动用 `port+2`） |
+| `--auto-clean` | 已启用 | 启动时自动终止旧进程（默认端口被占用时会拒绝启动） |
 | `WorkingDirectory` | `/opt/canmatrix` | 项目安装目录 |
 
 示例：绑定到 9090 端口：
@@ -255,51 +255,25 @@ sudo systemctl daemon-reload
 
 ---
 
-## 八、MCP 服务器（canmatrix_mcp）部署
+## 八、MCP 服务器（canmatrix_mcp）
 
-MCP 服务器是一个独立的 Streamable HTTP 服务，让 AI 客户端（OpenCode、Claude Code 等）
-以任意用户的 PAT（个人访问令牌）身份调用 CanMatrix 的全部编辑能力。它依赖
-`canmatrix-editor` 后端（HTTP 8080 + WS 8081……实际 WS 端口为 HTTP 端口 +1），自身默认监听
-`127.0.0.1:8082`。
+MCP 服务器已**内嵌进后端**，随 `canmatrix-editor` 服务一同启动，**无需单独的
+systemd unit**，也无需手工配置后端地址。
 
-> **端口为何是 8082**：后端的 WS 端口固定为 HTTP 端口 +1（默认 8081），MCP 服务不能
-> 复用 8081，否则 `systemctl start canmatrix-mcp` 会因端口占用而失败、或抢占后端 WS。
-> 故 MCP 默认监听 8082，与后端 WS 端口错开。
+端口同源派生，构成绑定三元组：**HTTP = P、WS = P + 1、MCP = P + 2**。默认
+`P = 8080`，故 MCP 监听 `http://<host>:8082/mcp`；`--port` 改变时 MCP 自动跟随
+（例如 `--port 9090` → MCP 在 9092），且 MCP 永远指向本进程后端，不会失配。
 
-### 8.1 安装与启动
+> **端口为何是 P+2**：P+1 已被后端 WS 占用，MCP 需错开一位。
 
-```bash
-# 复制 service 文件到 systemd 目录
-sudo cp deploy/canmatrix-mcp.service /etc/systemd/system/
-
-# 重载 systemd 配置
-sudo systemctl daemon-reload
-
-# 设置开机自启并启动
-sudo systemctl enable canmatrix-mcp
-sudo systemctl start canmatrix-mcp
-
-# 查看状态与日志
-sudo systemctl status canmatrix-mcp
-sudo journalctl -u canmatrix-mcp -f
-```
-
-**环境变量**（在 unit 的 `Environment=` 中配置）：
-
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| `CANMATRIX_BACKEND_URL` | `http://127.0.0.1:8080` | 后端 API 地址（WS 端口自动取 +1） |
-| `CANMATRIX_MCP_HOST` | `127.0.0.1` | MCP 监听地址 |
-| `CANMATRIX_MCP_PORT` | `8082` | MCP 监听端口 |
-
-### 8.2 安全建议
+### 8.1 安全建议
 
 MCP 服务携带的是**长期 PAT**，等同任意用户的编辑权限，安全要求高于普通 Web 页面：
 
-1. **务必绑定 `127.0.0.1`**：`CANMATRIX_MCP_HOST` 保持回环地址，**不要**把 `8082`
-   直接暴露到公网。MCP 端点没有 HTTPS/TLS 层，明文暴露等于泄露令牌。
+1. **MCP 随后端绑定同一地址**：后端 `--host 0.0.0.0` 时 MCP 也对外监听 `8082`；
+   MCP 端点本身没有 TLS 层，明文暴露等于泄露令牌。
 2. **对外访问走 HTTPS 反向代理**：由 nginx 终结 TLS 并转发到本机 `8082`，
-   PAT 只在加密信道内传输。
+   PAT 只在加密信道内传输；勿在防火墙直接开放 `8082`。
 3. 客户端经 `Authorization: Bearer <PAT>` 头认证；PAT 一旦泄露应立即在
    文件列表页 → 访问令牌 中吊销。
 
@@ -324,16 +298,4 @@ server {
         proxy_send_timeout 3600s;
     }
 }
-```
-
-> **再次强调**：反向代理与 MCP 服务之间仅本机 `127.0.0.1` 通信，勿在防火墙中开放
-> `8082` 端口，勿以 `CANMATRIX_MCP_HOST=0.0.0.0` 运行。
-
-### 8.3 卸载
-
-```bash
-sudo systemctl stop canmatrix-mcp
-sudo systemctl disable canmatrix-mcp
-sudo rm /etc/systemd/system/canmatrix-mcp.service
-sudo systemctl daemon-reload
 ```

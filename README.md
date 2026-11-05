@@ -144,16 +144,28 @@ MCP 服务器以 `Authorization: Bearer <PAT>` 头认证身份。PAT 的创建�
 
 ### 启动
 
+MCP 服务器已**内嵌进后端**：启动后端时，MCP 随之一同启动，无需单独跑进程。
+
 ```bash
-# 依赖后端已在 http://127.0.0.1:8080 运行（python -m app.server.lifecycle）
-venv/bin/python -m app.mcp
+# 只启动后端，HTTP / WS / MCP 三元组一起拉起
+venv/bin/python -m app.server.lifecycle
 ```
 
-默认监听 `127.0.0.1:8082`，端点路径 `/mcp`。可用环境变量覆盖：
-`CANMATRIX_BACKEND_URL`（后端地址）、`CANMATRIX_MCP_HOST`、`CANMATRIX_MCP_PORT`。
-生产部署见 [systemd 部署指南](docs/systemd-deploy.md)。
+端口同源派生，构成绑定三元组：**HTTP = P、WS = P + 1、MCP = P + 2**。默认
+`P = 8080`，故 MCP 默认监听 `http://127.0.0.1:8082/mcp`；MCP 永远指向本进程后端，不会失配。
 
-> 端口用 8082 而非 8081：后端 WS 端口固定为 HTTP 端口 +1（默认 8081），MCP 需避开。
+> 端口用 `P + 2` 而非 `P + 1`：`P + 1` 已被后端 WS 占用，MCP 需错开一位。
+
+**防多实例保护**：默认检测到端口被占用（很可能已有另一实例在运行）时**拒绝启动**，
+不会自动换端口。需终止旧进程后再启动：
+
+```bash
+# 显式加 --auto-clean：自动终止旧进程后启动
+venv/bin/python -m app.server.lifecycle --auto-clean
+```
+
+生产部署见 [systemd 部署指南](docs/systemd-deploy.md)。
+（`venv/bin/python -m app.mcp` 仅保留作独立调试入口，生产不再使用。）
 
 ### 客户端接入
 

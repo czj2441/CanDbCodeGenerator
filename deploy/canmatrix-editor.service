@@ -9,7 +9,8 @@ Type=simple
 
 # ── 路径配置（部署时按实际路径修改）──
 WorkingDirectory=/opt/canmatrix
-# --auto-clean: 启动时自动清理端口残留进程，避免触发端口退避策略
+# --auto-clean: 启动时自动终止旧进程（默认端口被占用时会拒绝启动）
+# 说明：HTTP / WS / MCP 三元组在同一进程内启动（WS=+1、MCP=+2），无需单独的 MCP unit。
 ExecStart=/opt/canmatrix/venv/bin/python -m app.server.lifecycle --host 0.0.0.0 --no-browser --auto-clean
 
 # ── 间隔自恢复 ──
