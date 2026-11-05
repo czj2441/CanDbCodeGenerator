@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 
 from mcp.server.mcpserver import MCPServer
+from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import ToolAnnotations
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -51,8 +52,14 @@ class PatIdentityMiddleware:
 
 
 def build_app() -> ASGIApp:
-    """构建 ASGI 应用：mcp.streamable_http_app() 外包 PAT 身份中间件。"""
-    return PatIdentityMiddleware(mcp.streamable_http_app())
+    """构建 ASGI 应用：mcp.streamable_http_app() 外包 PAT 身份中间件。
+
+    显式关闭 DNS rebinding 防护：MCP 走 PAT 认证、面向非浏览器 AI 客户端，
+    且需允许局域网设备直接以 IP 访问（Host 头非 localhost），
+    故不启用 Host/Origin 白名单校验。
+    """
+    transport_security = TransportSecuritySettings(enable_dns_rebinding_protection=False)
+    return PatIdentityMiddleware(mcp.streamable_http_app(transport_security=transport_security))
 
 
 @mcp.tool(description="返回当前令牌对应的用户名与角色", annotations=ToolAnnotations(read_only_hint=True))
