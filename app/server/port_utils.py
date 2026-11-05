@@ -141,7 +141,7 @@ def handle_port_conflict(port: int, auto_clean: bool = False) -> bool:
         except Exception:
             pass
     else:
-        # Linux/macOS: 通过 /proc 或 ps 过滤 python/canmatrix 相关进程
+        # Linux/macOS: 通过 /proc 或 ps 过滤 python/candb-codegenerator 相关进程
         for pid in pids[:10]:
             cmdline = ''
             try:
@@ -159,7 +159,7 @@ def handle_port_conflict(port: int, auto_clean: bool = False) -> bool:
                         cmdline = result.stdout.strip().lower()
                 except Exception:
                     pass
-            if cmdline and ('python' in cmdline or 'canmatrix' in cmdline or 'lifecycle' in cmdline):
+            if cmdline and ('python' in cmdline or 'candb-codegenerator' in cmdline or 'lifecycle' in cmdline):
                 api_server_pids.append(pid)
 
     if api_server_pids:

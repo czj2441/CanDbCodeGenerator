@@ -1,6 +1,6 @@
 @echo off
 REM ============================================
-REM  CAN Matrix Editor - Frontend Build Script
+REM  CanDbCodeGenerator - Frontend Build Script
 REM  Usage: double-click or run build.bat
 REM ============================================
 

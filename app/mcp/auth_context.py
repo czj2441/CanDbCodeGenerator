@@ -19,7 +19,7 @@ AUTH_ERROR_MESSAGE = "未认证：请在 Authorization: Bearer <PAT> 中提供�
 # 同一 PAT 的 /api/me 校验结果缓存时长（秒）。
 _ME_CACHE_TTL = 60.0
 
-_current_pat: ContextVar[str | None] = ContextVar("canmatrix_mcp_current_pat", default=None)
+_current_pat: ContextVar[str | None] = ContextVar("candb_codegenerator_mcp_current_pat", default=None)
 _me_cache: dict[str, tuple[float, dict]] = {}
 
 

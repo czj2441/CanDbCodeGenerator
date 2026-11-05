@@ -1,11 +1,11 @@
-# CanMatrix MCP 服务器（canmatrix_mcp）设计文档
+# CanDbCodeGenerator MCP 服务器（candb_codegenerator_mcp）设计文档
 
 日期：2026-11-03
 状态：已评审、已批准（含两处用户修正：改密码不吊销 PAT；撤销栈 v1 不隔离、为未来文件版本管理预留）
 
 ## 意图与背景
 
-CanMatrix Editor 是 CAN 报文/信号编辑工具：Python 后端（HTTP + WebSocket，session 中心）+ Vue 前端，Properties 为主存储，支持 DBC 导入/导出、C 代码生成、位域校验、撤销/重做、多用户（token 认证、文件锁、文件所有权）。
+CanDbCodeGenerator 是 CAN 报文/信号编辑工具：Python 后端（HTTP + WebSocket，session 中心）+ Vue 前端，Properties 为主存储，支持 DBC 导入/导出、C 代码生成、位域校验、撤销/重做、多用户（token 认证、文件锁、文件所有权）。
 
 本设计新增一个 MCP 服务器，让 AI 客户端（Claude Code / OpenCode 等）完成界面上的全部**编辑类**操作：导入 DBC、查询/增删改报文与信号、值表管理、数据错误校验、撤销/重做、保存/另存为、导出 properties / DBC / C 头文件 / C 源文件。
 
@@ -61,13 +61,13 @@ CanMatrix Editor 是 CAN 报文/信号编辑工具：Python 后端（HTTP + WebS
 
 - 身份：MCP 客户端经 `Authorization: Bearer <PAT>` 传身份，ASGI 中间件注入 contextvar；工具层通过 `require_user()` 解析 `{"username", "role"}`（带 60s 缓存）。
 - 会话：SessionPool 按 `(username, session_id)` 持有 WS 连接；每连接 hello 握手、请求-响应（requestId）、30s 心跳；闲置 30 分钟回收；`close_session` 显式关闭并释放锁。崩溃靠后端心跳超时兜底。
-- 工具命名 `canmatrix_` 前缀 snake_case；列表统一 `{total, count, offset, items, has_more, next_offset}`，limit 默认 50 / 上限 200；每个工具标 readOnly/destructive 等注解。
+- 工具命名 `candb_` 前缀 snake_case；列表统一 `{total, count, offset, items, has_more, next_offset}`，limit 默认 50 / 上限 200；每个工具标 readOnly/destructive 等注解。
 - 工具面（约 30 个）：`whoami`、`list_files`、`open_file`、`import_file`、`create_file`、`save`、`save_as`、`close_session`、`get_summary`、`export`；报文/信号/值表的查（分页过滤）+ 增改删 + 批量；`get_data_errors`、`undo`、`redo`、`get_save_diff`。精确参数映射见实施计划。
 
 ### 为未来"轻量级文件版本管理"的预留（用户要求）
 
 - v1 不改 undo/快照语义；设计标注改造点：`undo_engine.save_orphan` 的 re-key（按文件名 → 按会话/命名空间）、快照的"消费式读取"。
-- MCP 工具描述不把"undo 归属文件"写死；未来可平滑增加 `canmatrix_list_versions` / `canmatrix_restore_version` 一类工具；`close_session` 语义预留"存为版本"扩展位。
+- MCP 工具描述不把"undo 归属文件"写死；未来可平滑增加 `candb_list_versions` / `candb_restore_version` 一类工具；`close_session` 语义预留"存为版本"扩展位。
 - 词汇区分："文件版本管理"（未来）与现有 API 的编辑版本号（`new_version`）严格分开。
 
 ## 测试与验收

@@ -265,7 +265,7 @@ watch(() => ui.showLogPanel, (show) => {
 
 // 浏览器标题栏动态脏标记
 watchEffect(() => {
-  const base = 'CAN Matrix Editor'
+  const base = 'CanDbCodeGenerator'
   document.title = store.backendDirty ? `● ${base}` : base
 })
 

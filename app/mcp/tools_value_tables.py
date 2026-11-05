@@ -1,4 +1,4 @@
-"""值表工具 — 五个 canmatrix_ 工具（Task 10）。"""
+"""值表工具 — 五个 candb_ 工具（Task 10）。"""
 from __future__ import annotations
 
 from mcp.types import ToolAnnotations
@@ -16,7 +16,7 @@ async def _get_conn(session_id: str):
         raise tool_error(e) from e
 
 
-async def canmatrix_list_value_tables(session_id: str) -> dict:
+async def candb_list_value_tables(session_id: str) -> dict:
     """列出会话的全部值描述表（{name: entries}）。"""
     await require_user()
     conn = await _get_conn(session_id)
@@ -27,7 +27,7 @@ async def canmatrix_list_value_tables(session_id: str) -> dict:
     return dict(result.data or {})
 
 
-async def canmatrix_add_value_table(session_id: str, name: str, entries: dict) -> dict:
+async def candb_add_value_table(session_id: str, name: str, entries: dict) -> dict:
     """新增值描述表（entries: {value: label}）。"""
     await require_user()
     conn = await _get_conn(session_id)
@@ -39,7 +39,7 @@ async def canmatrix_add_value_table(session_id: str, name: str, entries: dict) -
     return dict(result.data or {})
 
 
-async def canmatrix_update_value_table(session_id: str, name: str, entries: dict) -> dict:
+async def candb_update_value_table(session_id: str, name: str, entries: dict) -> dict:
     """更新值描述表的条目。"""
     await require_user()
     conn = await _get_conn(session_id)
@@ -51,7 +51,7 @@ async def canmatrix_update_value_table(session_id: str, name: str, entries: dict
     return dict(result.data or {})
 
 
-async def canmatrix_rename_value_table(session_id: str, old_name: str, new_name: str) -> dict:
+async def candb_rename_value_table(session_id: str, old_name: str, new_name: str) -> dict:
     """重命名值描述表。"""
     await require_user()
     conn = await _get_conn(session_id)
@@ -63,7 +63,7 @@ async def canmatrix_rename_value_table(session_id: str, old_name: str, new_name:
     return dict(result.data or {})
 
 
-async def canmatrix_delete_value_table(session_id: str, name: str) -> dict:
+async def candb_delete_value_table(session_id: str, name: str) -> dict:
     """删除值描述表。"""
     await require_user()
     conn = await _get_conn(session_id)
@@ -80,20 +80,20 @@ def register_tools(mcp) -> None:
     mcp.tool(
         description="列出会话的全部值描述表（{name: entries}）",
         annotations=ToolAnnotations(read_only_hint=True),
-    )(canmatrix_list_value_tables)
+    )(candb_list_value_tables)
     mcp.tool(
         description="新增值描述表（entries: {value: label}）",
         annotations=ToolAnnotations(destructive_hint=True),
-    )(canmatrix_add_value_table)
+    )(candb_add_value_table)
     mcp.tool(
         description="更新值描述表条目",
         annotations=ToolAnnotations(destructive_hint=True),
-    )(canmatrix_update_value_table)
+    )(candb_update_value_table)
     mcp.tool(
         description="重命名值描述表",
         annotations=ToolAnnotations(destructive_hint=True),
-    )(canmatrix_rename_value_table)
+    )(candb_rename_value_table)
     mcp.tool(
         description="删除值描述表",
         annotations=ToolAnnotations(destructive_hint=True),
-    )(canmatrix_delete_value_table)
+    )(candb_delete_value_table)

@@ -1,4 +1,4 @@
-"""app — CanMatrix Editor 后端 Python 包。
+"""app — CanDbCodeGenerator 后端 Python 包。
 
 Lazy re-export（避免 import app 触发服务器初始化）:
     from app import main, start_server_background, BackgroundServer, VERSION

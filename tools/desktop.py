@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-CanMatrix Editor - 桌面应用入口（单窗口架构）
+CanDbCodeGenerator - 桌面应用入口（单窗口架构）
   WinForms 窗口 + SplitContainer：
     - 顶部：菜单栏（工具下拉菜单：打开后端日志、重启后端）
     - 上半部分：WebView2 渲染 Web 编辑器
@@ -279,7 +279,7 @@ class MainWindow:
         """构建 WinForms 窗口和所有控件。"""
         # ── 主窗口 ──
         self.form = Form()
-        self.form.Text = "CanMatrix Editor"
+        self.form.Text = "CanDbCodeGenerator"
         self.form.Size = Size(1400, 900)
         self.form.MinimumSize = Size(900, 600)
         self.form.StartPosition = FormStartPosition.CenterScreen
@@ -454,7 +454,7 @@ class MainWindow:
             props = CoreWebView2CreationProperties()
             cache_dir = os.path.join(
                 os.environ.get('LOCALAPPDATA', os.path.expanduser('~')),
-                'CanMatrixEditor', 'WebView2Cache'
+                'CanDbCodeGenerator', 'WebView2Cache'
             )
             props.UserDataFolder = cache_dir
             self.webview.CreationProperties = props

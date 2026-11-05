@@ -1,4 +1,4 @@
-"""信号工具 — 八个 canmatrix_ 工具（Task 9）。
+"""信号工具 — 八个 candb_ 工具（Task 9）。
 
 信号明细经 get_message（message.to_dict()["signals"] = {name: sig_dict}）获取；
 编辑/增删走 WS；分页复用 app/mcp.pagination。
@@ -48,7 +48,7 @@ async def _all_signals(conn, session_id: str) -> list[dict]:
     return items
 
 
-async def canmatrix_list_signals(
+async def candb_list_signals(
     session_id: str, msg_id: int | None = None, filter: str | None = None,
     limit: int = 50, offset: int = 0,
 ) -> dict:
@@ -62,7 +62,7 @@ async def canmatrix_list_signals(
     return paginate(items, limit=limit, offset=offset, filter=filter, filter_fields=("name",))
 
 
-async def canmatrix_get_signal(session_id: str, msg_id: int, sig_name: str) -> dict:
+async def candb_get_signal(session_id: str, msg_id: int, sig_name: str) -> dict:
     """获取单个信号明细（附 msg_id）。"""
     await require_user()
     conn = await _get_conn(session_id)
@@ -73,7 +73,7 @@ async def canmatrix_get_signal(session_id: str, msg_id: int, sig_name: str) -> d
     raise ToolError(f"信号 {sig_name} 在报文 0x{msg_id:X} 中不存在")
 
 
-async def canmatrix_add_signal(session_id: str, msg_id: int, signal: dict) -> dict:
+async def candb_add_signal(session_id: str, msg_id: int, signal: dict) -> dict:
     """在报文中新增一个信号（signal 字段集与后端 add_signal 一致）。"""
     await require_user()
     conn = await _get_conn(session_id)
@@ -84,7 +84,7 @@ async def canmatrix_add_signal(session_id: str, msg_id: int, signal: dict) -> di
     return dict(result.data or {})
 
 
-async def canmatrix_batch_add_signals(session_id: str, msg_id: int, signals: list[dict]) -> dict:
+async def candb_batch_add_signals(session_id: str, msg_id: int, signals: list[dict]) -> dict:
     """在报文中批量新增多个信号。"""
     await require_user()
     conn = await _get_conn(session_id)
@@ -96,7 +96,7 @@ async def canmatrix_batch_add_signals(session_id: str, msg_id: int, signals: lis
     return dict(result.data or {})
 
 
-async def canmatrix_edit_signal(session_id: str, msg_id: int, sig_name: str, field: str, value) -> dict:
+async def candb_edit_signal(session_id: str, msg_id: int, sig_name: str, field: str, value) -> dict:
     """修改单个信号的一个字段（field/value）。"""
     await require_user()
     conn = await _get_conn(session_id)
@@ -109,7 +109,7 @@ async def canmatrix_edit_signal(session_id: str, msg_id: int, sig_name: str, fie
     return dict(result.data or {})
 
 
-async def canmatrix_batch_edit_signals(
+async def candb_batch_edit_signals(
     session_id: str, msg_id: int, sig_names: list[str], fields: dict,
 ) -> dict:
     """批量修改报文中多个信号的字段（禁止 name/start_bit）。"""
@@ -124,7 +124,7 @@ async def canmatrix_batch_edit_signals(
     return dict(result.data or {})
 
 
-async def canmatrix_delete_signal(session_id: str, msg_id: int, sig_name: str) -> dict:
+async def candb_delete_signal(session_id: str, msg_id: int, sig_name: str) -> dict:
     """删除报文中的一个信号。"""
     await require_user()
     conn = await _get_conn(session_id)
@@ -136,7 +136,7 @@ async def canmatrix_delete_signal(session_id: str, msg_id: int, sig_name: str) -
     return dict(result.data or {})
 
 
-async def canmatrix_batch_delete_signals(session_id: str, msg_id: int, sig_names: list[str]) -> dict:
+async def candb_batch_delete_signals(session_id: str, msg_id: int, sig_names: list[str]) -> dict:
     """批量删除报文中的多个信号。"""
     await require_user()
     conn = await _get_conn(session_id)
@@ -154,32 +154,32 @@ def register_tools(mcp) -> None:
     mcp.tool(
         description="分页列出信号明细（每条附 msg_id）；msg_id 给定时只看该报文，否则遍历全部报文；filter 按信号名子串过滤",
         annotations=ToolAnnotations(read_only_hint=True),
-    )(canmatrix_list_signals)
+    )(candb_list_signals)
     mcp.tool(
         description="获取单个信号明细（附 msg_id）",
         annotations=ToolAnnotations(read_only_hint=True),
-    )(canmatrix_get_signal)
+    )(candb_get_signal)
     mcp.tool(
         description="在报文中新增一个信号",
         annotations=ToolAnnotations(destructive_hint=True),
-    )(canmatrix_add_signal)
+    )(candb_add_signal)
     mcp.tool(
         description="在报文中批量新增多个信号",
         annotations=ToolAnnotations(destructive_hint=True),
-    )(canmatrix_batch_add_signals)
+    )(candb_batch_add_signals)
     mcp.tool(
         description="修改单个信号的一个字段",
         annotations=ToolAnnotations(destructive_hint=True),
-    )(canmatrix_edit_signal)
+    )(candb_edit_signal)
     mcp.tool(
         description="批量修改报文中多个信号的字段（禁止 name/start_bit）",
         annotations=ToolAnnotations(destructive_hint=True),
-    )(canmatrix_batch_edit_signals)
+    )(candb_batch_edit_signals)
     mcp.tool(
         description="删除报文中的一个信号",
         annotations=ToolAnnotations(destructive_hint=True),
-    )(canmatrix_delete_signal)
+    )(candb_delete_signal)
     mcp.tool(
         description="批量删除报文中的多个信号",
         annotations=ToolAnnotations(destructive_hint=True),
-    )(canmatrix_batch_delete_signals)
+    )(candb_batch_delete_signals)

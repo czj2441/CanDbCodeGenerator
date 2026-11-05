@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================
-#  CAN Matrix Editor - 前端快速构建脚本
+#  CanDbCodeGenerator - 前端快速构建脚本
 #  用法：chmod +x build.sh && ./build.sh
 # ============================================
 

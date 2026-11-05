@@ -1,4 +1,4 @@
-# CAN Matrix Editor 架构特征
+# CanDbCodeGenerator 架构特征
 
 > 本文档记录项目的关键架构设计特征，作为后续开发和维护的参考标准。
 >

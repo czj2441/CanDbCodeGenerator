@@ -41,29 +41,29 @@ export const useUiStore = defineStore('ui', {
     // activeTabId: number (msgId) | 'messages' | 'valtables'
     activeTabId: 'messages',
     // 主题
-    theme: localStorage.getItem('canmatrix_theme') || 'dark',
+    theme: localStorage.getItem('candb_theme') || 'dark',
     // 日志面板
     showLogPanel: false,
     // 导出拦截时自动展开 DataErrorList
     expandDataErrors: false,
     // 底部面板标签页（'errors' | 'log' | null）
     // '' = 用户显式关闭（跨刷新保持关闭），null = 首次访问（默认打开 errors）
-    bottomTab: (() => { const v = localStorage.getItem('canmatrix_bottom_tab'); return v !== null ? (v || null) : 'errors' })(),
+    bottomTab: (() => { const v = localStorage.getItem('candb_bottom_tab'); return v !== null ? (v || null) : 'errors' })(),
     // 右侧边栏宽度
-    sidebarWidth: parseInt(localStorage.getItem('canmatrix_sidebar_width')) || 280,
+    sidebarWidth: parseInt(localStorage.getItem('candb_sidebar_width')) || 280,
     // 底部面板高度
-    bottomPanelHeight: parseInt(localStorage.getItem('canmatrix_bottom_height')) || 160,
+    bottomPanelHeight: parseInt(localStorage.getItem('candb_bottom_height')) || 160,
     // 列可见性 + 列宽（SignalEditorTab）
-    hiddenColumns: JSON.parse(localStorage.getItem('canmatrix_hidden_cols') ?? JSON.stringify(DEFAULT_SIGNAL_HIDDEN_COLS)),
-    columnWidths: JSON.parse(localStorage.getItem('canmatrix_col_widths') || '{}'),
+    hiddenColumns: JSON.parse(localStorage.getItem('candb_hidden_cols') ?? JSON.stringify(DEFAULT_SIGNAL_HIDDEN_COLS)),
+    columnWidths: JSON.parse(localStorage.getItem('candb_col_widths') || '{}'),
     // 中间区域 Tab 状态（保留以兼容部分模板判断；动态 tab 时值为 'msg_{id}'）
     centerTab: 'messages',  // 'messages' | 'valtables' | 'msg_{id}'
     // 列可见性 + 列宽（MessageTab，独立 key 前缀 msg_）
-    msgHiddenColumns: JSON.parse(localStorage.getItem('canmatrix_msg_hidden_cols') || '[]'),
-    msgColumnWidths: JSON.parse(localStorage.getItem('canmatrix_msg_col_widths') || '{}'),
+    msgHiddenColumns: JSON.parse(localStorage.getItem('candb_msg_hidden_cols') || '[]'),
+    msgColumnWidths: JSON.parse(localStorage.getItem('candb_msg_col_widths') || '{}'),
     // 列可见性 + 列宽（ValueTableTab，独立 key 前缀 vt_）
-    vtHiddenColumns: JSON.parse(localStorage.getItem('canmatrix_vt_hidden_cols') || '[]'),
-    vtColumnWidths: JSON.parse(localStorage.getItem('canmatrix_vt_col_widths') || '{}'),
+    vtHiddenColumns: JSON.parse(localStorage.getItem('candb_vt_hidden_cols') || '[]'),
+    vtColumnWidths: JSON.parse(localStorage.getItem('candb_vt_col_widths') || '{}'),
     // 值描述表选中状态 + 外部跳转焦点
     selectedVtName: null,
     valueTableFocusName: '',
@@ -71,12 +71,12 @@ export const useUiStore = defineStore('ui', {
     signalMultiKeys: [],  // string[] — SignalEditorTab
     msgMultiKeys: [],     // number[] — MessageTab
     // 排序偏好（所有文件共享，localStorage 持久化）
-    signalSortField: localStorage.getItem('canmatrix_sig_sort_field') || 'start_bit',
-    signalSortDir: localStorage.getItem('canmatrix_sig_sort_dir') || 'asc',
-    msgSortField: localStorage.getItem('canmatrix_msg_sort_field') || 'id',
-    msgSortDir: localStorage.getItem('canmatrix_msg_sort_dir') || 'asc',
-    vtSortField: localStorage.getItem('canmatrix_vt_sort_field') || 'name',
-    vtSortDir: localStorage.getItem('canmatrix_vt_sort_dir') || 'asc',
+    signalSortField: localStorage.getItem('candb_sig_sort_field') || 'start_bit',
+    signalSortDir: localStorage.getItem('candb_sig_sort_dir') || 'asc',
+    msgSortField: localStorage.getItem('candb_msg_sort_field') || 'id',
+    msgSortDir: localStorage.getItem('candb_msg_sort_dir') || 'asc',
+    vtSortField: localStorage.getItem('candb_vt_sort_field') || 'name',
+    vtSortDir: localStorage.getItem('candb_vt_sort_dir') || 'asc',
   }),
 
   getters: {
@@ -215,7 +215,7 @@ export const useUiStore = defineStore('ui', {
 
     setTheme(theme) {
       this.theme = theme
-      localStorage.setItem('canmatrix_theme', theme)
+      localStorage.setItem('candb_theme', theme)
       document.documentElement.setAttribute('data-theme', theme)
     },
 
@@ -232,15 +232,15 @@ export const useUiStore = defineStore('ui', {
     // ── 底部面板 / 侧栏 ──
     setBottomTab(tab) {
       this.bottomTab = this.bottomTab === tab ? null : tab
-      localStorage.setItem('canmatrix_bottom_tab', this.bottomTab || '')
+      localStorage.setItem('candb_bottom_tab', this.bottomTab || '')
     },
     setSidebarWidth(w) {
       this.sidebarWidth = w
-      localStorage.setItem('canmatrix_sidebar_width', String(w))
+      localStorage.setItem('candb_sidebar_width', String(w))
     },
     setBottomPanelHeight(h) {
       this.bottomPanelHeight = h
-      localStorage.setItem('canmatrix_bottom_height', String(h))
+      localStorage.setItem('candb_bottom_height', String(h))
     },
 
     // ── Tab 切换（含动态标签页状态同步） ──
@@ -337,26 +337,26 @@ export const useUiStore = defineStore('ui', {
       const idx = this.hiddenColumns.indexOf(key)
       if (idx >= 0) this.hiddenColumns.splice(idx, 1)
       else this.hiddenColumns.push(key)
-      localStorage.setItem('canmatrix_hidden_cols', JSON.stringify(this.hiddenColumns))
+      localStorage.setItem('candb_hidden_cols', JSON.stringify(this.hiddenColumns))
     },
     isColumnVisible(key) {
       return !this.hiddenColumns.includes(key)
     },
     resetColumnVisibility() {
       this.hiddenColumns = [...DEFAULT_SIGNAL_HIDDEN_COLS]
-      localStorage.setItem('canmatrix_hidden_cols', JSON.stringify(DEFAULT_SIGNAL_HIDDEN_COLS))
+      localStorage.setItem('candb_hidden_cols', JSON.stringify(DEFAULT_SIGNAL_HIDDEN_COLS))
     },
     // ── 列宽（百分比） ──
     setColumnWidths(widths) {
       this.columnWidths = widths
-      localStorage.setItem('canmatrix_col_widths', JSON.stringify(widths))
+      localStorage.setItem('candb_col_widths', JSON.stringify(widths))
     },
     getColumnWidth(key, defaultPct) {
       return this.columnWidths[key] ?? defaultPct
     },
     resetColumnWidths() {
       this.columnWidths = {}
-      localStorage.setItem('canmatrix_col_widths', '{}')
+      localStorage.setItem('candb_col_widths', '{}')
     },
 
     // ── 列可见性（MessageTab） ──
@@ -364,26 +364,26 @@ export const useUiStore = defineStore('ui', {
       const idx = this.msgHiddenColumns.indexOf(key)
       if (idx >= 0) this.msgHiddenColumns.splice(idx, 1)
       else this.msgHiddenColumns.push(key)
-      localStorage.setItem('canmatrix_msg_hidden_cols', JSON.stringify(this.msgHiddenColumns))
+      localStorage.setItem('candb_msg_hidden_cols', JSON.stringify(this.msgHiddenColumns))
     },
     isMsgColumnVisible(key) {
       return !this.msgHiddenColumns.includes(key)
     },
     resetMsgColumnVisibility() {
       this.msgHiddenColumns = []
-      localStorage.setItem('canmatrix_msg_hidden_cols', '[]')
+      localStorage.setItem('candb_msg_hidden_cols', '[]')
     },
     // ── 列宽（MessageTab） ──
     setMsgColumnWidths(widths) {
       this.msgColumnWidths = widths
-      localStorage.setItem('canmatrix_msg_col_widths', JSON.stringify(widths))
+      localStorage.setItem('candb_msg_col_widths', JSON.stringify(widths))
     },
     getMsgColumnWidth(key, defaultPct) {
       return this.msgColumnWidths[key] ?? defaultPct
     },
     resetMsgColumnWidths() {
       this.msgColumnWidths = {}
-      localStorage.setItem('canmatrix_msg_col_widths', '{}')
+      localStorage.setItem('candb_msg_col_widths', '{}')
     },
 
     // ── 列可见性（ValueTableTab） ──
@@ -391,26 +391,26 @@ export const useUiStore = defineStore('ui', {
       const idx = this.vtHiddenColumns.indexOf(key)
       if (idx >= 0) this.vtHiddenColumns.splice(idx, 1)
       else this.vtHiddenColumns.push(key)
-      localStorage.setItem('canmatrix_vt_hidden_cols', JSON.stringify(this.vtHiddenColumns))
+      localStorage.setItem('candb_vt_hidden_cols', JSON.stringify(this.vtHiddenColumns))
     },
     isVtColumnVisible(key) {
       return !this.vtHiddenColumns.includes(key)
     },
     resetVtColumnVisibility() {
       this.vtHiddenColumns = []
-      localStorage.setItem('canmatrix_vt_hidden_cols', '[]')
+      localStorage.setItem('candb_vt_hidden_cols', '[]')
     },
     // ── 列宽（ValueTableTab） ──
     setVtColumnWidths(widths) {
       this.vtColumnWidths = widths
-      localStorage.setItem('canmatrix_vt_col_widths', JSON.stringify(widths))
+      localStorage.setItem('candb_vt_col_widths', JSON.stringify(widths))
     },
     getVtColumnWidth(key, defaultPct) {
       return this.vtColumnWidths[key] ?? defaultPct
     },
     resetVtColumnWidths() {
       this.vtColumnWidths = {}
-      localStorage.setItem('canmatrix_vt_col_widths', '{}')
+      localStorage.setItem('candb_vt_col_widths', '{}')
     },
 
     setLoading(val) {
@@ -432,20 +432,20 @@ export const useUiStore = defineStore('ui', {
     setSignalSort(field, dir) {
       this.signalSortField = field
       this.signalSortDir = dir
-      localStorage.setItem('canmatrix_sig_sort_field', field)
-      localStorage.setItem('canmatrix_sig_sort_dir', dir)
+      localStorage.setItem('candb_sig_sort_field', field)
+      localStorage.setItem('candb_sig_sort_dir', dir)
     },
     setMsgSort(field, dir) {
       this.msgSortField = field
       this.msgSortDir = dir
-      localStorage.setItem('canmatrix_msg_sort_field', field)
-      localStorage.setItem('canmatrix_msg_sort_dir', dir)
+      localStorage.setItem('candb_msg_sort_field', field)
+      localStorage.setItem('candb_msg_sort_dir', dir)
     },
     setVtSort(field, dir) {
       this.vtSortField = field
       this.vtSortDir = dir
-      localStorage.setItem('canmatrix_vt_sort_field', field)
-      localStorage.setItem('canmatrix_vt_sort_dir', dir)
+      localStorage.setItem('candb_vt_sort_field', field)
+      localStorage.setItem('candb_vt_sort_dir', dir)
     },
   },
 })

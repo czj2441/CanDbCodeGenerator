@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 # ── 路径常量（与 file_persistence.py 同模式） ──
 if getattr(sys, 'frozen', False):
-    _app_data = os.path.join(os.environ.get('APPDATA', os.path.expanduser('~')), 'CanMatrixEditor')
+    _app_data = os.path.join(os.environ.get('APPDATA', os.path.expanduser('~')), 'CanDbCodeGenerator')
     CONFIG_DIR = os.path.join(_app_data, 'config')
 else:
     _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

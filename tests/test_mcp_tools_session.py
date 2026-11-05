@@ -9,7 +9,7 @@
 - bob 只读会话调 save → ToolError 文案含所有者提示
 - list_files 分页信封 + items 含 file_name/owner/is_locked
 - export c_source 返回非空 content（HTTP /api/export，120s 超时约定）
-- 数据错误阻断 dbc 导出（force=False）→ ToolError 提及 canmatrix_get_data_errors
+- 数据错误阻断 dbc 导出（force=False）→ ToolError 提及 candb_get_data_errors
 
 说明：仓库未装 pytest-asyncio，沿用 tests/test_mcp_identity.py 的
 asyncio.run() 约定（同步测试函数包一层协程）。
@@ -23,13 +23,13 @@ from mcp.server.mcpserver.exceptions import ToolError
 from app.mcp import tools_session
 from app.mcp.auth_context import set_current_pat
 from app.mcp.tools_session import (
-    canmatrix_close_session,
-    canmatrix_create_file,
-    canmatrix_export,
-    canmatrix_import_file,
-    canmatrix_list_files,
-    canmatrix_open_file,
-    canmatrix_save,
+    candb_close_session,
+    candb_create_file,
+    candb_export,
+    candb_import_file,
+    candb_list_files,
+    candb_open_file,
+    candb_save,
 )
 from app.mcp.ws import init_session_pool
 
@@ -49,7 +49,7 @@ BO_ 100 Msg1: 8 ECU1
 
 def _prepare(live_backend, monkeypatch):
     """指向 live_backend 后端并重建会话池（测试间不留连接）。"""
-    monkeypatch.setenv("CANMATRIX_BACKEND_URL", live_backend["base_url"])
+    monkeypatch.setenv("CANDB_CODEGENERATOR_BACKEND_URL", live_backend["base_url"])
     return init_session_pool(idle_ttl=60.0, ping_interval=0.2)
 
 
@@ -61,20 +61,20 @@ def test_create_open_save_close_roundtrip(live_backend, monkeypatch):
         pool = _prepare(live_backend, monkeypatch)
         try:
             set_current_pat(live_backend["pat_alice"])
-            created = await canmatrix_create_file("rt_file")
+            created = await candb_create_file("rt_file")
             assert created["file_name"] == "rt_file.properties"
             assert created["message_count"] == 0
             assert created["signal_count"] == 0
             sid = created["session_id"]
             assert sid
 
-            saved = await canmatrix_save(sid)
+            saved = await candb_save(sid)
             assert saved["message"] == "保存成功"
 
-            closed = await canmatrix_close_session(sid)
+            closed = await candb_close_session(sid)
             assert closed == {"closed": True}
 
-            opened = await canmatrix_open_file("rt_file.properties")
+            opened = await candb_open_file("rt_file.properties")
             assert opened["file_name"] == "rt_file.properties"
             assert opened["message_count"] == 0
             assert opened["signal_count"] == 0
@@ -95,15 +95,15 @@ def test_create_file_padded_name_keeps_ownership(live_backend, monkeypatch):
         pool = _prepare(live_backend, monkeypatch)
         try:
             set_current_pat(live_backend["pat_alice"])
-            created = await canmatrix_create_file(" pad_file ")
+            created = await candb_create_file(" pad_file ")
             assert created["file_name"] == " pad_file .properties"  # 原样 + .properties，不 strip
 
             # owner 侧车键与真实文件一致 → 创建者可写、自己的 save 可过权限检查
-            saved = await canmatrix_save(created["session_id"])
+            saved = await candb_save(created["session_id"])
             assert saved["message"] == "保存成功"
 
-            await canmatrix_close_session(created["session_id"])
-            opened = await canmatrix_open_file(" pad_file .properties")
+            await candb_close_session(created["session_id"])
+            opened = await candb_open_file(" pad_file .properties")
             assert opened["file_name"] == " pad_file .properties"
             assert opened["can_write"] is True
         finally:
@@ -119,12 +119,12 @@ def test_import_dbc_then_export_properties(live_backend, monkeypatch):
         pool = _prepare(live_backend, monkeypatch)
         try:
             set_current_pat(live_backend["pat_alice"])
-            imported = await canmatrix_import_file("imp_dbc.dbc", format="dbc", content=MINIMAL_DBC)
+            imported = await candb_import_file("imp_dbc.dbc", format="dbc", content=MINIMAL_DBC)
             sid = imported["session_id"]
             assert sid
             assert imported["file_name"] == "imp_dbc.properties"
 
-            exported = await canmatrix_export(sid, format="properties")
+            exported = await candb_export(sid, format="properties")
             assert exported["format"] == "properties"
             assert "SigX" in exported["content"]
             assert exported["file_name"].endswith(".properties")
@@ -142,11 +142,11 @@ def test_open_locked_file_readonly_shows_lock_owner(live_backend, monkeypatch):
         pool = _prepare(live_backend, monkeypatch)
         try:
             set_current_pat(live_backend["pat_alice"])
-            created = await canmatrix_create_file("locked_by_alice")
+            created = await candb_create_file("locked_by_alice")
             assert created["session_id"]  # 会话保持打开 → 文件锁被 alice 持有
 
             set_current_pat(live_backend["pat_bob"])
-            opened = await canmatrix_open_file("locked_by_alice.properties")
+            opened = await candb_open_file("locked_by_alice.properties")
             assert opened["session_id"]
             assert opened["can_write"] is False   # bob 非 owner → 只读会话
             assert opened["is_locked"] is True
@@ -164,11 +164,11 @@ def test_owner_reopen_locked_file_reports_owner(live_backend, monkeypatch):
         pool = _prepare(live_backend, monkeypatch)
         try:
             set_current_pat(live_backend["pat_alice"])
-            created = await canmatrix_create_file("own_lock")
+            created = await candb_create_file("own_lock")
             assert created["session_id"]  # 第一个会话保持打开 → 占锁
 
             with pytest.raises(ToolError) as exc_info:
-                await canmatrix_open_file("own_lock.properties")
+                await candb_open_file("own_lock.properties")
             msg = str(exc_info.value)
             assert "alice" in msg        # 占用者（=owner，也是调用者自己）
             assert "FILE_LOCKED" in msg
@@ -185,17 +185,17 @@ def test_write_on_readonly_session_reports_owner(live_backend, monkeypatch):
         pool = _prepare(live_backend, monkeypatch)
         try:
             set_current_pat(live_backend["pat_alice"])
-            created = await canmatrix_create_file("ro_file")
-            await canmatrix_close_session(created["session_id"])  # 释放锁，bob 可开只读
+            created = await candb_create_file("ro_file")
+            await candb_close_session(created["session_id"])  # 释放锁，bob 可开只读
 
             set_current_pat(live_backend["pat_bob"])
-            opened = await canmatrix_open_file("ro_file.properties")
+            opened = await candb_open_file("ro_file.properties")
             assert opened["can_write"] is False  # bob 非 owner → 只读会话
             sid = opened["session_id"]
             assert sid
 
             with pytest.raises(ToolError) as exc_info:
-                await canmatrix_save(sid)
+                await candb_save(sid)
             assert "文件所有者可写，联系其授权或由其编辑" in str(exc_info.value)
         finally:
             await pool.aclose_all()
@@ -210,11 +210,11 @@ def test_list_files_shows_owner_and_lock(live_backend, monkeypatch):
         pool = _prepare(live_backend, monkeypatch)
         try:
             set_current_pat(live_backend["pat_alice"])
-            created = await canmatrix_create_file("listed_file")
+            created = await candb_create_file("listed_file")
             assert created["session_id"]  # 保持打开 → is_locked 为 True
 
             set_current_pat(live_backend["pat_bob"])
-            listing = await canmatrix_list_files()
+            listing = await candb_list_files()
             assert set(listing) == {"total", "count", "offset", "items", "has_more", "next_offset"}
             item = next(i for i in listing["items"] if i["file_name"] == "listed_file.properties")
             assert item["owner"] == "alice"
@@ -232,9 +232,9 @@ def test_export_returns_content_with_extended_timeout(live_backend, monkeypatch)
         pool = _prepare(live_backend, monkeypatch)
         try:
             set_current_pat(live_backend["pat_alice"])
-            imported = await canmatrix_import_file("cexp.dbc", format="dbc", content=MINIMAL_DBC)
+            imported = await candb_import_file("cexp.dbc", format="dbc", content=MINIMAL_DBC)
 
-            exported = await canmatrix_export(imported["session_id"], format="c_source")
+            exported = await candb_export(imported["session_id"], format="c_source")
             assert exported["format"] == "c_source"
             assert exported["content"].strip()          # 非空 C 代码
             assert exported["file_name"].endswith(".c")  # Content-Disposition 解析
@@ -263,14 +263,14 @@ def test_export_blocked_by_data_errors_mentions_fix(live_backend, monkeypatch):
                     },
                 },
             }
-            created = await canmatrix_create_file("bad_data", content=bad_content)
+            created = await candb_create_file("bad_data", content=bad_content)
             sid = created["session_id"]
 
             with pytest.raises(ToolError) as exc_info:
-                await canmatrix_export(sid, format="dbc", force=False)
-            assert "canmatrix_get_data_errors" in str(exc_info.value)
+                await candb_export(sid, format="dbc", force=False)
+            assert "candb_get_data_errors" in str(exc_info.value)
 
-            forced = await canmatrix_export(sid, format="dbc", force=True)
+            forced = await candb_export(sid, format="dbc", force=True)
             assert forced["format"] == "dbc"
             assert forced["content"].strip()
         finally:

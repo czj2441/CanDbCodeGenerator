@@ -1,7 +1,7 @@
 <template>
   <div class="login-page">
     <div class="login-card">
-      <h2 class="login-title">CanMatrix Editor</h2>
+      <h2 class="login-title">CanDbCodeGenerator</h2>
       <p class="login-subtitle">请登录以继续</p>
 
       <form @submit.prevent="handleLogin" class="login-form">

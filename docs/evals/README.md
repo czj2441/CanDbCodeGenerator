@@ -1,6 +1,6 @@
-# CanMatrix MCP 评估数据集
+# CanDbCodeGenerator MCP 评估数据集
 
-本目录存放 `canmatrix_mcp` MCP 服务器的评估题目与固定种子数据说明。
+本目录存放 `candb_codegenerator_mcp` MCP 服务器的评估题目与固定种子数据说明。
 
 ## 种子数据：EvalSeed.properties
 
@@ -10,14 +10,14 @@
 
 ### 如何用 MCP 工具造出种子数据
 
-用 PAT 认证连上 MCP 服务器后，执行一次 `canmatrix_import_file` 即可内联导入以下 properties
+用 PAT 认证连上 MCP 服务器后，执行一次 `candb_import_file` 即可内联导入以下 properties
 内容（`format="properties"`）。文件内的 `database.name=EvalSeed` 决定了生成的文件名
 `EvalSeed.properties`；导入即落盘，之后数据不再改动。
 
 工具调用（伪代码）：
 
 ```
-canmatrix_import_file(
+candb_import_file(
     file_name="EvalSeed.properties",
     format="properties",
     content=<下方 SEED_CONTENT 整段字符串>
@@ -80,9 +80,9 @@ messages.0x300.signals.BrakeFault.factor=0
 value_tables.Vt_DoorState={"0": "Closed", "1": "Open", "2": "Ajar"}
 ```
 
-> 等价地，也可用 `canmatrix_create_file(name="EvalSeed")` 新建空文件，再依次
-> `canmatrix_add_message`、`canmatrix_add_signal`、`canmatrix_add_value_table` 逐步搭建；
-> 但上面一次 `canmatrix_import_file` 最可复现，推荐作为评估的标准造数方式。
+> 等价地，也可用 `candb_create_file(name="EvalSeed")` 新建空文件，再依次
+> `candb_add_message`、`candb_add_signal`、`candb_add_value_table` 逐步搭建；
+> 但上面一次 `candb_import_file` 最可复现，推荐作为评估的标准造数方式。
 
 ### 种子数据要点（自验结论）
 
@@ -96,6 +96,6 @@ value_tables.Vt_DoorState={"0": "Closed", "1": "Open", "2": "Ajar"}
 
 ## 评估题目
 
-题目见同目录 `canmatrix_mcp_evals.xml`，格式遵循 mcp-builder 评估指南：
+题目见同目录 `candb_codegenerator_mcp_evals.xml`，格式遵循 mcp-builder 评估指南：
 `<evaluation><qa_pair><question>…</question><answer>…</answer></qa_pair>…</evaluation>`。
 全部为只读、单答案可字符串验证、需 ≥3 次工具调用才能得出。

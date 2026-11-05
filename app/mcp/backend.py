@@ -1,4 +1,4 @@
-"""HTTP 后端客户端 — MCP 服务器以 PAT 身份调用 CanMatrix 后端 API。
+"""HTTP 后端客户端 — MCP 服务器以 PAT 身份调用 CanDbCodeGenerator 后端 API。
 
 HTTP 请求走 request()；编辑操作走 WS 会话层（control/open_session/get_session/
 close_session，见 app/mcp/ws.py）。
@@ -14,14 +14,14 @@ from app.mcp.errors import BackendError
 from app.mcp.ws import CallResult, WsConnection, get_session_pool
 from app.server.port_utils import WS_PORT_OFFSET
 
-# 后端 API 默认地址（可用环境变量 CANMATRIX_BACKEND_URL 覆盖）。
+# 后端 API 默认地址（可用环境变量 CANDB_CODEGENERATOR_BACKEND_URL 覆盖）。
 DEFAULT_BACKEND_URL = "http://127.0.0.1:8080"
 
 # PAT → 用户名缓存（/api/me 解析一次即可）
 _PAT_USERNAME_CACHE: dict[str, str] = {}
 
 # 程序化后端地址覆盖：由内嵌启动（app/mcp/runner.py）设置，指向本进程后端。
-# 优先级高于环境变量 CANMATRIX_BACKEND_URL；未设置（如独立进程/测试）时回退到 env。
+# 优先级高于环境变量 CANDB_CODEGENERATOR_BACKEND_URL；未设置（如独立进程/测试）时回退到 env。
 _backend_url_override: str | None = None
 
 
@@ -139,7 +139,7 @@ class BackendClient:
         username = await self._username()
         conn = pool.pop(username, session_id)
         if conn is None:
-            raise BackendError("SESSION_NOT_FOUND", "会话不存在或已过期，请重新 canmatrix_open_file")
+            raise BackendError("SESSION_NOT_FOUND", "会话不存在或已过期，请重新 candb_open_file")
         try:
             await conn.call("release_lock", {"session_id": session_id, "abort": False})
         finally:
@@ -149,13 +149,13 @@ class BackendClient:
 def get_backend() -> BackendClient:
     """构造当前请求对应的后端客户端（当前 PAT + 后端地址）。
 
-    后端地址优先级：set_backend_url() 覆盖 > 环境变量 CANMATRIX_BACKEND_URL > 默认 8080。
+    后端地址优先级：set_backend_url() 覆盖 > 环境变量 CANDB_CODEGENERATOR_BACKEND_URL > 默认 8080。
     """
     # 延迟导入：auth_context 顶层导入本模块的 get_backend，避免循环依赖。
     from app.mcp.auth_context import get_current_pat
 
     return BackendClient(
         base_url=_backend_url_override
-        or os.environ.get("CANMATRIX_BACKEND_URL", DEFAULT_BACKEND_URL),
+        or os.environ.get("CANDB_CODEGENERATOR_BACKEND_URL", DEFAULT_BACKEND_URL),
         token=get_current_pat() or "",
     )

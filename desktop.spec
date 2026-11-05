@@ -1,6 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-CanMatrix Editor - PyInstaller 打包配置
+CanDbCodeGenerator - PyInstaller 打包配置
 用法: pyinstaller desktop.spec
 """
 
@@ -78,7 +78,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='CanMatrixEditor',
+    name='CanDbCodeGenerator',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

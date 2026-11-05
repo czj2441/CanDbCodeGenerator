@@ -1,4 +1,4 @@
-"""校验与历史工具 — 四个 canmatrix_ 工具（Task 11）。"""
+"""校验与历史工具 — 四个 candb_ 工具（Task 11）。"""
 from __future__ import annotations
 
 from mcp.types import ToolAnnotations
@@ -17,7 +17,7 @@ async def _get_conn(session_id: str):
         raise tool_error(e) from e
 
 
-async def canmatrix_get_data_errors(session_id: str, limit: int = 50, offset: int = 0) -> dict:
+async def candb_get_data_errors(session_id: str, limit: int = 50, offset: int = 0) -> dict:
     """分页返回会话的数据完整性错误列表（越界/重叠/空名/重名等）。"""
     await require_user()
     conn = await _get_conn(session_id)
@@ -29,7 +29,7 @@ async def canmatrix_get_data_errors(session_id: str, limit: int = 50, offset: in
     return paginate(errors, limit=limit, offset=offset)
 
 
-async def canmatrix_undo(session_id: str) -> dict:
+async def candb_undo(session_id: str) -> dict:
     """撤销当前会话的最近一次操作。"""
     await require_user()
     conn = await _get_conn(session_id)
@@ -40,7 +40,7 @@ async def canmatrix_undo(session_id: str) -> dict:
     return dict(result.data or {})
 
 
-async def canmatrix_redo(session_id: str) -> dict:
+async def candb_redo(session_id: str) -> dict:
     """重做当前会话最近一次撤销的操作。"""
     await require_user()
     conn = await _get_conn(session_id)
@@ -51,7 +51,7 @@ async def canmatrix_redo(session_id: str) -> dict:
     return dict(result.data or {})
 
 
-async def canmatrix_get_save_diff(session_id: str) -> dict:
+async def candb_get_save_diff(session_id: str) -> dict:
     """返回内存数据与磁盘文件之间的字段级差异（entries/count）。"""
     await require_user()
     conn = await _get_conn(session_id)
@@ -67,16 +67,16 @@ def register_tools(mcp) -> None:
     mcp.tool(
         description="分页返回会话的数据完整性错误列表（越界/重叠/空名/重名等），修复后 DBC 导出才不被阻断",
         annotations=ToolAnnotations(read_only_hint=True),
-    )(canmatrix_get_data_errors)
+    )(candb_get_data_errors)
     mcp.tool(
         description="撤销当前会话的最近一次操作",
         annotations=ToolAnnotations(destructive_hint=True),
-    )(canmatrix_undo)
+    )(candb_undo)
     mcp.tool(
         description="重做当前会话最近一次撤销的操作",
         annotations=ToolAnnotations(destructive_hint=True),
-    )(canmatrix_redo)
+    )(candb_redo)
     mcp.tool(
         description="返回内存数据与磁盘文件之间的字段级差异（entries/count）",
         annotations=ToolAnnotations(read_only_hint=True),
-    )(canmatrix_get_save_diff)
+    )(candb_get_save_diff)

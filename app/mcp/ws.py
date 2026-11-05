@@ -278,7 +278,7 @@ class SessionPool:
             await conn.close()
             conn = None
         if conn is None:
-            raise BackendError("SESSION_NOT_FOUND", "会话不存在或已过期，请重新 canmatrix_open_file")
+            raise BackendError("SESSION_NOT_FOUND", "会话不存在或已过期，请重新 candb_open_file")
         return conn
 
     async def get_control(self, ws_url: str, username: str, token: str) -> WsConnection:

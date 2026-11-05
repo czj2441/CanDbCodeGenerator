@@ -16,26 +16,26 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from app.mcp.auth_context import set_current_pat
 from app.mcp.tools_history import (
-    canmatrix_get_data_errors,
-    canmatrix_get_save_diff,
-    canmatrix_redo,
-    canmatrix_undo,
+    candb_get_data_errors,
+    candb_get_save_diff,
+    candb_redo,
+    candb_undo,
 )
-from app.mcp.tools_messages import canmatrix_add_message, canmatrix_get_message
-from app.mcp.tools_session import canmatrix_create_file, canmatrix_save
-from app.mcp.tools_signals import canmatrix_add_signal
+from app.mcp.tools_messages import candb_add_message, candb_get_message
+from app.mcp.tools_session import candb_create_file, candb_save
+from app.mcp.tools_signals import candb_add_signal
 from app.mcp.ws import init_session_pool
 
 
 def _prepare(live_backend, monkeypatch):
     """指向 live_backend 后端并重建会话池（测试间不留连接）。"""
-    monkeypatch.setenv("CANMATRIX_BACKEND_URL", live_backend["base_url"])
+    monkeypatch.setenv("CANDB_CODEGENERATOR_BACKEND_URL", live_backend["base_url"])
     return init_session_pool(idle_ttl=60.0, ping_interval=0.2)
 
 
 async def _new_session(file_name: str) -> str:
     """建一个空文件会话并返回 session_id。"""
-    created = await canmatrix_create_file(file_name)
+    created = await candb_create_file(file_name)
     return created["session_id"]
 
 
@@ -61,20 +61,20 @@ def test_data_errors_pagination(live_backend, monkeypatch):
         try:
             set_current_pat(live_backend["pat_alice"])
             sid = await _new_session("hist_errors")
-            await canmatrix_add_message(sid, _msg(100, "ErrMsg"))
+            await candb_add_message(sid, _msg(100, "ErrMsg"))
             for i in range(3):
-                await canmatrix_add_signal(sid, 100, _sig(f"Bad{i}", i * 8, factor=0))
+                await candb_add_signal(sid, 100, _sig(f"Bad{i}", i * 8, factor=0))
 
-            errors = await canmatrix_get_data_errors(sid)
+            errors = await candb_get_data_errors(sid)
             assert errors["total"] == 3
             assert all(e["type"] == "factor_zero" for e in errors["items"])
 
-            page = await canmatrix_get_data_errors(sid, limit=2)
+            page = await candb_get_data_errors(sid, limit=2)
             assert page["count"] == 2
             assert page["has_more"] is True
             assert page["next_offset"] == 2
 
-            last = await canmatrix_get_data_errors(sid, limit=2, offset=2)
+            last = await candb_get_data_errors(sid, limit=2, offset=2)
             assert last["count"] == 1
             assert last["has_more"] is False
         finally:
@@ -91,19 +91,19 @@ def test_undo_redo_roundtrip(live_backend, monkeypatch):
         try:
             set_current_pat(live_backend["pat_alice"])
             sid = await _new_session("hist_undo")
-            await canmatrix_add_message(sid, _msg(100, "UndoMe"))
-            assert (await canmatrix_get_message(sid, 100))["id"] == 100
+            await candb_add_message(sid, _msg(100, "UndoMe"))
+            assert (await candb_get_message(sid, 100))["id"] == 100
 
-            undone = await canmatrix_undo(sid)
+            undone = await candb_undo(sid)
             assert undone["undo_count"] == 0
             assert undone["redo_count"] == 1
             with pytest.raises(ToolError):
-                await canmatrix_get_message(sid, 100)
+                await candb_get_message(sid, 100)
 
-            redone = await canmatrix_redo(sid)
+            redone = await candb_redo(sid)
             assert redone["undo_count"] == 1
             assert redone["redo_count"] == 0
-            assert (await canmatrix_get_message(sid, 100))["id"] == 100
+            assert (await candb_get_message(sid, 100))["id"] == 100
         finally:
             await pool.aclose_all()
 
@@ -118,18 +118,18 @@ def test_save_diff_reflects_pending_changes(live_backend, monkeypatch):
         try:
             set_current_pat(live_backend["pat_alice"])
             sid = await _new_session("hist_diff")
-            await canmatrix_save(sid)  # 落盘：磁盘 == 内存
+            await candb_save(sid)  # 落盘：磁盘 == 内存
 
-            diff = await canmatrix_get_save_diff(sid)
+            diff = await candb_get_save_diff(sid)
             assert diff["count"] == 0
 
-            await canmatrix_add_message(sid, _msg(100, "DiffMsg"))
-            diff = await canmatrix_get_save_diff(sid)
+            await candb_add_message(sid, _msg(100, "DiffMsg"))
+            diff = await candb_get_save_diff(sid)
             assert diff["count"] >= 1
             assert any(e["type"] == "added" for e in diff["entries"])
 
-            await canmatrix_save(sid)
-            diff = await canmatrix_get_save_diff(sid)
+            await candb_save(sid)
+            diff = await candb_get_save_diff(sid)
             assert diff["count"] == 0
         finally:
             await pool.aclose_all()

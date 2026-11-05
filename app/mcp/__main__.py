@@ -5,9 +5,9 @@
 脱离后端单独调试 MCP 时使用。
 
 环境变量：
-- CANMATRIX_BACKEND_URL：后端 API 地址（默认 http://127.0.0.1:8080）
-- CANMATRIX_MCP_HOST：监听地址（默认 127.0.0.1）
-- CANMATRIX_MCP_PORT：监听端口（默认 8082）
+- CANDB_CODEGENERATOR_BACKEND_URL：后端 API 地址（默认 http://127.0.0.1:8080）
+- CANDB_CODEGENERATOR_MCP_HOST：监听地址（默认 127.0.0.1）
+- CANDB_CODEGENERATOR_MCP_PORT：监听端口（默认 8082）
 """
 from __future__ import annotations
 
@@ -24,8 +24,8 @@ DEFAULT_PORT = 8082
 
 def main() -> None:
     """读取环境变量并以 uvicorn 运行 build_app()。"""
-    host = os.environ.get("CANMATRIX_MCP_HOST", DEFAULT_HOST)
-    port = int(os.environ.get("CANMATRIX_MCP_PORT", str(DEFAULT_PORT)))
+    host = os.environ.get("CANDB_CODEGENERATOR_MCP_HOST", DEFAULT_HOST)
+    port = int(os.environ.get("CANDB_CODEGENERATOR_MCP_PORT", str(DEFAULT_PORT)))
     uvicorn.run(build_app(), host=host, port=port)
 
 

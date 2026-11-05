@@ -10,8 +10,8 @@ logger = logging.getLogger(__name__)
 
 # 打包后数据目录放在用户 AppData，未打包时在源码目录
 if getattr(_sys, 'frozen', False):
-    # PyInstaller 打包：使用 %APPDATA%/CanMatrixEditor/data
-    _app_data = os.path.join(os.environ.get('APPDATA', os.path.expanduser('~')), 'CanMatrixEditor')
+    # PyInstaller 打包：使用 %APPDATA%/CanDbCodeGenerator/data
+    _app_data = os.path.join(os.environ.get('APPDATA', os.path.expanduser('~')), 'CanDbCodeGenerator')
     DATA_DIR = os.path.join(_app_data, 'data')
 else:
     # 从 app/services/file_persistence.py → 上溯 3 层到项目根目录

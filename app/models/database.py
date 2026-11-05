@@ -624,7 +624,7 @@ class CanDatabase:
 
             return javaproperties.dumps(
                 props,
-                comments="CanMatrix Editor - CAN Database Definition",
+                comments="CanDbCodeGenerator - CAN Database Definition",
                 timestamp=False,
                 ensure_ascii=False,
             )

@@ -1,8 +1,8 @@
 # systemd 服务部署指南
 
-> 本文档介绍如何将 CanMatrix Editor 以 systemd 服务方式部署到 Linux 生产环境。
+> 本文档介绍如何将 CanDbCodeGenerator 以 systemd 服务方式部署到 Linux 生产环境。
 >
-> 最后更新：2026-08-14
+> 最后更新：2026-11-05
 
 ---
 
@@ -22,8 +22,8 @@
 
 ```bash
 # 克隆项目到部署目录
-git clone <repo-url> /opt/canmatrix
-cd /opt/canmatrix
+git clone <repo-url> /opt/candb-codegenerator
+cd /opt/candb-codegenerator
 
 # 执行构建（自动创建 venv、安装依赖、构建前端）
 chmod +x build.sh
@@ -34,13 +34,13 @@ chmod +x build.sh
 
 ### 2.2 调整服务配置
 
-编辑 `deploy/canmatrix-editor.service`，按实际环境修改路径：
+编辑 `deploy/candb-codegenerator.service`，按实际环境修改路径：
 
 ```ini
 [Service]
 # 修改为你的实际项目路径
-WorkingDirectory=/opt/canmatrix
-ExecStart=/opt/canmatrix/venv/bin/python -m app.server.lifecycle --host 0.0.0.0 --no-browser --auto-clean
+WorkingDirectory=/opt/candb-codegenerator
+ExecStart=/opt/candb-codegenerator/venv/bin/python -m app.server.lifecycle --host 0.0.0.0 --no-browser --auto-clean
 ```
 
 **可调整的参数**：
@@ -50,39 +50,39 @@ ExecStart=/opt/canmatrix/venv/bin/python -m app.server.lifecycle --host 0.0.0.0 
 | `--host` | `0.0.0.0` | 绑定地址。`0.0.0.0` 允许外部访问，`127.0.0.1` 仅本机 |
 | `--port` | `8080` | HTTP 端口（WebSocket 自动用 `port+1`、MCP 自动用 `port+2`） |
 | `--auto-clean` | 已启用 | 启动时自动终止旧进程（默认端口被占用时会拒绝启动） |
-| `WorkingDirectory` | `/opt/canmatrix` | 项目安装目录 |
+| `WorkingDirectory` | `/opt/candb-codegenerator` | 项目安装目录 |
 
 示例：绑定到 9090 端口：
 
 ```ini
-ExecStart=/opt/canmatrix/venv/bin/python -m app.server.lifecycle --host 0.0.0.0 --port 9090 --no-browser --auto-clean
+ExecStart=/opt/candb-codegenerator/venv/bin/python -m app.server.lifecycle --host 0.0.0.0 --port 9090 --no-browser --auto-clean
 ```
 
 ### 2.3 安装服务
 
 ```bash
 # 复制 service 文件到 systemd 目录
-sudo cp deploy/canmatrix-editor.service /etc/systemd/system/
+sudo cp deploy/candb-codegenerator.service /etc/systemd/system/
 
 # 重载 systemd 配置
 sudo systemctl daemon-reload
 
 # 设置开机自启
-sudo systemctl enable canmatrix-editor
+sudo systemctl enable candb-codegenerator
 
 # 启动服务
-sudo systemctl start canmatrix-editor
+sudo systemctl start candb-codegenerator
 ```
 
 ### 2.4 验证服务状态
 
 ```bash
 # 查看服务状态
-sudo systemctl status canmatrix-editor
+sudo systemctl status candb-codegenerator
 
 # 预期输出示例：
-# ● canmatrix-editor.service - CanMatrix Editor
-#    Loaded: loaded (/etc/systemd/system/canmatrix-editor.service; enabled)
+# ● candb-codegenerator.service - CanDbCodeGenerator
+#    Loaded: loaded (/etc/systemd/system/candb-codegenerator.service; enabled)
 #    Active: active (running) since ...
 ```
 
@@ -96,19 +96,19 @@ sudo systemctl status canmatrix-editor
 
 ```bash
 # 启动
-sudo systemctl start canmatrix-editor
+sudo systemctl start candb-codegenerator
 
 # 停止
-sudo systemctl stop canmatrix-editor
+sudo systemctl stop candb-codegenerator
 
 # 重启
-sudo systemctl restart canmatrix-editor
+sudo systemctl restart candb-codegenerator
 
 # 查看状态
-sudo systemctl status canmatrix-editor
+sudo systemctl status candb-codegenerator
 
 # 禁用开机自启
-sudo systemctl disable canmatrix-editor
+sudo systemctl disable candb-codegenerator
 ```
 
 ### 日志查看
@@ -119,16 +119,16 @@ sudo systemctl disable canmatrix-editor
 
 ```bash
 # 实时跟踪日志
-sudo journalctl -u canmatrix-editor -f
+sudo journalctl -u candb-codegenerator -f
 
 # 查看最近 100 行
-sudo journalctl -u canmatrix-editor -n 100
+sudo journalctl -u candb-codegenerator -n 100
 
 # 查看今天的日志
-sudo journalctl -u canmatrix-editor --since today
+sudo journalctl -u candb-codegenerator --since today
 
 # 按时间范围查询
-sudo journalctl -u canmatrix-editor --since "2026-08-14 10:00" --until "2026-08-14 12:00"
+sudo journalctl -u candb-codegenerator --since "2026-08-14 10:00" --until "2026-08-14 12:00"
 ```
 
 **2. 文件日志**（项目内置，自动轮转）
@@ -144,11 +144,11 @@ logs/
 
 ```bash
 # 查看最新一次启动的日志
-ls -lt /opt/canmatrix/logs/ | head -1
-tail -f /opt/canmatrix/logs/<最新目录>/*.log
+ls -lt /opt/candb-codegenerator/logs/ | head -1
+tail -f /opt/candb-codegenerator/logs/<最新目录>/*.log
 
 # 搜索错误
-grep -r "ERROR" /opt/canmatrix/logs/
+grep -r "ERROR" /opt/candb-codegenerator/logs/
 ```
 
 > 文件日志自动保留 30 天，超期目录由服务内部定时清理（每 24 小时一次）。
@@ -188,20 +188,94 @@ curl -s http://localhost:8080/api/version
 
 ## 五、更新部署
 
+### 5.1 常规更新
+
 ```bash
 # 1. 拉取最新代码
-cd /opt/canmatrix
+cd /opt/candb-codegenerator
 git pull
 
 # 2. 重新构建前端（如有前端变更）
 cd frontend && npm install && npm run build && cd ..
 
 # 3. 重启服务加载新代码
-sudo systemctl restart canmatrix-editor
+sudo systemctl restart candb-codegenerator
 
 # 4. 确认状态正常
-sudo systemctl status canmatrix-editor
+sudo systemctl status candb-codegenerator
 ```
+
+### 5.2 从旧名称 canmatrix-editor 升级
+
+仅当服务器上仍存在旧服务名 `canmatrix-editor` 或旧部署目录 `/opt/canmatrix` 时需要执行。
+
+**1. 停止并移除旧 unit**
+
+```bash
+sudo systemctl disable --now canmatrix-editor
+sudo rm /etc/systemd/system/canmatrix-editor.service
+sudo systemctl daemon-reload
+```
+
+**2. 迁移项目目录（二选一）**
+
+```bash
+# 方案 A：把旧目录移动到新路径（推荐）
+sudo mv /opt/canmatrix /opt/candb-codegenerator
+
+# 方案 B：保留旧目录，但必须修改新 unit 中的 WorkingDirectory / ExecStart
+# 将 /opt/candb-codegenerator 改成 /opt/canmatrix
+```
+
+如果新目录已经存在，不要执行 `mv`，改为逐项核对代码、`config/`、`data/`、`snapshots/` 和 `logs/` 是否已迁移。
+
+**3. 安装并启动新 unit**
+
+```bash
+cd /opt/candb-codegenerator
+sudo cp deploy/candb-codegenerator.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now candb-codegenerator
+sudo systemctl status candb-codegenerator
+```
+
+**4. 更新反向代理与环境变量**
+
+- nginx 站点文件如仍使用旧名，重命名并重新加载：
+
+```bash
+sudo mv /etc/nginx/sites-available/canmatrix-mcp \
+        /etc/nginx/sites-available/candb-codegenerator-mcp
+sudo ln -sfn /etc/nginx/sites-available/candb-codegenerator-mcp \
+             /etc/nginx/sites-enabled/candb-codegenerator-mcp
+sudo rm -f /etc/nginx/sites-enabled/canmatrix-mcp
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+- systemd unit、`/etc/default/*`、shell profile 或容器环境中的变量需要改为新名称：
+
+| 旧变量 | 新变量 |
+|--------|--------|
+| `CANMATRIX_BACKEND_URL` | `CANDB_CODEGENERATOR_BACKEND_URL` |
+| `CANMATRIX_MCP_HOST` | `CANDB_CODEGENERATOR_MCP_HOST` |
+| `CANMATRIX_MCP_PORT` | `CANDB_CODEGENERATOR_MCP_PORT` |
+| `CANMATRIX_MCP_SCHEME` | `CANDB_CODEGENERATOR_MCP_SCHEME` |
+
+> HTTPS 反向代理部署必须保留 `CANDB_CODEGENERATOR_MCP_SCHEME=https`，否则前端展示的 MCP 地址会回退为 `http://`。
+
+**5. 更新 MCP 客户端配置**
+
+客户端配置中的服务器名可自定义，但工具名已经统一改为 `candb_*` 前缀：
+
+- `canmatrix_open_file` → `candb_open_file`
+- `canmatrix_list_messages` → `candb_list_messages`
+- 其余工具同理，完整列表见项目 README 的「工具面一览」
+
+**6. 浏览器存储会自动迁移**
+
+前端首次加载时会一次性把 `canmatrix_*` 存储键迁移为 `candb_*`，包括登录令牌、主题、列宽和排序偏好，无需手动清除浏览器数据。每个浏览器配置文件会在各自首次访问时完成迁移。
+
+> 桌面版（打包 exe）的数据目录升级步骤见项目 README 的「打包为桌面应用」章节。
 
 ---
 
@@ -211,7 +285,7 @@ sudo systemctl status canmatrix-editor
 
 ```bash
 # 查看详细错误日志
-sudo journalctl -u canmatrix-editor --no-pager -n 50
+sudo journalctl -u candb-codegenerator --no-pager -n 50
 
 # 常见原因：
 # 1. 端口被占用 → 修改 service 中的 --port 参数
@@ -225,21 +299,21 @@ sudo journalctl -u canmatrix-editor --no-pager -n 50
 # 查看端口占用
 ss -tlnp | grep 8080
 
-# 如果旧的 CanMatrix 进程残留：
+# 如果旧的 CanDbCodeGenerator 进程残留：
 sudo pkill -f "app.server.lifecycle"
 
 # 然后重启服务
-sudo systemctl restart canmatrix-editor
+sudo systemctl restart candb-codegenerator
 ```
 
 ### 日志目录权限问题
 
 ```bash
 # 确保服务用户有权限写入 logs/ 目录
-sudo chown -R $(whoami):$(whoami) /opt/canmatrix/logs/
+sudo chown -R $(whoami):$(whoami) /opt/candb-codegenerator/logs/
 
 # 或检查 service 中是否配置了 User=（默认以 root 运行）
-grep "User=" /etc/systemd/system/canmatrix-editor.service
+grep "User=" /etc/systemd/system/candb-codegenerator.service
 ```
 
 ---
@@ -247,17 +321,17 @@ grep "User=" /etc/systemd/system/canmatrix-editor.service
 ## 七、卸载
 
 ```bash
-sudo systemctl stop canmatrix-editor
-sudo systemctl disable canmatrix-editor
-sudo rm /etc/systemd/system/canmatrix-editor.service
+sudo systemctl stop candb-codegenerator
+sudo systemctl disable candb-codegenerator
+sudo rm /etc/systemd/system/candb-codegenerator.service
 sudo systemctl daemon-reload
 ```
 
 ---
 
-## 八、MCP 服务器（canmatrix_mcp）
+## 八、MCP 服务器（candb_codegenerator_mcp）
 
-MCP 服务器已**内嵌进后端**，随 `canmatrix-editor` 服务一同启动，**无需单独的
+MCP 服务器已**内嵌进后端**，随 `candb-codegenerator` 服务一同启动，**无需单独的
 systemd unit**，也无需手工配置后端地址。
 
 端口同源派生，构成绑定三元组：**HTTP = P、WS = P + 1、MCP = P + 2**。默认
@@ -277,7 +351,7 @@ MCP 服务携带的是**长期 PAT**，等同任意用户的编辑权限，安�
 3. 客户端经 `Authorization: Bearer <PAT>` 头认证；PAT 一旦泄露应立即在
    文件列表页 → 个人MCP访问令牌 中吊销。
 
-nginx 反代示例（`/etc/nginx/sites-available/canmatrix-mcp`）：
+nginx 反代示例（`/etc/nginx/sites-available/candb-codegenerator-mcp`）：
 
 ```nginx
 server {

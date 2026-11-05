@@ -14,7 +14,7 @@ from app.mcp.tools_session import register_tools as _register_session
 from app.mcp.tools_signals import register_tools as _register_signals
 from app.mcp.tools_value_tables import register_tools as _register_value_tables
 
-mcp = MCPServer("canmatrix_mcp")
+mcp = MCPServer("candb_codegenerator_mcp")
 
 
 class PatIdentityMiddleware:
@@ -56,7 +56,7 @@ def build_app() -> ASGIApp:
 
 
 @mcp.tool(description="返回当前令牌对应的用户名与角色", annotations=ToolAnnotations(read_only_hint=True))
-async def canmatrix_whoami() -> dict:
+async def candb_whoami() -> dict:
     """返回当前令牌对应的用户名与角色。"""
     return await require_user()
 

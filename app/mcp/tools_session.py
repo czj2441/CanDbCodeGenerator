@@ -1,4 +1,4 @@
-"""文件/会话工具 — 九个 canmatrix_ 工具（Task 7）。
+"""文件/会话工具 — 九个 candb_ 工具（Task 7）。
 
 工具层是薄客户端：编辑/查询消息走 WS 会话层（open_session/get_session/
 control/close_session，见 app/mcp/ws.py），导出走 HTTP GET /api/export；
@@ -26,7 +26,7 @@ IMPORT_FORMATS = ("dbc", "properties")
 EXPORT_FORMATS = ("properties", "dbc", "c_header", "c_source")
 
 # DBC 导出被数据错误阻断时附上的可执行提示
-_DATA_ERROR_FIX_HINT = "先运行 canmatrix_get_data_errors 修复，或设置 force=true 强制导出"
+_DATA_ERROR_FIX_HINT = "先运行 candb_get_data_errors 修复，或设置 force=true 强制导出"
 
 _FILENAME_RE = re.compile(r'filename="([^"]*)"')
 
@@ -58,7 +58,7 @@ def _find_file_entry(entries: list[dict], file_name: str) -> dict | None:
 # ── 九个工具 ──
 
 
-async def canmatrix_list_files(limit: int = 50, offset: int = 0) -> dict:
+async def candb_list_files(limit: int = 50, offset: int = 0) -> dict:
     """列出后端所有文件（分页信封），items 含 list_history 原字段（owner、is_locked 等）。"""
     await require_user()
     backend = get_backend()
@@ -66,7 +66,7 @@ async def canmatrix_list_files(limit: int = 50, offset: int = 0) -> dict:
     return paginate(entries, limit=limit, offset=offset)
 
 
-async def canmatrix_open_file(file_name: str) -> dict:
+async def candb_open_file(file_name: str) -> dict:
     """打开文件并创建会话，返回 session_id、can_write 与锁标注。
 
     - can_write：WS get_sessions 条目的 owner == 当前用户（owner 空串 → False，
@@ -105,7 +105,7 @@ async def canmatrix_open_file(file_name: str) -> dict:
     }
 
 
-async def canmatrix_create_file(name: str, content: dict | None = None) -> dict:
+async def candb_create_file(name: str, content: dict | None = None) -> dict:
     """新建文件（可带初始数据库内容 dict），创建者成为文件所有者。
 
     data 额外带 file_name：router 的 owner 侧车接线按请求 data.file_name 提取
@@ -126,7 +126,7 @@ async def canmatrix_create_file(name: str, content: dict | None = None) -> dict:
     return dict(result.data or {})
 
 
-async def canmatrix_import_file(file_name: str, format: str = "dbc", content: str = "") -> dict:
+async def candb_import_file(file_name: str, format: str = "dbc", content: str = "") -> dict:
     """从内联内容导入 dbc/properties 创建新文件（不接受服务器路径）。"""
     await require_user()
     if format not in IMPORT_FORMATS:
@@ -141,7 +141,7 @@ async def canmatrix_import_file(file_name: str, format: str = "dbc", content: st
     return dict(result.data or {})
 
 
-async def canmatrix_save(session_id: str) -> dict:
+async def candb_save(session_id: str) -> dict:
     """保存会话的修改到文件。"""
     await require_user()
     backend = get_backend()
@@ -153,7 +153,7 @@ async def canmatrix_save(session_id: str) -> dict:
     return dict(result.data or {})
 
 
-async def canmatrix_save_as(session_id: str, name: str) -> dict:
+async def candb_save_as(session_id: str, name: str) -> dict:
     """把会话数据另存为新文件（不动原文件；只读会话也可用）。"""
     await require_user()
     backend = get_backend()
@@ -165,7 +165,7 @@ async def canmatrix_save_as(session_id: str, name: str) -> dict:
     return dict(result.data or {})
 
 
-async def canmatrix_close_session(session_id: str) -> dict:
+async def candb_close_session(session_id: str) -> dict:
     """关闭会话并释放文件锁（未保存的修改可能丢失）。"""
     await require_user()
     backend = get_backend()
@@ -176,7 +176,7 @@ async def canmatrix_close_session(session_id: str) -> dict:
     return {"closed": True}
 
 
-async def canmatrix_get_summary(session_id: str) -> dict:
+async def candb_get_summary(session_id: str) -> dict:
     """获取会话的数据库摘要（报文/信号统计与报文列表）。"""
     await require_user()
     backend = get_backend()
@@ -188,7 +188,7 @@ async def canmatrix_get_summary(session_id: str) -> dict:
     return dict(result.data or {})
 
 
-async def canmatrix_export(session_id: str, format: str = "properties", force: bool = False) -> dict:
+async def candb_export(session_id: str, format: str = "properties", force: bool = False) -> dict:
     """导出文件内容（properties/dbc/c_header/c_source）；DBC 有数据错误时需 force=true 强制导出。"""
     await require_user()
     if format not in EXPORT_FORMATS:
@@ -201,7 +201,7 @@ async def canmatrix_export(session_id: str, format: str = "properties", force: b
 async def _http_export(backend, session_id: str, fmt: str, force: bool) -> tuple[str, str]:
     """HTTP GET /api/export?sid=&fmt=&force=（超时 120s）→ (Content-Disposition 文件名, 响应体文本)。
 
-    422（数据错误阻断 DBC 导出）→ ToolError 附「先运行 canmatrix_get_data_errors 修复，
+    422（数据错误阻断 DBC 导出）→ ToolError 附「先运行 candb_get_data_errors 修复，
     或设置 force=true 强制导出」；其余非 2xx 按 tool_error 统一映射。
     """
     try:
@@ -241,36 +241,36 @@ def register_tools(mcp) -> None:
     mcp.tool(
         description="列出后端所有文件（分页），items 含 owner、is_locked 等字段",
         annotations=ToolAnnotations(read_only_hint=True),
-    )(canmatrix_list_files)
+    )(candb_list_files)
     mcp.tool(
         description="打开文件并创建会话；can_write 表示当前用户是否可写；文件被占时非 owner 得只读会话并标注 is_locked/locked_by（占用者）",
         annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False),
-    )(canmatrix_open_file)
+    )(candb_open_file)
     mcp.tool(
         description="新建文件（可带初始数据库内容），创建者成为文件所有者",
         annotations=ToolAnnotations(destructive_hint=True),
-    )(canmatrix_create_file)
+    )(candb_create_file)
     mcp.tool(
         description="从内联内容导入 dbc 或 properties 创建新文件（不接受服务器路径）",
         annotations=ToolAnnotations(destructive_hint=True),
-    )(canmatrix_import_file)
+    )(candb_import_file)
     mcp.tool(
         description="保存会话的修改到文件",
         annotations=ToolAnnotations(destructive_hint=True, idempotent_hint=True),
-    )(canmatrix_save)
+    )(candb_save)
     mcp.tool(
         description="把会话数据另存为新文件（不动原文件，只读会话也可用）",
         annotations=ToolAnnotations(destructive_hint=True),
-    )(canmatrix_save_as)
+    )(candb_save_as)
     mcp.tool(
         description="关闭会话并释放文件锁（未保存的修改可能丢失）",
         annotations=ToolAnnotations(destructive_hint=True),
-    )(canmatrix_close_session)
+    )(candb_close_session)
     mcp.tool(
         description="获取会话的数据库摘要（报文/信号统计与报文列表）",
         annotations=ToolAnnotations(read_only_hint=True),
-    )(canmatrix_get_summary)
+    )(candb_get_summary)
     mcp.tool(
         description="导出文件内容（properties/dbc/c_header/c_source）；DBC 有数据错误时需 force=true 强制导出",
         annotations=ToolAnnotations(read_only_hint=True, idempotent_hint=True),
-    )(canmatrix_export)
+    )(candb_export)

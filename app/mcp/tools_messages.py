@@ -1,4 +1,4 @@
-"""报文工具 — 七个 canmatrix_ 工具（Task 8）。
+"""报文工具 — 七个 candb_ 工具（Task 8）。
 
 查询/编辑报文走 WS 会话层；分页复用 app/mcp.pagination，错误统一经
 app/mcp.errors.tool_error 映射。
@@ -37,7 +37,7 @@ async def _get_conn(session_id: str):
         raise tool_error(e) from e
 
 
-async def canmatrix_list_messages(
+async def candb_list_messages(
     session_id: str, filter: str | None = None, limit: int = 50, offset: int = 0
 ) -> dict:
     """分页列出报文的摘要（id/id_hex/name/dlc/cycle_time/is_fd/sender/comment/signal_count/total_signal_bits）。"""
@@ -52,7 +52,7 @@ async def canmatrix_list_messages(
     return paginate(items, limit=limit, offset=offset, filter=filter, filter_fields=("name", "id_hex"))
 
 
-async def canmatrix_get_message(session_id: str, msg_id: int) -> dict:
+async def candb_get_message(session_id: str, msg_id: int) -> dict:
     """获取单个报文的完整详情（含 signals 字段）。"""
     await require_user()
     conn = await _get_conn(session_id)
@@ -63,7 +63,7 @@ async def canmatrix_get_message(session_id: str, msg_id: int) -> dict:
     return dict(result.data or {})
 
 
-async def canmatrix_add_message(session_id: str, message: dict) -> dict:
+async def candb_add_message(session_id: str, message: dict) -> dict:
     """新增报文。message 必填 id(int)、name(str 非空)、dlc(int，须为合法 DLC)，其余字段透传。"""
     await require_user()
     _validate_message(message)
@@ -75,7 +75,7 @@ async def canmatrix_add_message(session_id: str, message: dict) -> dict:
     return dict(result.data or {})
 
 
-async def canmatrix_edit_message(session_id: str, msg_id: int, fields: dict) -> dict:
+async def candb_edit_message(session_id: str, msg_id: int, fields: dict) -> dict:
     """修改单个报文的字段（fields: {field: value}；改 id 会移动报文）。"""
     await require_user()
     conn = await _get_conn(session_id)
@@ -86,7 +86,7 @@ async def canmatrix_edit_message(session_id: str, msg_id: int, fields: dict) -> 
     return dict(result.data or {})
 
 
-async def canmatrix_batch_edit_messages(session_id: str, msg_ids: list[int], fields: dict) -> dict:
+async def candb_batch_edit_messages(session_id: str, msg_ids: list[int], fields: dict) -> dict:
     """批量修改多个报文的字段（禁止 id/name）。"""
     await require_user()
     conn = await _get_conn(session_id)
@@ -98,7 +98,7 @@ async def canmatrix_batch_edit_messages(session_id: str, msg_ids: list[int], fie
     return dict(result.data or {})
 
 
-async def canmatrix_delete_message(session_id: str, msg_id: int) -> dict:
+async def candb_delete_message(session_id: str, msg_id: int) -> dict:
     """删除单个报文。"""
     await require_user()
     conn = await _get_conn(session_id)
@@ -109,7 +109,7 @@ async def canmatrix_delete_message(session_id: str, msg_id: int) -> dict:
     return dict(result.data or {})
 
 
-async def canmatrix_batch_delete_messages(session_id: str, msg_ids: list[int]) -> dict:
+async def candb_batch_delete_messages(session_id: str, msg_ids: list[int]) -> dict:
     """批量删除多个报文。"""
     await require_user()
     conn = await _get_conn(session_id)
@@ -126,28 +126,28 @@ def register_tools(mcp) -> None:
     mcp.tool(
         description="分页列出报文摘要（id/id_hex/name/dlc/cycle_time/is_fd/sender/comment/signal_count/total_signal_bits），filter 按 name 或 id_hex 子串过滤",
         annotations=ToolAnnotations(read_only_hint=True),
-    )(canmatrix_list_messages)
+    )(candb_list_messages)
     mcp.tool(
         description="获取单个报文完整详情（含 signals 字段）",
         annotations=ToolAnnotations(read_only_hint=True),
-    )(canmatrix_get_message)
+    )(candb_get_message)
     mcp.tool(
         description="新增报文；message 必填 id(int)、name(非空 str)、dlc(int)，其余字段透传",
         annotations=ToolAnnotations(destructive_hint=True),
-    )(canmatrix_add_message)
+    )(candb_add_message)
     mcp.tool(
         description="修改单个报文字段（fields: {field: value}，改 id 会移动报文）",
         annotations=ToolAnnotations(destructive_hint=True),
-    )(canmatrix_edit_message)
+    )(candb_edit_message)
     mcp.tool(
         description="批量修改多个报文字段（禁止 id/name）",
         annotations=ToolAnnotations(destructive_hint=True),
-    )(canmatrix_batch_edit_messages)
+    )(candb_batch_edit_messages)
     mcp.tool(
         description="删除单个报文",
         annotations=ToolAnnotations(destructive_hint=True),
-    )(canmatrix_delete_message)
+    )(candb_delete_message)
     mcp.tool(
         description="批量删除多个报文",
         annotations=ToolAnnotations(destructive_hint=True),
-    )(canmatrix_batch_delete_messages)
+    )(candb_batch_delete_messages)

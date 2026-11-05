@@ -6,7 +6,7 @@
  */
 import { defineStore } from 'pinia'
 
-const TOKEN_KEY = 'canmatrix_auth_token'
+const TOKEN_KEY = 'candb_auth_token'
 
 function _apiBase() {
   // 与 ws-client 保持一致：开发时同域，生产时也同域

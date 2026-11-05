@@ -1,4 +1,4 @@
-# CanMatrix Editor
+# CanDbCodeGenerator
 
 交互式 CAN 报文/信号编辑工具，以 **Properties** 为主存储格式，解决 DBC 文件在 Git 版本管理中合并冲突严重、diff 不可读的痛点。
 
@@ -67,14 +67,16 @@ pyinstaller desktop.spec --noconfirm
 pyinstaller desktop.spec --noconfirm
 ```
 
-生成文件：`dist/CanMatrixEditor.exe`（约 30 MB）
+生成文件：`dist/CanDbCodeGenerator.exe`（约 30 MB）
 
 ### 分发与使用
 
-1. 将 `CanMatrixEditor.exe` 复制到目标机器任意位置
+1. 将 `CanDbCodeGenerator.exe` 复制到目标机器任意位置
 2. 双击运行，自动弹出编辑器窗口（基于系统 WebView2，Windows 10/11 已内置）
-3. 用户数据保存在 `%APPDATA%\CanMatrixEditor\data\`
+3. 用户数据保存在 `%APPDATA%\CanDbCodeGenerator\data\`
 
+> **从旧版本升级：** 用户数据目录已从 `%APPDATA%\CanMatrixEditor` 改为 `%APPDATA%\CanDbCodeGenerator`。首次运行新版本前，请备份旧目录并把 `config/`、`data/`、`snapshots/` 复制到新目录；`%LOCALAPPDATA%\CanMatrixEditor\WebView2Cache` 只是缓存，可以丢弃。
+>
 > **说明：** Windows 10 1803+ 及 Windows 11 均自带 WebView2 Runtime，无需额外安装。
 > 若目标系统未安装，可从微软官网下载 [WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)。
 
@@ -129,7 +131,7 @@ git commit -m "修改 EngineSpeed 因子"
 
 ## MCP 服务器
 
-CanMatrix Editor 附带一个集中托管的 **Streamable HTTP MCP 服务器**（服务名 `canmatrix_mcp`），
+CanDbCodeGenerator 附带一个集中托管的 **Streamable HTTP MCP 服务器**（服务名 `candb_codegenerator_mcp`），
 让 AI 客户端（OpenCode、Claude Code 等）以任意用户身份完成全部编辑操作——新建/导入文件、
 增删改报文与信号、管理值表、校验、导出与保存。业务逻辑全部留在后端，MCP 服务器只是薄客户端。
 
@@ -174,7 +176,7 @@ venv/bin/python -m app.server.lifecycle --auto-clean
 ```json
 {
   "mcp": {
-    "canmatrix": {
+    "candb-codegenerator": {
       "type": "remote",
       "url": "http://127.0.0.1:8082/mcp",
       "enabled": true,
@@ -191,7 +193,7 @@ venv/bin/python -m app.server.lifecycle --auto-clean
 ```json
 {
   "mcpServers": {
-    "canmatrix": {
+    "candb-codegenerator": {
       "type": "http",
       "url": "http://127.0.0.1:8082/mcp",
       "headers": {
@@ -208,24 +210,24 @@ venv/bin/python -m app.server.lifecycle --auto-clean
 
 | 类别 | 工具 |
 |------|------|
-| 身份 | `canmatrix_whoami` |
-| 文件/会话 | `canmatrix_list_files`、`canmatrix_open_file`、`canmatrix_create_file`、`canmatrix_import_file`、`canmatrix_save`、`canmatrix_save_as`、`canmatrix_close_session`、`canmatrix_get_summary`、`canmatrix_export` |
-| 报文 | `canmatrix_list_messages`、`canmatrix_get_message`、`canmatrix_add_message`、`canmatrix_edit_message`、`canmatrix_batch_edit_messages`、`canmatrix_delete_message`、`canmatrix_batch_delete_messages` |
-| 信号 | `canmatrix_list_signals`、`canmatrix_get_signal`、`canmatrix_add_signal`、`canmatrix_batch_add_signals`、`canmatrix_edit_signal`、`canmatrix_batch_edit_signals`、`canmatrix_delete_signal`、`canmatrix_batch_delete_signals` |
-| 值表 | `canmatrix_list_value_tables`、`canmatrix_add_value_table`、`canmatrix_update_value_table`、`canmatrix_rename_value_table`、`canmatrix_delete_value_table` |
-| 校验/历史 | `canmatrix_get_data_errors`、`canmatrix_undo`、`canmatrix_redo`、`canmatrix_get_save_diff` |
+| 身份 | `candb_whoami` |
+| 文件/会话 | `candb_list_files`、`candb_open_file`、`candb_create_file`、`candb_import_file`、`candb_save`、`candb_save_as`、`candb_close_session`、`candb_get_summary`、`candb_export` |
+| 报文 | `candb_list_messages`、`candb_get_message`、`candb_add_message`、`candb_edit_message`、`candb_batch_edit_messages`、`candb_delete_message`、`candb_batch_delete_messages` |
+| 信号 | `candb_list_signals`、`candb_get_signal`、`candb_add_signal`、`candb_batch_add_signals`、`candb_edit_signal`、`candb_batch_edit_signals`、`candb_delete_signal`、`candb_batch_delete_signals` |
+| 值表 | `candb_list_value_tables`、`candb_add_value_table`、`candb_update_value_table`、`candb_rename_value_table`、`candb_delete_value_table` |
+| 校验/历史 | `candb_get_data_errors`、`candb_undo`、`candb_redo`、`candb_get_save_diff` |
 
 ### 权限与边界
 
 - PAT 仅有**编辑权限**：打开他人文件得到**只读会话**（`can_write=false`），写操作会被后端
   拒绝并提示文件所有者；管理、改密、登出、令牌管理等端点对 PAT 一律返回 403。
 - **不提供** `delete_file`、`steal_lock` 及任何管理类工具，也不能查看调试快照。
-- `canmatrix_import_file` 只收内联内容，不接受服务器路径。
+- `candb_import_file` 只收内联内容，不接受服务器路径。
 
 ## 项目结构
 
 ```
-canmatrix_editor/
+CanDbCodeGenerator/
 ├── app/                             Python 主包
 │   ├── server/                      HTTP 服务层
 │   │   ├── lifecycle.py             服务启动入口（python -m app.server.lifecycle）

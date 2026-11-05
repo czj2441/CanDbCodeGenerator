@@ -102,7 +102,7 @@ def test_full_workflow_over_mcp(live_backend, monkeypatch, mcp_server):
     """完整工作流：whoami → create_file → add_message → add_signal → get_data_errors
     → export properties（含信号名）→ save → close_session → list_files 显示文件。"""
 
-    monkeypatch.setenv("CANMATRIX_BACKEND_URL", live_backend["base_url"])
+    monkeypatch.setenv("CANDB_CODEGENERATOR_BACKEND_URL", live_backend["base_url"])
     _fresh_pool_and_caches()
     pat = live_backend["pat_alice"]
 
@@ -114,25 +114,25 @@ def test_full_workflow_over_mcp(live_backend, monkeypatch, mcp_server):
                     await session.initialize()
 
                     # 1. whoami
-                    who = _json(await session.call_tool("canmatrix_whoami", {}))
+                    who = _json(await session.call_tool("candb_whoami", {}))
                     assert who == {"username": "alice", "role": "user"}
 
                     # 2. create_file
-                    created = _json(await session.call_tool("canmatrix_create_file", {"name": "e2e_wf"}))
+                    created = _json(await session.call_tool("candb_create_file", {"name": "e2e_wf"}))
                     sid = created["session_id"]
                     assert sid
                     assert created["file_name"] == "e2e_wf.properties"
 
                     # 3. add_message
                     added = _json(await session.call_tool(
-                        "canmatrix_add_message",
+                        "candb_add_message",
                         {"session_id": sid, "message": {"id": 291, "name": "EngineData", "dlc": 8}},
                     ))
                     assert added["id"] == 291
 
                     # 4. add_signal
                     sig = _json(await session.call_tool(
-                        "canmatrix_add_signal",
+                        "candb_add_signal",
                         {"session_id": sid, "msg_id": 291,
                          "signal": {"name": "EngineSpeed", "start_bit": 0, "length": 16,
                                     "byte_order": "intel", "factor": 0.5, "unit": "rpm"}},
@@ -141,26 +141,26 @@ def test_full_workflow_over_mcp(live_backend, monkeypatch, mcp_server):
 
                     # 5. get_data_errors（干净数据 → 无错误）
                     errors = _json(await session.call_tool(
-                        "canmatrix_get_data_errors", {"session_id": sid}))
+                        "candb_get_data_errors", {"session_id": sid}))
                     assert errors["total"] == 0
 
                     # 6. export properties（含信号名）
                     exported = _json(await session.call_tool(
-                        "canmatrix_export", {"session_id": sid, "format": "properties"}))
+                        "candb_export", {"session_id": sid, "format": "properties"}))
                     assert exported["format"] == "properties"
                     assert "EngineSpeed" in exported["content"]
                     assert "EngineData" in exported["content"]
 
                     # 7. save
-                    saved = _json(await session.call_tool("canmatrix_save", {"session_id": sid}))
+                    saved = _json(await session.call_tool("candb_save", {"session_id": sid}))
                     assert saved["message"] == "保存成功"
 
                     # 8. close_session
-                    closed = _json(await session.call_tool("canmatrix_close_session", {"session_id": sid}))
+                    closed = _json(await session.call_tool("candb_close_session", {"session_id": sid}))
                     assert closed == {"closed": True}
 
                     # 9. list_files 显示该文件
-                    listing = _json(await session.call_tool("canmatrix_list_files", {}))
+                    listing = _json(await session.call_tool("candb_list_files", {}))
                     assert listing["total"] >= 1
                     names = [item["file_name"] for item in listing["items"]]
                     assert "e2e_wf.properties" in names
@@ -171,7 +171,7 @@ def test_full_workflow_over_mcp(live_backend, monkeypatch, mcp_server):
 def test_mcp_rejects_request_without_pat(live_backend, monkeypatch, mcp_server):
     """无 Authorization 头 → 连接/调用失败（中间件 401 拦截）。"""
 
-    monkeypatch.setenv("CANMATRIX_BACKEND_URL", live_backend["base_url"])
+    monkeypatch.setenv("CANDB_CODEGENERATOR_BACKEND_URL", live_backend["base_url"])
     _fresh_pool_and_caches()
 
     async def run():
@@ -193,7 +193,7 @@ def test_mcp_rejects_request_without_pat(live_backend, monkeypatch, mcp_server):
 def test_mcp_rejects_revoked_pat(live_backend, monkeypatch, mcp_server):
     """PAT 被吊销后 → 工具调用返回「未认证」错误。"""
 
-    monkeypatch.setenv("CANMATRIX_BACKEND_URL", live_backend["base_url"])
+    monkeypatch.setenv("CANDB_CODEGENERATOR_BACKEND_URL", live_backend["base_url"])
     _fresh_pool_and_caches()
     pat = live_backend["pat_alice"]
     auth = live_backend["auth"]
@@ -209,7 +209,7 @@ def test_mcp_rejects_revoked_pat(live_backend, monkeypatch, mcp_server):
             async with streamable_http_client(f"{mcp_server}/mcp", http_client=http_client) as (read, write):
                 async with ClientSession(read, write) as session:
                     await session.initialize()
-                    result = await session.call_tool("canmatrix_whoami", {})
+                    result = await session.call_tool("candb_whoami", {})
                     assert result.is_error is True
                     assert "未认证" in _text(result)
 

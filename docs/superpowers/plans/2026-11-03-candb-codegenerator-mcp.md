@@ -1,21 +1,21 @@
-# CanMatrix MCP 服务器 实施计划
+# CanDbCodeGenerator MCP 服务器 实施计划
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 为 CanMatrix Editor 增加 PAT（个人MCP访问令牌）认证与一个集中托管的 Streamable HTTP MCP 服务器（`canmatrix_mcp`），让 AI 客户端以任意用户身份完成全部编辑类操作。
+**Goal:** 为 CanDbCodeGenerator 增加 PAT（个人MCP访问令牌）认证与一个集中托管的 Streamable HTTP MCP 服务器（`candb_codegenerator_mcp`），让 AI 客户端以任意用户身份完成全部编辑类操作。
 
 **Architecture:** PAT 部分在现有 `AuthService` 上加持久化令牌存储与自助端点，认证解析"会话 token 优先、PAT 兜底"，管理类端点拒绝 PAT。MCP 服务器是薄客户端：ASGI 中间件从 `Authorization: Bearer <PAT>` 取身份，工具层通过 `httpx` 转发 HTTP、经自有 WS 会话池转发约 30 种 WS 消息，业务逻辑全部留在后端。
 
 **Tech Stack:** Python 3.12、官方 `mcp` SDK（FastMCP）、httpx、uvicorn、websockets；前端 Vue 3 + Pinia + vitest；pytest。
 
-**Spec:** `docs/superpowers/specs/2026-11-03-canmatrix-mcp-design.md`
+**Spec:** `docs/superpowers/specs/2026-11-03-candb-codegenerator-mcp-design.md`
 
 **范围说明：** 本计划含两个子系统——Part A（Task 1-4，PAT 认证，可独立交付）与 Part B（Task 5-14，MCP 服务器，依赖 Part A）。Task 顺序即交付顺序。
 
 ## Global Constraints
 
 - Python 3.12；新增依赖仅 `mcp>=1.2.0`、`httpx>=0.27`、`uvicorn>=0.30`（写入 `requirements.txt`）。
-- MCP 服务器名 `canmatrix_mcp`；工具名 `canmatrix_` 前缀 + snake_case；工具 description 用中文。
+- MCP 服务器名 `candb_codegenerator_mcp`；工具名 `candb_` 前缀 + snake_case；工具 description 用中文。
 - PAT 明文格式 `pat_` + 64 hex（`secrets.token_hex(32)`）；哈希 = SHA-256 hex；存储 `config/pats.json`。
 - PAT 仅有编辑权限：`/api/admin/*`、`/api/file-permission`、`/api/change-password`、`/api/logout`、`/api/tokens*` 拒绝 PAT → 403 `{"success": false, "error": "此操作不支持个人MCP访问令牌"}`。
 - **改密码只吊销会话 token，绝不吊销 PAT**；删除用户清空其 PAT。
@@ -219,10 +219,10 @@ git commit -m "feat(ui): personal access token management modal"
 - Produces（Task 6-11 依赖的精确签名）:
   - `app/mcp/errors.py`: `class BackendError(Exception)`，属性 `code: str`、`message: str`、`details: dict`。
   - `app/mcp/auth_context.py`: `set_current_pat(pat: str | None) -> None`；`require_user() -> dict` — 返回 `{"username", "role"}`，无 PAT 或后端校验失败时抛 `ToolError("未认证：请在 Authorization: Bearer <PAT> 中提供个人MCP访问令牌")`；对同一 PAT 的 `/api/me` 结果缓存 60 秒。
-  - `app/mcp/backend.py`（HTTP 部分）: `get_backend() -> BackendClient`（用当前 PAT + 环境变量 `CANMATRIX_BACKEND_URL` 构造）；`BackendClient.request(method: str, path: str, body: dict | None = None, timeout: float = 30.0) -> dict`（httpx.AsyncClient，`Authorization: Bearer <PAT>`；HTTP 非 2xx 或 `{"success": false}` → 抛 `BackendError(code=f"HTTP_{status}", message=error 文案, details=details)`）。
-  - `app/mcp/server.py`: `mcp = FastMCP("canmatrix_mcp")`；`build_app() -> ASGIApp`（`mcp.streamable_http_app()` 外包一层中间件：读 `Authorization: Bearer` → `set_current_pat`，缺失 → 401 `{"error": "unauthorized"}`）。
-  - `app/mcp/__main__.py`: `python -m app.mcp` 以 uvicorn 起 `build_app()`；env：`CANMATRIX_BACKEND_URL`（默认 `http://127.0.0.1:8080`）、`CANMATRIX_MCP_HOST`（默认 `127.0.0.1`）、`CANMATRIX_MCP_PORT`（默认 `8081`）。
-  - 工具 `canmatrix_whoami() -> dict` — `require_user()` 后返回 `{"username", "role"}`；description：「返回当前令牌对应的用户名与角色」；注解 `readOnlyHint: true`。
+  - `app/mcp/backend.py`（HTTP 部分）: `get_backend() -> BackendClient`（用当前 PAT + 环境变量 `CANDB_CODEGENERATOR_BACKEND_URL` 构造）；`BackendClient.request(method: str, path: str, body: dict | None = None, timeout: float = 30.0) -> dict`（httpx.AsyncClient，`Authorization: Bearer <PAT>`；HTTP 非 2xx 或 `{"success": false}` → 抛 `BackendError(code=f"HTTP_{status}", message=error 文案, details=details)`）。
+  - `app/mcp/server.py`: `mcp = FastMCP("candb_codegenerator_mcp")`；`build_app() -> ASGIApp`（`mcp.streamable_http_app()` 外包一层中间件：读 `Authorization: Bearer` → `set_current_pat`，缺失 → 401 `{"error": "unauthorized"}`）。
+  - `app/mcp/__main__.py`: `python -m app.mcp` 以 uvicorn 起 `build_app()`；env：`CANDB_CODEGENERATOR_BACKEND_URL`（默认 `http://127.0.0.1:8080`）、`CANDB_CODEGENERATOR_MCP_HOST`（默认 `127.0.0.1`）、`CANDB_CODEGENERATOR_MCP_PORT`（默认 `8081`）。
+  - 工具 `candb_whoami() -> dict` — `require_user()` 后返回 `{"username", "role"}`；description：「返回当前令牌对应的用户名与角色」；注解 `readOnlyHint: true`。
 
 - [ ] **Step 1: 写失败测试** `tests/test_mcp_identity.py`
 
@@ -239,7 +239,7 @@ def test_require_user_caches_me_calls():         # 60s 内两次 require_user �
 
 - [ ] **Step 4: 运行确认通过 + 冒烟**
 
-Run: `venv/bin/python -m pytest tests/ -v` → PASS；`venv/bin/python -c "from app.mcp.server import mcp; assert mcp.name == 'canmatrix_mcp'"` 无输出。
+Run: `venv/bin/python -m pytest tests/ -v` → PASS；`venv/bin/python -c "from app.mcp.server import mcp; assert mcp.name == 'candb_codegenerator_mcp'"` 无输出。
 
 - [ ] **Step 5: Commit**
 
@@ -261,7 +261,7 @@ git commit -m "feat(mcp): server skeleton, PAT identity middleware, whoami tool"
   - `WsConnection`：`connect(ws_url: str, pat: str) -> WsConnection`（hello 握手 `{"type": "hello", "session_id": "", "token": pat}`，未认证抛 `BackendError("AUTH_REQUIRED", ...)`）；`async call(msg_type: str, data: dict) -> CallResult`（发送 `{"type", "requestId": uuid4, "data"}`，等待同 `requestId` 的响应：`{"type": "ok", ...}` → `CallResult`；`{"type": "error", "code", "message", "details"}` → 抛 `BackendError`）；`async close() -> None`；后台任务每 30s 发 `{"type": "ping"}`。
   - `BackendClient.control() -> WsConnection` — 每用户共享一条无 session 连接（供 `get_sessions` 等）。
   - `BackendClient.open_session(msg_type: str, data: dict) -> tuple[WsConnection, CallResult]` — 新建连接执行创建类消息（`load_file`/`import_file`/`create_file`），按 `CallResult.new_session_id` 登记入池。
-  - `BackendClient.get_session(session_id: str) -> WsConnection` — 查池，未命中抛 `BackendError("SESSION_NOT_FOUND", "会话不存在或已过期，请重新 canmatrix_open_file")`。
+  - `BackendClient.get_session(session_id: str) -> WsConnection` — 查池，未命中抛 `BackendError("SESSION_NOT_FOUND", "会话不存在或已过期，请重新 candb_open_file")`。
   - `BackendClient.close_session(session_id: str) -> None` — 发 WS `release_lock`（`{"session_id", "abort": False}`，以 `app/ws/handlers/system_handlers.py` 的 ReleaseLockHandler 为准）后关连接、出池。
   - SessionPool：key `(username, session_id)`；空闲 30 分钟自动关连接出池。
   - `tests/conftest.py` 夹具 `live_backend`：在进程内按 `app/server/lifecycle.py` 的启动序列组装真实后端（`init_auth_service`、`init_session_manager`、WS 服务 + `ThreadingHTTPServer`，端口取临时端口，monkeypatch `CONFIG_DIR/USERS_FILE/PATS_FILE/DATA_DIR` 到 `tmp_path`），预置测试用户 `alice`（owner）与 `bob`，各发一个 PAT；yield `{"base_url", "ws_url", "pat_alice", "pat_bob", "auth"}`。
@@ -298,15 +298,15 @@ git commit -m "feat(mcp): WS session pool with heartbeat and per-user isolation"
 **Interfaces:**
 - Consumes: Task 5/6 的 `require_user`、`get_backend`、`BackendError`、`open_session/get_session/control/close_session`。
 - Produces（工具签名即对外接口）:
-  - `canmatrix_list_files() -> dict` — WS `get_sessions`（经 `control()`），结果按分页约定返回；items 含后端 `list_history` 原字段（含 `is_locked`、owner）。
-  - `canmatrix_open_file(file_name: str) -> dict` — WS `load_file`（`{"file_name", "current_session_id": ""}`），返回 `{"session_id", "file_name", "bus_type", "message_count", "signal_count", "can_write"}`。`can_write` 由 HTTP `GET /api/file-permission?file={file_name}` 的 `owner` 与 `require_user()` 的 `username` 相等决定（无侧车时 owner 为空串 → `False`，与后端严格所有权一致）。
-  - `canmatrix_create_file(name: str, content: dict | None = None) -> dict` — WS `create_file`，返回 `{"session_id", "file_name", "message_count", "signal_count"}`。
-  - `canmatrix_import_file(file_name: str, format: str = "dbc", content: str = "") -> dict` — WS `import_file`（`{"format", "content", "filename": file_name}`）；`format ∈ {"dbc", "properties"}`，否则 `ToolError`。
-  - `canmatrix_save(session_id: str) -> dict` — WS `save`。
-  - `canmatrix_save_as(session_id: str, name: str) -> dict` — WS `save_as`（`{"name"}`）。
-  - `canmatrix_close_session(session_id: str) -> dict` — `close_session()`，返回 `{"closed": true}`。
-  - `canmatrix_get_summary(session_id: str) -> dict` — WS `get_summary`。
-  - `canmatrix_export(session_id: str, format: str = "properties", force: bool = False) -> dict` — HTTP `GET /api/export?sid={session_id}&fmt={format}&force={0|1}`（超时 120s），返回 `{"format", "file_name", "content"}`；`format ∈ {properties, dbc, c_header, c_source}`。后端 422（数据错误）时 `ToolError` 消息含「先运行 canmatrix_get_data_errors 修复，或设置 force=true 强制导出」。
+  - `candb_list_files() -> dict` — WS `get_sessions`（经 `control()`），结果按分页约定返回；items 含后端 `list_history` 原字段（含 `is_locked`、owner）。
+  - `candb_open_file(file_name: str) -> dict` — WS `load_file`（`{"file_name", "current_session_id": ""}`），返回 `{"session_id", "file_name", "bus_type", "message_count", "signal_count", "can_write"}`。`can_write` 由 HTTP `GET /api/file-permission?file={file_name}` 的 `owner` 与 `require_user()` 的 `username` 相等决定（无侧车时 owner 为空串 → `False`，与后端严格所有权一致）。
+  - `candb_create_file(name: str, content: dict | None = None) -> dict` — WS `create_file`，返回 `{"session_id", "file_name", "message_count", "signal_count"}`。
+  - `candb_import_file(file_name: str, format: str = "dbc", content: str = "") -> dict` — WS `import_file`（`{"format", "content", "filename": file_name}`）；`format ∈ {"dbc", "properties"}`，否则 `ToolError`。
+  - `candb_save(session_id: str) -> dict` — WS `save`。
+  - `candb_save_as(session_id: str, name: str) -> dict` — WS `save_as`（`{"name"}`）。
+  - `candb_close_session(session_id: str) -> dict` — `close_session()`，返回 `{"closed": true}`。
+  - `candb_get_summary(session_id: str) -> dict` — WS `get_summary`。
+  - `candb_export(session_id: str, format: str = "properties", force: bool = False) -> dict` — HTTP `GET /api/export?sid={session_id}&fmt={format}&force={0|1}`（超时 120s），返回 `{"format", "file_name", "content"}`；`format ∈ {properties, dbc, c_header, c_source}`。后端 422（数据错误）时 `ToolError` 消息含「先运行 candb_get_data_errors 修复，或设置 force=true 强制导出」。
   - 全部工具错误统一映射：`BackendError` → `ToolError(f"{message}（{code}）")`；`FILE_LOCKED` 时附「占用者信息见消息」；只读会话写入的后端错误附「文件所有者可写，联系其授权或由其编辑」。
   - 注解：查询类 `readOnlyHint: true`；写类 `destructiveHint: true`（save/export 标 `idempotentHint` 视语义）。
 
@@ -344,13 +344,13 @@ git commit -m "feat(mcp): file and session tools"
 **Interfaces:**
 - Consumes: Task 7 的错误映射 `tool_error` 与工具约定。
 - Produces:
-  - `canmatrix_list_messages(session_id: str, filter: str | None = None, limit: int = 50, offset: int = 0) -> dict` — WS `get_messages` 后在工具层按 `filter`（大小写不敏感子串，匹配 name 与 id_hex）过滤并按分页约定返回；items 为后端报文摘要（`{id, id_hex, name, dlc, cycle_time, is_fd, sender, comment, signal_count, total_signal_bits}`）。
-  - `canmatrix_get_message(session_id: str, msg_id: int) -> dict` — WS `get_message`（含信号明细）。
-  - `canmatrix_add_message(session_id: str, message: dict) -> dict` — WS `add_message`（`{"message": message}`；`message` 必填键 `id: int`、`name: str`、`dlc: int`，其余透传，与 `app/ws/handlers/message_handlers.py` AddMessageHandler 一致）。
-  - `canmatrix_edit_message(session_id: str, msg_id: int, fields: dict) -> dict` — WS `edit_message`。
-  - `canmatrix_batch_edit_messages(session_id: str, msg_ids: list[int], fields: dict) -> dict` — WS `batch_edit_messages`。
-  - `canmatrix_delete_message(session_id: str, msg_id: int) -> dict` — WS `delete_message`。
-  - `canmatrix_batch_delete_messages(session_id: str, msg_ids: list[int]) -> dict` — WS `batch_delete_messages`。
+  - `candb_list_messages(session_id: str, filter: str | None = None, limit: int = 50, offset: int = 0) -> dict` — WS `get_messages` 后在工具层按 `filter`（大小写不敏感子串，匹配 name 与 id_hex）过滤并按分页约定返回；items 为后端报文摘要（`{id, id_hex, name, dlc, cycle_time, is_fd, sender, comment, signal_count, total_signal_bits}`）。
+  - `candb_get_message(session_id: str, msg_id: int) -> dict` — WS `get_message`（含信号明细）。
+  - `candb_add_message(session_id: str, message: dict) -> dict` — WS `add_message`（`{"message": message}`；`message` 必填键 `id: int`、`name: str`、`dlc: int`，其余透传，与 `app/ws/handlers/message_handlers.py` AddMessageHandler 一致）。
+  - `candb_edit_message(session_id: str, msg_id: int, fields: dict) -> dict` — WS `edit_message`。
+  - `candb_batch_edit_messages(session_id: str, msg_ids: list[int], fields: dict) -> dict` — WS `batch_edit_messages`。
+  - `candb_delete_message(session_id: str, msg_id: int) -> dict` — WS `delete_message`。
+  - `candb_batch_delete_messages(session_id: str, msg_ids: list[int]) -> dict` — WS `batch_delete_messages`。
 
 - [ ] **Step 1: 写失败测试** `tests/test_mcp_tools_messages.py`
 
@@ -383,14 +383,14 @@ git commit -m "feat(mcp): message tools"
 
 **Interfaces:**
 - Produces:
-  - `canmatrix_list_signals(session_id: str, msg_id: int | None = None, filter: str | None = None, limit: int = 50, offset: int = 0) -> dict` — 数据源：`msg_id` 给定时 WS `get_message` 的信号明细，否则遍历 `get_messages` 各报文的 `to_dict()` 信号；items 含 `msg_id` 与信号字段；分页/过滤同 Task 8 约定。
-  - `canmatrix_get_signal(session_id: str, msg_id: int, sig_name: str) -> dict`。
-  - `canmatrix_add_signal(session_id: str, msg_id: int, signal: dict) -> dict` — WS `add_signal`（`{"msg_id", "signal"}`；`signal` 字段集同 `signal_handlers.AddSignalHandler`）。
-  - `canmatrix_batch_add_signals(session_id: str, msg_id: int, signals: list[dict]) -> dict` — WS `batch_add_signals`。
-  - `canmatrix_edit_signal(session_id: str, msg_id: int, sig_name: str, field: str, value) -> dict` — WS `edit_signal`（`{"msg_id", "sig_name", "field", "value"}`）。
-  - `canmatrix_batch_edit_signals(session_id: str, msg_id: int, sig_names: list[str], fields: dict) -> dict` — WS `batch_edit_signals`。
-  - `canmatrix_delete_signal(session_id: str, msg_id: int, sig_name: str) -> dict` — WS `delete_signal`。
-  - `canmatrix_batch_delete_signals(session_id: str, msg_id: int, sig_names: list[str]) -> dict` — WS `batch_delete_signals`。
+  - `candb_list_signals(session_id: str, msg_id: int | None = None, filter: str | None = None, limit: int = 50, offset: int = 0) -> dict` — 数据源：`msg_id` 给定时 WS `get_message` 的信号明细，否则遍历 `get_messages` 各报文的 `to_dict()` 信号；items 含 `msg_id` 与信号字段；分页/过滤同 Task 8 约定。
+  - `candb_get_signal(session_id: str, msg_id: int, sig_name: str) -> dict`。
+  - `candb_add_signal(session_id: str, msg_id: int, signal: dict) -> dict` — WS `add_signal`（`{"msg_id", "signal"}`；`signal` 字段集同 `signal_handlers.AddSignalHandler`）。
+  - `candb_batch_add_signals(session_id: str, msg_id: int, signals: list[dict]) -> dict` — WS `batch_add_signals`。
+  - `candb_edit_signal(session_id: str, msg_id: int, sig_name: str, field: str, value) -> dict` — WS `edit_signal`（`{"msg_id", "sig_name", "field", "value"}`）。
+  - `candb_batch_edit_signals(session_id: str, msg_id: int, sig_names: list[str], fields: dict) -> dict` — WS `batch_edit_signals`。
+  - `candb_delete_signal(session_id: str, msg_id: int, sig_name: str) -> dict` — WS `delete_signal`。
+  - `candb_batch_delete_signals(session_id: str, msg_id: int, sig_names: list[str]) -> dict` — WS `batch_delete_signals`。
 
 - [ ] **Step 1: 写失败测试** `tests/test_mcp_tools_signals.py`
 
@@ -423,11 +423,11 @@ git commit -m "feat(mcp): signal tools"
 
 **Interfaces:**
 - Produces:
-  - `canmatrix_list_value_tables(session_id: str) -> dict` — WS `get_value_tables`。
-  - `canmatrix_add_value_table(session_id: str, name: str, entries: dict) -> dict` — WS `add_value_table`（`{"name", "entries"}`，entries 为 `{value: label}` 映射）。
-  - `canmatrix_update_value_table(session_id: str, name: str, entries: dict) -> dict` — WS `update_value_table`。
-  - `canmatrix_rename_value_table(session_id: str, old_name: str, new_name: str) -> dict` — WS `rename_value_table`（`{"old_name", "new_name"}`）。
-  - `canmatrix_delete_value_table(session_id: str, name: str) -> dict` — WS `delete_value_table`。
+  - `candb_list_value_tables(session_id: str) -> dict` — WS `get_value_tables`。
+  - `candb_add_value_table(session_id: str, name: str, entries: dict) -> dict` — WS `add_value_table`（`{"name", "entries"}`，entries 为 `{value: label}` 映射）。
+  - `candb_update_value_table(session_id: str, name: str, entries: dict) -> dict` — WS `update_value_table`。
+  - `candb_rename_value_table(session_id: str, old_name: str, new_name: str) -> dict` — WS `rename_value_table`（`{"old_name", "new_name"}`）。
+  - `candb_delete_value_table(session_id: str, name: str) -> dict` — WS `delete_value_table`。
 
 - [ ] **Step 1: 写失败测试** `tests/test_mcp_tools_value_tables.py`
 
@@ -457,10 +457,10 @@ git commit -m "feat(mcp): value table tools"
 
 **Interfaces:**
 - Produces:
-  - `canmatrix_get_data_errors(session_id: str, limit: int = 50, offset: int = 0) -> dict` — WS `get_data_errors`，分页约定同 Task 8。
-  - `canmatrix_undo(session_id: str) -> dict` — WS `undo`。
-  - `canmatrix_redo(session_id: str) -> dict` — WS `redo`。
-  - `canmatrix_get_save_diff(session_id: str) -> dict` — WS `get_save_diff`。
+  - `candb_get_data_errors(session_id: str, limit: int = 50, offset: int = 0) -> dict` — WS `get_data_errors`，分页约定同 Task 8。
+  - `candb_undo(session_id: str) -> dict` — WS `undo`。
+  - `candb_redo(session_id: str) -> dict` — WS `redo`。
+  - `candb_get_save_diff(session_id: str) -> dict` — WS `get_save_diff`。
 
 - [ ] **Step 1: 写失败测试** `tests/test_mcp_tools_history.py`
 
@@ -506,7 +506,7 @@ async def test_mcp_rejects_revoked_pat():                    # 吊销后工具�
 
 - [ ] **Step 2: 运行确认失败** — Run: `venv/bin/python -m pytest tests/test_mcp_e2e.py -v` → FAIL
 
-- [ ] **Step 3: 实现** — 起服务、连会话、断言；修通全链路。冒烟（手动验收）：`venv/bin/python -m app.mcp` 后 `npx @modelcontextprotocol/inspector` 连接，确认工具清单完整、`canmatrix_whoami` 可调。
+- [ ] **Step 3: 实现** — 起服务、连会话、断言；修通全链路。冒烟（手动验收）：`venv/bin/python -m app.mcp` 后 `npx @modelcontextprotocol/inspector` 连接，确认工具清单完整、`candb_whoami` 可调。
 
 - [ ] **Step 4: 运行确认通过** — Run: `venv/bin/python -m pytest tests/ -v` → PASS
 
@@ -520,31 +520,31 @@ git commit -m "test(mcp): end-to-end workflow over streamable HTTP"
 ### Task 13: 评估问题（10 题）
 
 **Files:**
-- Create: `docs/evals/canmatrix_mcp_evals.xml`
+- Create: `docs/evals/candb_codegenerator_mcp_evals.xml`
 
 **Interfaces:**
 - Consumes: Task 12 的样例数据工作流（评估针对固定种子数据：一个含 2-3 报文、5+ 信号、1 个值表、1 个已知数据错误的 properties 文件）。
 
 - [ ] **Step 1: 固定评估数据** — 写 `docs/evals/README.md` 一段：如何用 MCP 工具造出种子数据（create_file/import_file 序列），数据从此不变。
-- [ ] **Step 2: 写 10 个评估问答** — `docs/evals/canmatrix_mcp_evals.xml`（格式同 mcp-builder 评估指南 `<evaluation><qa_pair><question/><answer/></qa_pair></evaluation>`）。要求：全部只读、单答案可字符串验证、需 ≥3 次工具调用。例：「种子数据里信号数最多的报文叫什么？」「哪个报文存在数据错误，错误码是什么？」「EngineSpeed 信号的因子和偏移是多少？」
+- [ ] **Step 2: 写 10 个评估问答** — `docs/evals/candb_codegenerator_mcp_evals.xml`（格式同 mcp-builder 评估指南 `<evaluation><qa_pair><question/><answer/></qa_pair></evaluation>`）。要求：全部只读、单答案可字符串验证、需 ≥3 次工具调用。例：「种子数据里信号数最多的报文叫什么？」「哪个报文存在数据错误，错误码是什么？」「EngineSpeed 信号的因子和偏移是多少？」
 - [ ] **Step 3: 自验** — 每题亲自用工具链跑一遍确认答案稳定、可复现，把最终答案写进 XML；答案与数据不一致则修正数据或题目。
 - [ ] **Step 4: Commit**
 
 ```bash
 git add docs/evals
-git commit -m "docs(mcp): evaluation question set for canmatrix_mcp"
+git commit -m "docs(mcp): evaluation question set for candb_codegenerator_mcp"
 ```
 
 ### Task 14: 部署与文档
 
 **Files:**
-- Create: `deploy/canmatrix-mcp.service`
+- Create: `deploy/candb-codegenerator-mcp.service`
 - Modify: `docs/systemd-deploy.md`, `README.md`
 
 **Interfaces:**
-- Consumes: Task 5 的 env 约定（`CANMATRIX_BACKEND_URL`、`CANMATRIX_MCP_HOST`、`CANMATRIX_MCP_PORT`）。
+- Consumes: Task 5 的 env 约定（`CANDB_CODEGENERATOR_BACKEND_URL`、`CANDB_CODEGENERATOR_MCP_HOST`、`CANDB_CODEGENERATOR_MCP_PORT`）。
 
-- [ ] **Step 1: 写 systemd unit** `deploy/canmatrix-mcp.service` — `ExecStart=<venv>/python -m app.mcp`，`Environment=CANMATRIX_BACKEND_URL=http://127.0.0.1:8080`，`CANMATRIX_MCP_HOST=127.0.0.1`，`CANMATRIX_MCP_PORT=8081`，Restart=always，与现有后端 unit 同风格。
+- [ ] **Step 1: 写 systemd unit** `deploy/candb-codegenerator-mcp.service` — `ExecStart=<venv>/python -m app.mcp`，`Environment=CANDB_CODEGENERATOR_BACKEND_URL=http://127.0.0.1:8080`，`CANDB_CODEGENERATOR_MCP_HOST=127.0.0.1`，`CANDB_CODEGENERATOR_MCP_PORT=8081`，Restart=always，与现有后端 unit 同风格。
 - [ ] **Step 2: 更新 `docs/systemd-deploy.md`** — MCP 服务安装/启动小节；安全建议：绑定 `127.0.0.1` 走 HTTPS 反代（nginx 示例一段），不要直接暴露 8081。
 - [ ] **Step 3: 更新 `README.md`** — 「MCP 服务器」章节：PAT 创建路径（文件列表页 → 个人MCP访问令牌）、AI 客户端接入示例（OpenCode/Claude Code 的 streamable HTTP 配置 + `Authorization: Bearer <PAT>` 头）、工具面一览表、只读他人文件/删除文件与管理操作不可用的说明。
 - [ ] **Step 4: 全量回归** — Run: `venv/bin/python -m pytest tests/ -v` → PASS；`cd frontend && npx vitest run` → PASS。
@@ -552,5 +552,5 @@ git commit -m "docs(mcp): evaluation question set for canmatrix_mcp"
 
 ```bash
 git add deploy docs README.md
-git commit -m "docs: deploy and usage docs for canmatrix_mcp"
+git commit -m "docs: deploy and usage docs for candb_codegenerator_mcp"
 ```

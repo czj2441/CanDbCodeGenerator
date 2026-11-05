@@ -16,7 +16,7 @@ import { useAuthStore } from '../authStore.js'
 const SESSION_TOKEN = 'session-token-abc'
 
 function stubLocalStorage() {
-  const store = new Map([['canmatrix_auth_token', SESSION_TOKEN]])
+  const store = new Map([['candb_auth_token', SESSION_TOKEN]])
   globalThis.localStorage = {
     getItem: (k) => (store.has(k) ? store.get(k) : null),
     setItem: (k, v) => store.set(k, String(v)),

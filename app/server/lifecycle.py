@@ -192,7 +192,7 @@ def main() -> None:
     setup_logging()
 
     parser = argparse.ArgumentParser(
-        description='CanMatrix Editor API Server',
+        description='CanDbCodeGenerator API Server',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 使用示例:
@@ -250,16 +250,16 @@ def main() -> None:
         else:
             # 保护：拒绝启动（不自动换端口，防止多个实例同时写同一份数据）
             logger.error(
-                "端口 %d/%d/%d 已被占用，可能存在另一个 CanMatrix 实例正在运行",
+                "端口 %d/%d/%d 已被占用，可能存在另一个 CanDbCodeGenerator 实例正在运行",
                 port, port + WS_PORT_OFFSET, port + MCP_PORT_OFFSET,
             )
             logger.info("解决方式：")
-            logger.info("  1. 先停止旧实例（如 systemctl stop canmatrix-editor）")
+            logger.info("  1. 先停止旧实例（如 systemctl stop candb-codegenerator）")
             logger.info("  2. 或加 --auto-clean 自动终止旧进程后启动")
             sys.exit(1)
 
     server = ThreadingHTTPServer((host, port), ApiHandler)
-    logger.info("CanMatrix Editor API server running at http://%s:%d", host, port)
+    logger.info("CanDbCodeGenerator API server running at http://%s:%d", host, port)
     logger.info("WS port: %d", port + WS_PORT_OFFSET)
     logger.info("Press Ctrl+C to stop.")
 
@@ -434,7 +434,7 @@ def start_server_background(port: int = 8080, host: str = 'localhost',
             )
 
     server = ThreadingHTTPServer((host, port), ApiHandler)
-    logger.info("CanMatrix Editor API server running at http://%s:%d", host, port)
+    logger.info("CanDbCodeGenerator API server running at http://%s:%d", host, port)
 
     from app.ws.transport import WsTransport
     from app.ws.router import MessageRouter

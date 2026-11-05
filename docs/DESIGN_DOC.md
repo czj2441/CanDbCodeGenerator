@@ -1,4 +1,4 @@
-# CanMatrix Editor 软件详细设计文档
+# CanDbCodeGenerator 软件详细设计文档
 
 > 生成日期：2026-06-05
 > 对应代码版本：449cd28（调试版本更新）
@@ -16,7 +16,7 @@ CAN（Controller Area Network）总线广泛应用于汽车电子和工业控制
 2. **可读性差**：DBC 使用十进制 CAN ID、紧凑的位描述语法（`0|16@1+ (1,0) [0|65535] "rpm" ECU2`），人工阅读和审查困难。
 3. **工具链锁定**：主流 DBC 编辑工具（Vector CANdb++、CANoe）为商业软件，且 DBC 格式细节未完全公开，形成工具链锁定。
 
-CanMatrix Editor 的核心目标是：**以 Properties 作为主存储格式，保留与 DBC 工具链的互通能力（导入/导出），解决 Git 版本管理中的合并冲突问题**。
+CanDbCodeGenerator 的核心目标是：**以 Properties 作为主存储格式，保留与 DBC 工具链的互通能力（导入/导出），解决 Git 版本管理中的合并冲突问题**。
 
 ### 1.2 软件目标
 
@@ -40,7 +40,7 @@ CanMatrix Editor 的核心目标是：**以 Properties 作为主存储格式，�
 
 ### 1.4 与现有工具的对比
 
-| 特性 | Vector CANdb++ | cantools（Python 库） | **CanMatrix Editor** |
+| 特性 | Vector CANdb++ | cantools（Python 库） | **CanDbCodeGenerator** |
 |------|-----------------|----------------------|---------------------|
 | 图形界面 | ✅ | ❌ | ✅ |
 | Properties 存储 | ❌ | ❌ | ✅ |
@@ -294,7 +294,7 @@ class CanDatabase:
 ### 4.2 Properties 格式结构
 
 ```properties
-# CanMatrix Editor - CAN Database Definition
+# CanDbCodeGenerator - CAN Database Definition
 
 database.name=MyVehicle
 messages.0x100.name=EngineData

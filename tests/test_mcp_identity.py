@@ -1,9 +1,9 @@
-"""MCP 身份链路测试 — ASGI 中间件、require_user 校验缓存、canmatrix_whoami 工具。
+"""MCP 身份链路测试 — ASGI 中间件、require_user 校验缓存、candb_whoami 工具。
 
 覆盖 Task 5 的身份链路行为：
 - build_app() 中间件：无 Authorization 头 → 401 {"error": "unauthorized"}
 - 带 Authorization: Bearer <PAT> 时 contextvar 取到 PAT
-- canmatrix_whoami 经 require_user 返回 {"username", "role"}（httpx.MockTransport 桩 /api/me）
+- candb_whoami 经 require_user 返回 {"username", "role"}（httpx.MockTransport 桩 /api/me）
 - 同一 PAT 60 秒内两次 require_user 仅打一次 /api/me
 """
 
@@ -17,7 +17,7 @@ from app.mcp import auth_context
 from app.mcp.auth_context import get_current_pat, require_user, set_current_pat
 from app.mcp.backend import BackendClient
 from app.mcp.errors import BackendError
-from app.mcp.server import build_app, canmatrix_whoami
+from app.mcp.server import build_app, candb_whoami
 
 ME_OK = {"success": True, "data": {"username": "alice", "role": "user"}}
 AUTH_ERROR_MESSAGE = "未认证：请在 Authorization: Bearer <PAT> 中提供个人MCP访问令牌"
@@ -72,7 +72,7 @@ def test_middleware_sets_pat():
 
 
 def test_whoami_returns_username(monkeypatch):
-    """httpx.MockTransport 桩 /api/me → canmatrix_whoami 返回 {"username", "role"}。"""
+    """httpx.MockTransport 桩 /api/me → candb_whoami 返回 {"username", "role"}。"""
     seen = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -83,7 +83,7 @@ def test_whoami_returns_username(monkeypatch):
 
     async def run():
         set_current_pat("tok-whoami")
-        return await canmatrix_whoami()
+        return await candb_whoami()
 
     assert asyncio.run(run()) == {"username": "alice", "role": "user"}
     assert [r.url.path for r in seen] == ["/api/me"]
