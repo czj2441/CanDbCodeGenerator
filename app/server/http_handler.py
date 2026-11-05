@@ -356,7 +356,7 @@ class ApiHandler(BaseHTTPRequestHandler):
         - 协议 = 环境变量 CANMATRIX_MCP_SCHEME（默认 http，HTTPS 反代时设 https）
         """
         host = _host_from_header(self.headers.get("Host", ""))
-        http_port = self.server.server_address[1] if self.server else 8080
+        http_port = self.server.server_address[1]
         port = http_port + MCP_PORT_OFFSET
         scheme = os.environ.get("CANMATRIX_MCP_SCHEME", "http").rstrip(":")
         url = f"{scheme}://{host}:{port}/mcp"

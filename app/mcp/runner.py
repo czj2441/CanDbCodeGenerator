@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 
 from uvicorn.config import Config
 from uvicorn.server import Server
@@ -49,9 +50,15 @@ class EmbeddedMcpServer:
             target=self._server.run, name="mcp-server", daemon=True
         )
         self._thread.start()
-        logger.info(
-            "MCP server started on port %d (backend http %d)", self._mcp_port, self._http_port
-        )
+        # 给绑定留出窗口：若线程立刻退出，说明 uvicorn 启动失败（端口被占等）。
+        # 异常只发生在守护线程内，不会传播到主线程，这里显式报错避免静默失联。
+        time.sleep(0.2)
+        if not self._thread.is_alive():
+            logger.error("MCP server 启动失败（端口 %d 可能被占用）", self._mcp_port)
+        else:
+            logger.info(
+                "MCP server started on port %d (backend http %d)", self._mcp_port, self._http_port
+            )
 
     def stop(self, timeout: float = 3.0) -> None:
         """优雅停止 uvicorn 线程。"""
@@ -59,4 +66,6 @@ class EmbeddedMcpServer:
             self._server.should_exit = True
         if self._thread is not None:
             self._thread.join(timeout=timeout)
+            if self._thread.is_alive():
+                logger.warning("MCP server 线程未在 %.1fs 内退出", timeout)
             self._thread = None

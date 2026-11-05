@@ -34,6 +34,11 @@ def _check_dependencies():
         ('Jinja2', 'jinja2'),
         ('pypinyin', 'pypinyin'),
         ('watchdog', 'watchdog'),
+        # MCP 已内嵌进后端（三元组绑定），缺失时后端无法完整启动，故一并纳入自动安装。
+        ('mcp', 'mcp'),
+        ('uvicorn', 'uvicorn'),
+        ('starlette', 'starlette'),
+        ('httpx', 'httpx'),
     ]
 
     missing = []
