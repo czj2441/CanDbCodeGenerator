@@ -344,13 +344,21 @@ class AuthService:
     # ── PAT（个人访问令牌） ──
 
     def _load_pats(self):
-        """加载 pats.json 到内存，文件不存在则视为空列表。"""
+        """加载 pats.json 到内存，文件不存在则视为空列表。
+
+        吊销即删除：载入时丢弃任何历史遗留的 revoked 记录（一次性迁移），
+        保持「吊销 = 删除」语义一致。
+        """
         if not os.path.isfile(self._pats_path):
             self._pats = []
             return
         with open(self._pats_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
-        self._pats = data.get("tokens", [])
+        tokens = data.get("tokens", [])
+        active = [t for t in tokens if not t.get("revoked")]
+        self._pats = active
+        if len(active) != len(tokens):
+            self._save_pats()
         logger.info("PAT store loaded: %d token(s)", len(self._pats))
 
     def _save_pats(self):
@@ -387,7 +395,7 @@ class AuthService:
         }
 
     def list_pats(self, username: str) -> list[dict]:
-        """列出用户的 PAT（不含 token 明文与哈希）。"""
+        """列出用户的 PAT（不含 token 明文与哈希；已吊销的令牌按删除处理，不会出现在列表）。"""
         with self._pats_lock:
             return [
                 {
@@ -398,15 +406,15 @@ class AuthService:
                     "last_used_at": p["last_used_at"],
                 }
                 for p in self._pats
-                if p["username"] == username
+                if p["username"] == username and not p.get("revoked")
             ]
 
     def revoke_pat(self, username: str, token_id: str) -> bool:
-        """吊销指定 PAT。仅本人可吊销，不存在或非本人返回 False。"""
+        """吊销指定 PAT（按删除处理，记录直接从存储移除）。仅本人可吊销，不存在或非本人返回 False。"""
         with self._pats_lock:
-            for p in self._pats:
+            for i, p in enumerate(self._pats):
                 if p["id"] == token_id and p["username"] == username:
-                    p["revoked"] = True
+                    del self._pats[i]
                     self._save_pats()
                     return True
         return False
