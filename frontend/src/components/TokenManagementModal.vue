@@ -20,6 +20,10 @@ const ui = useUiStore()
 const tokens = ref([])
 const loading = ref(false)
 
+// MCP 服务器地址（从后端 /api/mcp-info 动态获取，不写死 127.0.0.1）
+const mcpUrl = ref('')
+const mcpLoading = ref(false)
+
 // 创建表单
 const newName = ref('')
 const expiryMode = ref('never')   // 'never' | '30' | '90' | 'custom'
@@ -42,6 +46,23 @@ async function fetchTokens() {
   }
 }
 
+async function fetchMcpInfo() {
+  mcpLoading.value = true
+  try {
+    const resp = await fetch('/api/mcp-info')
+    const body = await resp.json()
+    if (body.success && body.data && body.data.url) {
+      mcpUrl.value = body.data.url
+    } else {
+      mcpUrl.value = ''
+    }
+  } catch {
+    mcpUrl.value = ''
+  } finally {
+    mcpLoading.value = false
+  }
+}
+
 function close() {
   emit('update:visible', false)
   justCreated.value = null
@@ -55,21 +76,38 @@ function formatTime(ts) {
   return new Date(ts * 1000).toLocaleString('zh-CN', { hour12: false })
 }
 
-async function copyToken() {
+async function copyText(text) {
   try {
     if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(justCreated.value.token)
+      await navigator.clipboard.writeText(text)
     } else {
       // 非安全上下文无 Clipboard API，退回 execCommand
       const ta = document.createElement('textarea')
-      ta.value = justCreated.value.token
+      ta.value = text
       document.body.appendChild(ta)
       ta.select()
       document.execCommand('copy')
       ta.remove()
     }
-    ui.showToast(t('tokens.copied'))
+    return true
   } catch {
+    return false
+  }
+}
+
+async function copyToken() {
+  if (await copyText(justCreated.value.token)) {
+    ui.showToast(t('tokens.copied'))
+  } else {
+    ui.showToast(t('tokens.copyFailed'), true)
+  }
+}
+
+async function copyMcpUrl() {
+  if (!mcpUrl.value) return
+  if (await copyText(mcpUrl.value)) {
+    ui.showToast(t('tokens.copied'))
+  } else {
     ui.showToast(t('tokens.copyFailed'), true)
   }
 }
@@ -124,7 +162,10 @@ async function doRevoke(tok) {
 }
 
 watch(() => props.visible, (val) => {
-  if (val) fetchTokens()
+  if (val) {
+    fetchTokens()
+    fetchMcpInfo()
+  }
 })
 </script>
 
@@ -136,6 +177,20 @@ watch(() => props.visible, (val) => {
           <div class="modal-header">
             <h3>{{ t('tokens.title') }}</h3>
             <button class="modal-close" @click="close">✕</button>
+          </div>
+
+          <!-- MCP 接入信息：服务器地址 + 权限说明 -->
+          <div class="mcp-info">
+            <div class="mcp-info-title">{{ t('tokens.mcpTitle') }}</div>
+            <div class="mcp-info-row">
+              <input class="form-input token-plain" :value="mcpUrl" readonly
+                     :placeholder="mcpLoading ? t('tokens.mcpLoading') : t('tokens.mcpEmpty')"
+                     @focus="$event.target.select()" />
+              <button class="btn-sm btn-sm-confirm" :disabled="!mcpUrl" @click="copyMcpUrl">
+                {{ t('tokens.copy') }}
+              </button>
+            </div>
+            <div class="mcp-info-note">{{ t('tokens.mcpNote') }}</div>
           </div>
 
           <!-- 创建后一次性明文展示 -->
@@ -237,6 +292,22 @@ watch(() => props.visible, (val) => {
   cursor: pointer; font-size: 18px; padding: 4px 8px;
 }
 .modal-close:hover { color: var(--text); }
+
+/* MCP 接入信息 */
+.mcp-info {
+  margin-bottom: 16px; padding: 12px;
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.mcp-info-title {
+  font-size: 12px; font-weight: 600; color: var(--text-muted);
+  margin-bottom: 8px;
+}
+.mcp-info-row { display: flex; gap: 8px; }
+.mcp-info-note {
+  margin-top: 8px; font-size: 12px; color: var(--text-muted);
+  line-height: 1.5;
+}
 
 /* 一次性明文展示 */
 .token-once {

@@ -382,6 +382,10 @@ const dict = {
 
     // 访问令牌管理
     'tokens.title': '访问令牌',
+    'tokens.mcpTitle': 'MCP 服务器地址',
+    'tokens.mcpLoading': '正在获取地址...',
+    'tokens.mcpEmpty': '未获取到地址',
+    'tokens.mcpNote': '该地址用于 AI 客户端接入；令牌权限与当前用户一致，打开他人文件为只读。',
     'tokens.colName': '名称',
     'tokens.colCreated': '创建时间',
     'tokens.colExpires': '过期时间',

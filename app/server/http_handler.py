@@ -32,6 +32,22 @@ def _resp(success: bool, data: Any = None, error: str = "", details: dict | None
     return result
 
 
+def _host_from_header(host_header: str) -> str:
+    """从 Host 头提取主机名（去端口），支持 IPv6 字面量（[::1]:8080）。
+
+    用于计算 MCP 服务器对外地址：不能写死 127.0.0.1，须跟随用户实际访问的
+    主机名（服务器部署后 Host 头即服务器地址/域名）。
+    """
+    host_header = (host_header or "").strip()
+    if not host_header:
+        return "127.0.0.1"
+    if host_header.startswith("["):
+        # IPv6 字面量，形如 [::1]:8080
+        end = host_header.find("]")
+        return host_header[: end + 1] if end != -1 else host_header
+    return host_header.split(":", 1)[0]
+
+
 class ApiHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
@@ -195,6 +211,8 @@ class ApiHandler(BaseHTTPRequestHandler):
                 self._get_status()
             elif parts == ["api", "version"]:
                 self._get_version()
+            elif parts == ["api", "mcp-info"]:
+                self._get_mcp_info()
             elif parts == ["api", "diag"]:
                 self._get_diag()
             elif parts == ["api", "export"]:
@@ -327,6 +345,20 @@ class ApiHandler(BaseHTTPRequestHandler):
 
     def _get_status(self) -> None:
         self._send_json(200, _resp(True, {"status": "ok"}))
+
+    def _get_mcp_info(self) -> None:
+        """GET /api/mcp-info — 返回 MCP 服务器对外地址（供前端「访问令牌」弹窗展示）。
+
+        地址动态计算，不写死 127.0.0.1：
+        - 主机 = 请求 Host 头的主机名（服务器部署后即用户访问的地址/域名）
+        - 端口 = 环境变量 CANMATRIX_MCP_PORT（默认 8082，与 app.mcp 一致）
+        - 协议 = 环境变量 CANMATRIX_MCP_SCHEME（默认 http，HTTPS 反代时设 https）
+        """
+        host = _host_from_header(self.headers.get("Host", ""))
+        port = int(os.environ.get("CANMATRIX_MCP_PORT", "8082"))
+        scheme = os.environ.get("CANMATRIX_MCP_SCHEME", "http").rstrip(":")
+        url = f"{scheme}://{host}:{port}/mcp"
+        self._send_json(200, _resp(True, {"url": url, "host": host, "port": port, "path": "/mcp"}))
 
     def _get_version(self) -> None:
         self._send_json(200, _resp(True, VERSION))
