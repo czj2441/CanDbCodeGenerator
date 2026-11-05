@@ -111,7 +111,7 @@ class ApiHandler(BaseHTTPRequestHandler):
         """要求会话 token 认证。PAT → 403，未认证 → 401，均返回 None。"""
         user = self._require_auth()
         if user and user.get("auth_type") != "session":
-            self._send_json(403, _resp(False, error="此操作不支持个人访问令牌"))
+            self._send_json(403, _resp(False, error="此操作不支持个人MCP访问令牌"))
             return None
         return user
 
@@ -121,7 +121,7 @@ class ApiHandler(BaseHTTPRequestHandler):
         if not user:
             return None
         if user.get("auth_type") != "session":
-            self._send_json(403, _resp(False, error="此操作不支持个人访问令牌"))
+            self._send_json(403, _resp(False, error="此操作不支持个人MCP访问令牌"))
             return None
         if not AUTH_SERVICE.is_admin(user["username"]):
             self._send_json(403, _resp(False, error="仅管理员可执行此操作"))
@@ -348,7 +348,7 @@ class ApiHandler(BaseHTTPRequestHandler):
         self._send_json(200, _resp(True, {"status": "ok"}))
 
     def _get_mcp_info(self) -> None:
-        """GET /api/mcp-info — 返回 MCP 服务器对外地址（供前端「访问令牌」弹窗展示）。
+        """GET /api/mcp-info — 返回 MCP 服务器对外地址（供前端「个人MCP访问令牌」弹窗展示）。
 
         地址动态计算，不写死 127.0.0.1：
         - 主机 = 请求 Host 头的主机名（服务器部署后即用户访问的地址/域名）

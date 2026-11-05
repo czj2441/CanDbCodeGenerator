@@ -341,7 +341,7 @@ class AuthService:
         with self._pats_lock:
             self._save_pats()
 
-    # ── PAT（个人访问令牌） ──
+    # ── PAT（个人MCP访问令牌） ──
 
     def _load_pats(self):
         """加载 pats.json 到内存，文件不存在则视为空列表。

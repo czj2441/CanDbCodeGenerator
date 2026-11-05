@@ -97,7 +97,7 @@ export const useAuthStore = defineStore('auth', {
       this.authMustChangePassword = false
     },
 
-    // ── 访问令牌 (PAT) ──
+    // ── 个人MCP访问令牌 (PAT) ──
 
     async listTokens() {
       const resp = await _fetch('/api/tokens')

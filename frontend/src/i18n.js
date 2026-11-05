@@ -380,8 +380,8 @@ const dict = {
     'msgtable.thSender': '发送方',
     'msgtable.thComment': '注释',
 
-    // 访问令牌管理
-    'tokens.title': '访问令牌',
+    // 个人MCP访问令牌管理
+    'tokens.title': '个人MCP访问令牌',
     'tokens.mcpTitle': 'MCP 服务器地址',
     'tokens.mcpLoading': '正在获取地址...',
     'tokens.mcpEmpty': '未获取到地址',
@@ -392,7 +392,7 @@ const dict = {
     'tokens.colLastUsed': '最后使用',
     'tokens.colActions': '操作',
     'tokens.loading': '加载中...',
-    'tokens.empty': '暂无访问令牌',
+    'tokens.empty': '暂无个人MCP访问令牌',
     'tokens.neverExpires': '永不',
     'tokens.neverUsed': '从未使用',
     'tokens.revoke': '吊销',

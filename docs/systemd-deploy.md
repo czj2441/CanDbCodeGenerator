@@ -275,7 +275,7 @@ MCP 服务携带的是**长期 PAT**，等同任意用户的编辑权限，安�
 2. **对外访问走 HTTPS 反向代理**：由 nginx 终结 TLS 并转发到本机 `8082`，
    PAT 只在加密信道内传输；勿在防火墙直接开放 `8082`。
 3. 客户端经 `Authorization: Bearer <PAT>` 头认证；PAT 一旦泄露应立即在
-   文件列表页 → 访问令牌 中吊销。
+   文件列表页 → 个人MCP访问令牌 中吊销。
 
 nginx 反代示例（`/etc/nginx/sites-available/canmatrix-mcp`）：
 

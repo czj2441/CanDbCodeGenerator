@@ -1,4 +1,4 @@
-"""PAT（个人访问令牌）— 单元测试。
+"""PAT（个人MCP访问令牌）— 单元测试。
 
 验证 AuthService 的 PAT 生命周期：
 - create_pat：明文 token 仅返回一次，pats.json 只落盘 SHA-256 哈希

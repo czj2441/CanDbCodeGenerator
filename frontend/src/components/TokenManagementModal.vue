@@ -1,6 +1,6 @@
 <script setup>
 /**
- * TokenManagementModal — 个人访问令牌 (PAT) 管理 Modal。
+ * TokenManagementModal — 个人MCP访问令牌 (PAT) 管理 Modal。
  *
  * 功能：令牌列表（名称/创建时间/过期时间/最后使用）、创建令牌（备注名 + 过期时间）、
  * 创建后一次性展示明文（含复制按钮）、逐条吊销。

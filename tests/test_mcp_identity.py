@@ -20,7 +20,7 @@ from app.mcp.errors import BackendError
 from app.mcp.server import build_app, canmatrix_whoami
 
 ME_OK = {"success": True, "data": {"username": "alice", "role": "user"}}
-AUTH_ERROR_MESSAGE = "未认证：请在 Authorization: Bearer <PAT> 中提供个人访问令牌"
+AUTH_ERROR_MESSAGE = "未认证：请在 Authorization: Bearer <PAT> 中提供个人MCP访问令牌"
 
 
 @pytest.fixture(autouse=True)

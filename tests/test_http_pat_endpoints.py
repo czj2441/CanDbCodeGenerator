@@ -4,7 +4,7 @@
 - _authenticate 双认证（Bearer 会话 token 或 PAT），返回 auth_type
 - /api/tokens 自助端点（GET 列表 / POST 创建 / DELETE 吊销），仅会话 token
 - PAT 权限收口：/api/admin/*、/api/file-permission、/api/change-password、
-  /api/logout、/api/tokens* 拒绝 PAT → 403 "此操作不支持个人访问令牌"
+  /api/logout、/api/tokens* 拒绝 PAT → 403 "此操作不支持个人MCP访问令牌"
 - /api/me 接受两种 token
 - 改密码只吊销会话 token，绝不吊销 PAT
 - 会话 token 滑动续期不回归
@@ -24,7 +24,7 @@ from app.auth.service import AuthService
 from app.server import http_handler
 from app.server.http_handler import ApiHandler
 
-PAT_REJECT_ERROR = "此操作不支持个人访问令牌"
+PAT_REJECT_ERROR = "此操作不支持个人MCP访问令牌"
 
 
 @pytest.fixture

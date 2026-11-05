@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 为 CanMatrix Editor 增加 PAT（个人访问令牌）认证与一个集中托管的 Streamable HTTP MCP 服务器（`canmatrix_mcp`），让 AI 客户端以任意用户身份完成全部编辑类操作。
+**Goal:** 为 CanMatrix Editor 增加 PAT（个人MCP访问令牌）认证与一个集中托管的 Streamable HTTP MCP 服务器（`canmatrix_mcp`），让 AI 客户端以任意用户身份完成全部编辑类操作。
 
 **Architecture:** PAT 部分在现有 `AuthService` 上加持久化令牌存储与自助端点，认证解析"会话 token 优先、PAT 兜底"，管理类端点拒绝 PAT。MCP 服务器是薄客户端：ASGI 中间件从 `Authorization: Bearer <PAT>` 取身份，工具层通过 `httpx` 转发 HTTP、经自有 WS 会话池转发约 30 种 WS 消息，业务逻辑全部留在后端。
 
@@ -17,7 +17,7 @@
 - Python 3.12；新增依赖仅 `mcp>=1.2.0`、`httpx>=0.27`、`uvicorn>=0.30`（写入 `requirements.txt`）。
 - MCP 服务器名 `canmatrix_mcp`；工具名 `canmatrix_` 前缀 + snake_case；工具 description 用中文。
 - PAT 明文格式 `pat_` + 64 hex（`secrets.token_hex(32)`）；哈希 = SHA-256 hex；存储 `config/pats.json`。
-- PAT 仅有编辑权限：`/api/admin/*`、`/api/file-permission`、`/api/change-password`、`/api/logout`、`/api/tokens*` 拒绝 PAT → 403 `{"success": false, "error": "此操作不支持个人访问令牌"}`。
+- PAT 仅有编辑权限：`/api/admin/*`、`/api/file-permission`、`/api/change-password`、`/api/logout`、`/api/tokens*` 拒绝 PAT → 403 `{"success": false, "error": "此操作不支持个人MCP访问令牌"}`。
 - **改密码只吊销会话 token，绝不吊销 PAT**；删除用户清空其 PAT。
 - MCP 工具面禁止出现：`delete_file`、`steal_lock`、任何管理操作、`get_snapshot_debug`。
 - `import_file` 只收内联内容，不接受服务器路径。
@@ -100,7 +100,7 @@ git commit -m "feat(auth): add personal access tokens (PAT) to AuthService"
 - Consumes: Task 1 的 `create_pat / list_pats / revoke_pat / validate_token_or_pat`。
 - Produces:
   - `_authenticate()` 返回 `{"username", "role", "auth_type"}`（Bearer 会话 token 或 PAT）。
-  - 新增 `_require_session_auth() -> dict | None` — `auth_type != "session"` 时发 403 `{"success": false, "error": "此操作不支持个人访问令牌"}` 返回 `None`。
+  - 新增 `_require_session_auth() -> dict | None` — `auth_type != "session"` 时发 403 `{"success": false, "error": "此操作不支持个人MCP访问令牌"}` 返回 `None`。
   - `_require_admin()` 在既有逻辑上增加：`auth_type == "pat"` → 403 同上文案。
   - 路由：`GET /api/tokens` → `{"success": true, "data": [list_pats]}`；`POST /api/tokens` body `{"name": str(1..64), "expires_days": int | null}`（int 时 1..3650）→ `{"success": true, "data": create_pat 结果含明文 token}`；`DELETE /api/tokens/{id}` → `{"success": true}`（未命中 404）。三者均 `_require_session_auth`。
   - `change-password`、`logout` 改用 `_require_session_auth`。
@@ -111,7 +111,7 @@ fixture：tmp 配置的 `AuthService` 注入 `app.server.http_handler.AUTH_SERVI
 
 ```python
 def test_token_lifecycle_over_http():            # login → POST /api/tokens → GET 列表含新条目 → PAT 调 /api/me 成功 → DELETE → PAT 调 /api/me 401
-def test_tokens_endpoints_reject_pat():          # PAT 调 GET/POST/DELETE /api/tokens → 403 且 error == "此操作不支持个人访问令牌"
+def test_tokens_endpoints_reject_pat():          # PAT 调 GET/POST/DELETE /api/tokens → 403 且 error == "此操作不支持个人MCP访问令牌"
 def test_pat_rejected_on_admin_and_token_endpoints():
     # PAT 调 GET /api/admin/users、GET /api/file-permission、POST /api/change-password、POST /api/logout → 均 403
 def test_me_accepts_pat_and_returns_username():  # PAT 调 /api/me → {"username": ..., "role": ...}
@@ -171,7 +171,7 @@ git add tests/test_ws_pat_auth.py app/ws/server.py
 git commit -m "feat(auth): accept PAT in WS hello handshake"
 ```
 
-### Task 4: 前端访问令牌管理
+### Task 4: 前端个人MCP访问令牌管理
 
 **Files:**
 - Create: `frontend/src/components/TokenManagementModal.vue`, `frontend/src/stores/__tests__/authStoreTokens.test.js`
@@ -182,7 +182,7 @@ git commit -m "feat(auth): accept PAT in WS hello handshake"
 - Produces:
   - `authStore` actions：`listTokens() -> Promise<Array>`、`createToken(name: string, expiresDays: number | null) -> Promise<Object>`（含一次性明文 `token`）、`revokeToken(id: string) -> Promise<void>`；内部复用 `authStore` 现有 `_fetch`（带 Bearer）。
   - `TokenManagementModal.vue`：`v-model:visible` 双向（与 `ChangePasswordModal` 同约定，参照 `FileBrowser.vue:410` 用法）；内容=令牌表格（名称/创建时间/过期时间/最后使用）、创建表单（备注名 + 过期：永不/30 天/90 天/自定义天数）、创建后一次性展示明文（含复制按钮）、逐条吊销按钮。
-  - `FileBrowser.vue`：用户菜单加"访问令牌"入口（`tokensOpen` ref），与"修改密码"入口相邻。
+  - `FileBrowser.vue`：用户菜单加"个人MCP访问令牌"入口（`tokensOpen` ref），与"修改密码"入口相邻。
   - `i18n.js`：新增 `tokens.*` 键（中英文两份）。
 
 - [ ] **Step 1: 写失败测试** `frontend/src/stores/__tests__/authStoreTokens.test.js`
@@ -218,7 +218,7 @@ git commit -m "feat(ui): personal access token management modal"
 **Interfaces:**
 - Produces（Task 6-11 依赖的精确签名）:
   - `app/mcp/errors.py`: `class BackendError(Exception)`，属性 `code: str`、`message: str`、`details: dict`。
-  - `app/mcp/auth_context.py`: `set_current_pat(pat: str | None) -> None`；`require_user() -> dict` — 返回 `{"username", "role"}`，无 PAT 或后端校验失败时抛 `ToolError("未认证：请在 Authorization: Bearer <PAT> 中提供个人访问令牌")`；对同一 PAT 的 `/api/me` 结果缓存 60 秒。
+  - `app/mcp/auth_context.py`: `set_current_pat(pat: str | None) -> None`；`require_user() -> dict` — 返回 `{"username", "role"}`，无 PAT 或后端校验失败时抛 `ToolError("未认证：请在 Authorization: Bearer <PAT> 中提供个人MCP访问令牌")`；对同一 PAT 的 `/api/me` 结果缓存 60 秒。
   - `app/mcp/backend.py`（HTTP 部分）: `get_backend() -> BackendClient`（用当前 PAT + 环境变量 `CANMATRIX_BACKEND_URL` 构造）；`BackendClient.request(method: str, path: str, body: dict | None = None, timeout: float = 30.0) -> dict`（httpx.AsyncClient，`Authorization: Bearer <PAT>`；HTTP 非 2xx 或 `{"success": false}` → 抛 `BackendError(code=f"HTTP_{status}", message=error 文案, details=details)`）。
   - `app/mcp/server.py`: `mcp = FastMCP("canmatrix_mcp")`；`build_app() -> ASGIApp`（`mcp.streamable_http_app()` 外包一层中间件：读 `Authorization: Bearer` → `set_current_pat`，缺失 → 401 `{"error": "unauthorized"}`）。
   - `app/mcp/__main__.py`: `python -m app.mcp` 以 uvicorn 起 `build_app()`；env：`CANMATRIX_BACKEND_URL`（默认 `http://127.0.0.1:8080`）、`CANMATRIX_MCP_HOST`（默认 `127.0.0.1`）、`CANMATRIX_MCP_PORT`（默认 `8081`）。
@@ -546,7 +546,7 @@ git commit -m "docs(mcp): evaluation question set for canmatrix_mcp"
 
 - [ ] **Step 1: 写 systemd unit** `deploy/canmatrix-mcp.service` — `ExecStart=<venv>/python -m app.mcp`，`Environment=CANMATRIX_BACKEND_URL=http://127.0.0.1:8080`，`CANMATRIX_MCP_HOST=127.0.0.1`，`CANMATRIX_MCP_PORT=8081`，Restart=always，与现有后端 unit 同风格。
 - [ ] **Step 2: 更新 `docs/systemd-deploy.md`** — MCP 服务安装/启动小节；安全建议：绑定 `127.0.0.1` 走 HTTPS 反代（nginx 示例一段），不要直接暴露 8081。
-- [ ] **Step 3: 更新 `README.md`** — 「MCP 服务器」章节：PAT 创建路径（文件列表页 → 访问令牌）、AI 客户端接入示例（OpenCode/Claude Code 的 streamable HTTP 配置 + `Authorization: Bearer <PAT>` 头）、工具面一览表、只读他人文件/删除文件与管理操作不可用的说明。
+- [ ] **Step 3: 更新 `README.md`** — 「MCP 服务器」章节：PAT 创建路径（文件列表页 → 个人MCP访问令牌）、AI 客户端接入示例（OpenCode/Claude Code 的 streamable HTTP 配置 + `Authorization: Bearer <PAT>` 头）、工具面一览表、只读他人文件/删除文件与管理操作不可用的说明。
 - [ ] **Step 4: 全量回归** — Run: `venv/bin/python -m pytest tests/ -v` → PASS；`cd frontend && npx vitest run` → PASS。
 - [ ] **Step 5: Commit**
 

@@ -1,5 +1,5 @@
 /**
- * authStore 访问令牌 (PAT) actions 单元测试
+ * authStore 个人MCP访问令牌 (PAT) actions 单元测试
  *
  * 逐一断言三个 action 对 /api/tokens 端点的 method / headers / body 与返回值：
  *   - listTokens:  GET  /api/tokens        → 解析后的 data 数组
@@ -71,8 +71,8 @@ describe('authStore.listTokens', () => {
   })
 
   it('success: false 时抛出含后端错误文案的 Error', async () => {
-    stubFetch({ success: false, error: '此操作不支持个人访问令牌' })
-    await assert.rejects(() => auth.listTokens(), { message: '此操作不支持个人访问令牌' })
+    stubFetch({ success: false, error: '此操作不支持个人MCP访问令牌' })
+    await assert.rejects(() => auth.listTokens(), { message: '此操作不支持个人MCP访问令牌' })
   })
 })
 

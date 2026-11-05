@@ -14,7 +14,7 @@ CanMatrix Editor 是 CAN 报文/信号编辑工具：Python 后端（HTTP + WebS
 ## 目标
 
 - 集中托管的 **Streamable HTTP** MCP 服务器（无状态 JSON），与后端同机部署，作为后端客户端转发现有 HTTP/WS 接口，不复制业务逻辑。
-- **PAT（Personal Access Token，个人访问令牌）** 认证：用户在 Web 端自助创建/吊销，MCP 客户端每个请求带 `Authorization: Bearer <PAT>`，服务端解析出用户名（`whoami`），操作以该用户身份执行。
+- **PAT（Personal Access Token，个人MCP访问令牌）** 认证：用户在 Web 端自助创建/吊销，MCP 客户端每个请求带 `Authorization: Bearer <PAT>`，服务端解析出用户名（`whoami`），操作以该用户身份执行。
 - 工具面覆盖全部编辑类操作（含文件级：新建/导入/保存/另存为/导出），查询支持分页/过滤。
 - 错误信息可执行（如 DBC 导出被数据错误拒绝时引导先修复）。
 

@@ -412,7 +412,7 @@
     <!-- 修改密码 Modal -->
     <ChangePasswordModal v-model:visible="changePwdOpen" />
 
-    <!-- 访问令牌 Modal -->
+    <!-- 个人MCP访问令牌 Modal -->
     <TokenManagementModal v-model:visible="tokensOpen" />
 
     <!-- 在线用户 Modal -->
@@ -481,7 +481,7 @@ const transferOwnerTarget = ref('')
 const userList = ref([])  // 管理员获取的用户列表
 const userMgmtOpen = ref(false)  // 用户管理 Modal
 const changePwdOpen = ref(false)    // 修改密码 Modal
-const tokensOpen = ref(false)       // 访问令牌 Modal
+const tokensOpen = ref(false)       // 个人MCP访问令牌 Modal
 const onlineUsersOpen = ref(false)  // 在线用户 Modal
 const userMenuOpen = ref(false)     // 用户下拉菜单
 const logoutConfirmOpen = ref(false) // 退出确认对话框

@@ -14,7 +14,7 @@ from app.mcp.backend import get_backend
 from app.mcp.errors import BackendError
 
 # 未认证时统一抛出的工具错误文案。
-AUTH_ERROR_MESSAGE = "未认证：请在 Authorization: Bearer <PAT> 中提供个人访问令牌"
+AUTH_ERROR_MESSAGE = "未认证：请在 Authorization: Bearer <PAT> 中提供个人MCP访问令牌"
 
 # 同一 PAT 的 /api/me 校验结果缓存时长（秒）。
 _ME_CACHE_TTL = 60.0
