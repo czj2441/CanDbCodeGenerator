@@ -224,7 +224,6 @@ const dict = {
     'batch.previewTitle': '创建预览',
     'batch.preview': '预览',
     'batch.invalid': '无效',
-    'batch.problemsTitle': '创建前检查',
     'batch.problemInvalid': '{count} 个信号越界无效（创建时跳过）',
     'batch.problemOverlap': '{count} 个信号与已有信号重叠，共 {bits} bit',
     'batch.problemDuplicate': '{count} 个信号名称重复（会覆盖已有信号）',

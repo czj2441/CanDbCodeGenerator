@@ -6,7 +6,6 @@
           <div class="modal-header">{{ t('batch.title') }}</div>
           <!-- 创建前检查：有问题时显示，无问题时整块隐藏 -->
           <div v-if="problems.hasProblems" class="problem-bar">
-            <div class="problem-title">{{ t('batch.problemsTitle') }}</div>
             <ul class="problem-list">
               <li v-if="problems.invalidCount > 0">{{ t('batch.problemInvalid', { count: problems.invalidCount }) }}</li>
               <li v-if="problems.overlapSignalCount > 0">{{ t('batch.problemOverlap', { count: problems.overlapSignalCount, bits: problems.overlapBits }) }}</li>
@@ -422,21 +421,15 @@ async function doCreate() {
 /* ── 创建前问题提示条 ── */
 .problem-bar {
   flex: 0 0 auto;
-  padding: 8px 18px 10px;
+  padding: 8px 18px;
   border-bottom: 1px solid var(--border);
-  background: oklch(0.32 0.05 85 / 0.28);
-}
-.problem-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: oklch(0.82 0.13 85);
-  margin-bottom: 4px;
+  background: transparent;
 }
 .problem-list {
   margin: 0;
   padding-left: 18px;
   font-size: 11px;
-  color: var(--text);
+  color: oklch(0.78 0.17 25);
   line-height: 1.7;
 }
 
