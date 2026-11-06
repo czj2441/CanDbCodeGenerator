@@ -1,5 +1,5 @@
 <template>
-  <div class="panel" :class="{ 'panel-readonly': store.readOnly }">
+  <div class="panel" :class="{ 'panel-readonly': store.readOnly }" @focusin="edit.begin">
     <!-- 报文属性区域（报文列表 tab，或动态 tab 且无信号选中时） -->
     <template v-if="(ui.centerTab === 'messages' || isDynamicMsgTab) && msg">
       <div class="panel-section">
@@ -63,12 +63,16 @@ import { useUiStore } from '../stores/uiStore.js'
 import { toHex, parseHex } from '../utils/format.js'
 import { t } from '../i18n.js'
 import { vLazyValue } from '../directives/lazyValue.js'
+import { usePanelEdit } from '../composables/pendingEdit.js'
 import './panel-styles.css'
 
 const store = useCoreStore()
 const messages = useMessagesStore()
 const ui = useUiStore()
 const msg = computed(() => store.selectedMessage)
+
+// 开始编辑时快照报文 id；blur 提交只认快照。
+const edit = usePanelEdit('message-panel', () => ({ msgId: msg.value?.id }))
 
 // 动态报文标签页时为 true（centerTab 形如 'msg_{id}'）
 const isDynamicMsgTab = computed(() => typeof ui.centerTab === 'string' && ui.centerTab.startsWith('msg_'))
@@ -95,7 +99,10 @@ watch(() => msg.value?.is_fd, (v) => {
 }, { immediate: true })
 
 function update(field, value) {
-  messages.updateMessageField(field, value, msg.value?.id).catch(() => {})
+  edit.commit((t) => {
+    if (t.msgId == null) return
+    messages.updateMessageField(field, value, t.msgId).catch(() => {})
+  })
 }
 
 function updateDlc(value) {
@@ -103,13 +110,19 @@ function updateDlc(value) {
 }
 
 function toggleIsFd(newIsFd) {
-  messages.updateMessageField('is_fd', newIsFd, msg.value?.id)
-    .catch(e => {
-      localIsFd.value = msg.value?.is_fd ? 'true' : 'false'
-      if (isFdEl.value) {
-        isFdEl.value.value = localIsFd.value
-      }
-    })
+  edit.commit((t) => {
+    if (t.msgId == null) return
+    messages.updateMessageField('is_fd', newIsFd, t.msgId)
+      .catch(() => {
+        // 用户可能已经切换到别的报文，只回滚仍显示的目标。
+        if (store.selectedMsgId !== t.msgId) return
+        const actual = store.messageCache[t.msgId]?.is_fd
+        localIsFd.value = actual ? 'true' : 'false'
+        if (isFdEl.value) {
+          isFdEl.value.value = localIsFd.value
+        }
+      })
+  })
 }
 </script>
 
