@@ -1,5 +1,5 @@
 <template>
-  <div class="panel" :class="{ 'panel-readonly': store.readOnly }">
+  <div class="panel" :class="{ 'panel-readonly': store.readOnly }" @focusin="edit.begin">
     <!-- 信号属性区域（动态报文 tab，有选中信号时显示） -->
     <template v-if="isDynamicMsgTab && selectedSig">
       <div class="panel-section">
@@ -115,6 +115,7 @@ import { useUiStore } from '../stores/uiStore.js'
 import { t } from '../i18n.js'
 import { toDisplayStartBit, toStorageStartBit } from '../utils/signalLayout.js'
 import { vLazyValue } from '../directives/lazyValue.js'
+import { usePanelEdit } from '../composables/pendingEdit.js'
 import './panel-styles.css'
 
 const store = useCoreStore()
@@ -122,6 +123,13 @@ const signals = useSignalsStore()
 const valueTablesStore = useValueTablesStore()
 const ui = useUiStore()
 const msg = computed(() => store.selectedMessage)
+
+// 开始编辑时快照目标；blur / change 提交只认快照，不再读全局选中。
+const edit = usePanelEdit('signal-panel', () => ({
+  signalName: ui.selectedSignalName,
+  msgId: msg.value?.id,
+  valueTableName: localValueTableName.value,
+}))
 
 // 动态报文标签页时为 true（centerTab 形如 'msg_{id}'）
 const isDynamicMsgTab = computed(() => typeof ui.centerTab === 'string' && ui.centerTab.startsWith('msg_'))
@@ -142,8 +150,10 @@ const valueTablePreview = computed(() => {
 
 function onValueTableRefChange() {
   if (localValueTableName.value === '__new__') return
-  if (!ui.selectedSignalName) return
-  signals.updateSignal(ui.selectedSignalName, 'value_table_name', localValueTableName.value, msg.value?.id).catch(() => {})
+  edit.commit((t) => {
+    if (!t.signalName) return
+    signals.updateSignal(t.signalName, 'value_table_name', localValueTableName.value, t.msgId).catch(() => {})
+  })
 }
 
 // ── 内联条目编辑 ──
@@ -183,28 +193,30 @@ function inlineRemoveEntry(idx) {
 }
 
 function inlineCommitEntries() {
-  const name = localValueTableName.value
-  if (!name || name === '__new__') return
-  let valid = true
-  const seen = new Set()
-  for (const row of inlineEntries.value) {
-    row._error = false
-    if (row.value === '' || row.value === null || !Number.isInteger(row.value)) {
-      row._error = true; valid = false
-    } else if (!row.desc?.trim()) {
-      row._error = true; valid = false
-    } else if (seen.has(row.value)) {
-      row._error = true; valid = false
+  edit.commit((t) => {
+    const name = t?.valueTableName
+    if (!name || name === '__new__') return
+    let valid = true
+    const seen = new Set()
+    for (const row of inlineEntries.value) {
+      row._error = false
+      if (row.value === '' || row.value === null || !Number.isInteger(row.value)) {
+        row._error = true; valid = false
+      } else if (!row.desc?.trim()) {
+        row._error = true; valid = false
+      } else if (seen.has(row.value)) {
+        row._error = true; valid = false
+      }
+      seen.add(row.value)
     }
-    seen.add(row.value)
-  }
-  if (!valid) return
-  const dict = {}
-  for (const row of inlineEntries.value) {
-    dict[String(row.value)] = row.desc
-  }
-  valueTablesStore.updateValueTable(name, dict).catch(() => {})
-  _skipVtWatch = true
+    if (!valid) return
+    const dict = {}
+    for (const row of inlineEntries.value) {
+      dict[String(row.value)] = row.desc
+    }
+    valueTablesStore.updateValueTable(name, dict).catch(() => {})
+    _skipVtWatch = true
+  })
 }
 
 // 外部数据变化时同步内联条目
@@ -227,7 +239,16 @@ watch(localValueTableName, (v) => {
   }
 })
 
+let newVtInFlight = false
+
 async function confirmNewVt() {
+  if (newVtInFlight) return
+  // 必须在 await 前固定目标：用户可能在建表请求期间切换信号。
+  const target = edit.snapshot()
+  if (!target?.signalName) {
+    showNewVtInput.value = false
+    return
+  }
   const name = newVtName.value.trim()
   if (!name) {
     localValueTableName.value = ''
@@ -240,14 +261,20 @@ async function confirmNewVt() {
     showNewVtInput.value = false
     return
   }
+  newVtInFlight = true
   try {
     await valueTablesStore.addValueTable(name, { '0': 'Default' })
-    localValueTableName.value = name
-    onValueTableRefChange()
-    syncInlineEntries(name)
+    if (ui.selectedSignalName === target.signalName) {
+      localValueTableName.value = name
+      syncInlineEntries(name)
+    }
+    signals.updateSignal(target.signalName, 'value_table_name', name, target.msgId).catch(() => {})
   } catch { /* toast already shown */ }
-  showNewVtInput.value = false
-  newVtName.value = ''
+  finally {
+    newVtInFlight = false
+    showNewVtInput.value = false
+    newVtName.value = ''
+  }
 }
 
 // 从 selectedSig.value_table_name 同步
@@ -268,24 +295,38 @@ function showDisplayStartBit() {
  * 转换失败时仍发送请求，由后端校验，错误在 DataErrorList 展示
  */
 function modifyDisplayStartBit(displayValue) {
-  if (!selectedSig.value) return
-  const maxBit = (msg.value?.dlc || 8) * 8 - 1
-  const msbValue = toStorageStartBit(displayValue, selectedSig.value.length, selectedSig.value.byte_order, maxBit, selectedSig.value.start_bit)
-  const valueToSend = msbValue >= 0 ? msbValue : -1
-  signals.updateSignal(ui.selectedSignalName, 'start_bit', valueToSend, msg.value?.id).catch(() => {})
+  edit.commit((t) => {
+    if (!t.signalName) return
+    const targetMsg = store.messageCache[t.msgId]
+    const sig = targetMsg?.signals?.[t.signalName]
+    if (!sig) return
+    const maxBit = (targetMsg.dlc || 8) * 8 - 1
+    const msbValue = toStorageStartBit(displayValue, sig.length, sig.byte_order, maxBit, sig.start_bit)
+    const valueToSend = msbValue >= 0 ? msbValue : -1
+    signals.updateSignal(t.signalName, 'start_bit', valueToSend, t.msgId).catch(() => {})
+  })
 }
 
 function updateSignal(field, value) {
-  if (ui.selectedSignalName) {
-    signals.updateSignal(ui.selectedSignalName, field, value, msg.value?.id).catch(() => {})
-  }
+  edit.commit((t) => {
+    if (!t.signalName) return
+    signals.updateSignal(t.signalName, field, value, t.msgId).catch(() => {})
+  })
 }
 
 function handleByteOrderChange(e) {
-  if (!ui.selectedSignalName) return
-  const oldOrder = selectedSig.value?.byte_order
-  signals.updateSignal(ui.selectedSignalName, 'byte_order', e.target.value, msg.value?.id)
-    .catch(() => { if (oldOrder != null) e.target.value = oldOrder })
+  edit.commit((t) => {
+    if (!t.signalName) return
+    const sig = store.messageCache[t.msgId]?.signals?.[t.signalName]
+    const oldOrder = sig?.byte_order
+    signals.updateSignal(t.signalName, 'byte_order', e.target.value, t.msgId)
+      .catch(() => {
+        // 异步失败时用户可能已切换到别的信号，不要覆写新面板的 select。
+        if (ui.selectedSignalName === t.signalName && oldOrder != null) {
+          e.target.value = oldOrder
+        }
+      })
+  })
 }
 </script>
 

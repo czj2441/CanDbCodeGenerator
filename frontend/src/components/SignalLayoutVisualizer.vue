@@ -201,7 +201,7 @@ function onCellMouseDown(cell, nativeEvent) {
 
 function onCellClick(cell) {
   if (hasMoved.value) return
-  ui.selectedSignalName = cell.name
+  ui.selectSignal(cell.name)
 }
 
 function handleGlobalMouseMove(e) {
@@ -324,12 +324,12 @@ function onStageMouseUp(nativeEvent) {
 }
 
 function onStageClick() {
-  ui.selectedSignalName = null
+  ui.clearSignalSelection()
 }
 
 // ── Watch effectiveMsgId → clear selection（动态 tab 切换时 prop 不变，不会误清） ──
 watch(effectiveMsgId, () => {
-  ui.selectedSignalName = null
+  ui.clearSignalSelection({ discard: true })
 })
 </script>
 

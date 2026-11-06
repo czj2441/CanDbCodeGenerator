@@ -186,14 +186,11 @@ const msg = computed(() => {
   return store.messageCache[effectiveMsgId.value] || null
 })
 // ✅ 使用单一数据源：直接代理 ui.selectedSignalName，避免双写
-const selectedSigName = computed({
-  get: () => ui.selectedSignalName,
-  set: (val) => { ui.selectedSignalName = val }
-})
+const selectedSigName = computed(() => ui.selectedSignalName)
 
 // 切换报文时清除选中（仅在 effectiveMsgId 真正变化时触发，动态 tab 切换时 prop 不变，不会误清）
 watch(effectiveMsgId, () => {
-  ui.selectedSignalName = null
+  ui.clearSignalSelection({ discard: true })
   editingKey.value = null
   multiSelect.clearSelection()
 })
@@ -343,15 +340,15 @@ function handleRowMouseDown(sigName, sigIndex, event) {
       }
     }
     if (ui.selectedSignalName !== sigName) {
-      ui.selectedSignalName = sigName
+      ui.selectSignal(sigName)
     }
     multiSelect.handleRowClick(sigName, sigIndex, {})
   } else {
     commitAndExitEdit()
     if (ui.selectedSignalName === sigName) {
-      ui.selectedSignalName = null
+      ui.clearSignalSelection()
     } else {
-      ui.selectedSignalName = sigName
+      ui.selectSignal(sigName)
       multiSelect.handleRowClick(sigName, sigIndex, {})
     }
   }
@@ -478,7 +475,7 @@ const { onCellKeyDown } = useTableNavigation(tableRef, visibleColumns, {
   isEditing: () => editingKey.value !== null,
   onRowSelect: (rowIdx) => {
     const sig = sortedSignals.value[rowIdx]
-    if (sig) ui.selectedSignalName = sig.name
+    if (sig) ui.selectSignal(sig.name)
   },
   onStartEdit: (el) => {
     if (store.readOnly) return false

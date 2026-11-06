@@ -126,7 +126,7 @@ async function navigateToError(err) {
 
   // Step 2: 定位并高亮信号行
   if (err.signal_name) {
-    ui.selectedSignalName = err.signal_name
+    ui.selectSignal(err.signal_name)
     await nextTick()
     const row = document.querySelector(`[data-sig-id="${err.signal_name}"]`)
     row?.scrollIntoView({ behavior: 'smooth', block: 'center' })
