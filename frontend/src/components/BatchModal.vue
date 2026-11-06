@@ -7,9 +7,7 @@
           <!-- 创建前检查：有问题时显示，无问题时整块隐藏 -->
           <div v-if="problems.hasProblems" class="problem-bar">
             <ul class="problem-list">
-              <li v-if="problems.invalidCount > 0">{{ t('batch.problemInvalid', { count: problems.invalidCount }) }}</li>
-              <li v-if="problems.overlapSignalCount > 0">{{ t('batch.problemOverlap', { count: problems.overlapSignalCount, bits: problems.overlapBits }) }}</li>
-              <li v-if="problems.duplicateCount > 0">{{ t('batch.problemDuplicate', { count: problems.duplicateCount }) }}</li>
+              <li v-for="(msg, idx) in problemMessages" :key="idx">{{ msg }}</li>
             </ul>
           </div>
           <div class="modal-body">
@@ -125,7 +123,7 @@ import { useSignalsStore } from '../stores/signals.js'
 import { useCoreStore } from '../stores/coreStore.js'
 import { t } from '../i18n.js'
 import { expandTemplate } from '../utils/format.js'
-import { computeBatchSignals, computeOccupiedBits, analyzeBatchProblems } from '../utils/signalLayout.js'
+import { computeBatchSignals, computeOccupiedBits, analyzeBatchProblems, formatBitRanges } from '../utils/signalLayout.js'
 import BitLayoutCanvas from './BitLayoutCanvas.vue'
 
 const signals = useSignalsStore()
@@ -215,13 +213,32 @@ const previewSignals = computed(() => {
 /** 画布只渲染有效信号 */
 const canvasSignals = computed(() => previewSignals.value.filter(sig => !sig._invalid))
 
-/** 已有信号名，用于重名检测 */
-const existingSignalNames = computed(() => existingSignals.value.map(s => s.name))
-
-/** 创建前检查：无效 / 重叠 / 重名 */
+/** 创建前检查：无效 / 重叠 / 重名（明细） */
 const problems = computed(() =>
-  analyzeBatchProblems(previewSignals.value, existingOccupiedBits.value, existingSignalNames.value)
+  analyzeBatchProblems(previewSignals.value, existingSignals.value)
 )
+
+/** 明细转可读文案 */
+const problemMessages = computed(() => {
+  const p = problems.value
+  const msgs = []
+  for (const item of p.invalid) {
+    msgs.push(t('batch.problemInvalid', { name: item.name, start: item.startBit }))
+  }
+  for (const item of p.overlaps) {
+    msgs.push(t('batch.problemOverlap', {
+      name: item.name,
+      other: item.others.join('、'),
+      bits: formatBitRanges(item.bits),
+    }))
+  }
+  for (const item of p.duplicates) {
+    msgs.push(item.kind === 'existing'
+      ? t('batch.problemDuplicateExisting', { name: item.name })
+      : t('batch.problemDuplicateBatch', { name: item.name, count: item.count }))
+  }
+  return msgs
+})
 
 const confirmOpen = ref(false)
 
@@ -431,6 +448,8 @@ async function doCreate() {
   font-size: 11px;
   color: oklch(0.78 0.17 25);
   line-height: 1.7;
+  max-height: 132px;
+  overflow-y: auto;
 }
 
 /* ── 创建前确认弹窗 ── */

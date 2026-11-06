@@ -481,56 +481,104 @@ export function occupiedBitsToCells(occupiedBits, dlc) {
 }
 
 /**
- * 批量创建预检：统计越界无效、与已有信号重叠、名称重复三类问题。
+ * 批量创建预检：返回越界无效、与已有信号重叠、名称重复三类问题的明细。
  * 无效信号（_invalid）不会实际创建，因此不参与重叠/重名统计。
  *
- * @param {Array<{name: string, start_bit: number, length: number, byte_order: string, _invalid?: boolean}>} signals
- * @param {Set<number>|null} occupiedBits - 已有信号占用 bit 集合
- * @param {Iterable<string>} [existingSignalNames] - 当前报文已有信号名
- * @returns {{ invalidCount: number, overlapSignalCount: number, overlapBits: number, duplicateCount: number, hasProblems: boolean }}
+ * @param {Array<{name: string, start_bit: number, display_start_bit?: number, length: number, byte_order: string, _invalid?: boolean}>} signals
+ * @param {Array<{name: string, start_bit: number, length: number, byte_order: string}>} [existingSignals] - 当前报文已有信号
+ * @returns {{
+ *   invalid: Array<{name: string, startBit: number}>,
+ *   overlaps: Array<{name: string, others: string[], bits: number[]}>,
+ *   duplicates: Array<{name: string, kind: 'existing'|'batch', count: number}>,
+ *   hasProblems: boolean,
+ * }}
  */
-export function analyzeBatchProblems(signals, occupiedBits, existingSignalNames = []) {
-  const existing = existingSignalNames instanceof Set
-    ? existingSignalNames
-    : new Set(existingSignalNames)
+export function analyzeBatchProblems(signals, existingSignals = []) {
+  const existingNames = new Set()
+  const bitOwners = new Map()
+  for (const ex of existingSignals) {
+    existingNames.add(ex.name)
+    for (const bit of getSignalBits(ex.start_bit, ex.length, ex.byte_order)) {
+      if (!bitOwners.has(bit)) bitOwners.set(bit, new Set())
+      bitOwners.get(bit).add(ex.name)
+    }
+  }
 
-  let invalidCount = 0
+  const invalid = []
   const valid = []
   const nameCounts = new Map()
 
   for (const sig of signals) {
     if (sig._invalid) {
-      invalidCount++
+      invalid.push({ name: sig.name, startBit: sig.display_start_bit })
       continue
     }
     valid.push(sig)
     nameCounts.set(sig.name, (nameCounts.get(sig.name) || 0) + 1)
   }
 
-  let overlapSignalCount = 0
-  let overlapBits = 0
-  let duplicateCount = 0
-
+  const overlaps = []
   for (const sig of valid) {
-    let hits = 0
+    const bits = []
+    const others = new Set()
     for (const bit of getSignalBits(sig.start_bit, sig.length, sig.byte_order)) {
-      if (occupiedBits && occupiedBits.has(bit)) hits++
+      const owners = bitOwners.get(bit)
+      if (!owners) continue
+      bits.push(bit)
+      for (const owner of owners) others.add(owner)
     }
-    if (hits > 0) {
-      overlapSignalCount++
-      overlapBits += hits
+    if (bits.length > 0) {
+      bits.sort((a, b) => a - b)
+      overlaps.push({ name: sig.name, others: [...others], bits })
     }
-    if (existing.has(sig.name) || (nameCounts.get(sig.name) || 0) > 1) {
-      duplicateCount++
-    }
+  }
+
+  const duplicates = []
+  const seen = new Set()
+  for (const sig of valid) {
+    const count = nameCounts.get(sig.name) || 0
+    const isExisting = existingNames.has(sig.name)
+    if (!isExisting && count <= 1) continue
+    if (seen.has(sig.name)) continue
+    seen.add(sig.name)
+    duplicates.push(
+      isExisting
+        ? { name: sig.name, kind: 'existing', count: 1 }
+        : { name: sig.name, kind: 'batch', count }
+    )
   }
 
   return {
-    invalidCount,
-    overlapSignalCount,
-    overlapBits,
-    duplicateCount,
-    hasProblems: invalidCount > 0 || overlapSignalCount > 0 || duplicateCount > 0,
+    invalid,
+    overlaps,
+    duplicates,
+    hasProblems: invalid.length > 0 || overlaps.length > 0 || duplicates.length > 0,
   }
+}
+
+/**
+ * 把 bit 集合格式化为紧凑区间，如 [0,1,2,5] → "0-2, 5"。
+ *
+ * @param {number[]} bits
+ * @returns {string}
+ */
+export function formatBitRanges(bits) {
+  if (!bits || bits.length === 0) return ''
+  const sorted = [...new Set(bits)].sort((a, b) => a - b)
+  const parts = []
+  let start = sorted[0]
+  let prev = sorted[0]
+  for (let i = 1; i < sorted.length; i++) {
+    const bit = sorted[i]
+    if (bit === prev + 1) {
+      prev = bit
+      continue
+    }
+    parts.push(start === prev ? String(start) : `${start}-${prev}`)
+    start = bit
+    prev = bit
+  }
+  parts.push(start === prev ? String(start) : `${start}-${prev}`)
+  return parts.join(', ')
 }
 
