@@ -63,6 +63,7 @@
                 <BitLayoutCanvas
                   :signals="canvasSignals"
                   :dlc="currentMsgDlc"
+                  :occupied-bits="existingOccupiedBits"
                 />
               </div>
               <div class="preview-table-wrap">
@@ -104,7 +105,7 @@ import { useSignalsStore } from '../stores/signals.js'
 import { useCoreStore } from '../stores/coreStore.js'
 import { t } from '../i18n.js'
 import { expandTemplate } from '../utils/format.js'
-import { computeBatchSignals } from '../utils/signalLayout.js'
+import { computeBatchSignals, computeOccupiedBits } from '../utils/signalLayout.js'
 import BitLayoutCanvas from './BitLayoutCanvas.vue'
 
 const signals = useSignalsStore()
@@ -144,6 +145,19 @@ const currentMsgDlc = computed(() => {
   const msg = editor.selectedMessage
   return msg?.dlc || 8
 })
+
+/** 当前报文已有信号（数组），用于预览灰底占用层 */
+const existingSignals = computed(() => {
+  const msg = editor.selectedMessage
+  return msg ? Object.values(msg.signals || {}) : []
+})
+
+/** 已有信号占用的 bit 集合，传给 BitLayoutCanvas 作灰色底图 */
+const existingOccupiedBits = computed(() =>
+  existingSignals.value.length
+    ? computeOccupiedBits(existingSignals.value)
+    : new Set()
+)
 
 /** 预览信号列表（纯前端计算，不经过后端）
  *  用户输入的 startBit 为 LSB（与信号列表显示一致），存储格式为 MSB（Motorola）供 BitLayoutCanvas 渲染 */
