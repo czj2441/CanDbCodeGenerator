@@ -23,10 +23,12 @@ export const PENDING_EDIT_OWNERS = Object.freeze({
  * 记录一次待提交编辑的目标。
  * @param {string} owner
  * @param {object} target 开始编辑时捕获的目标（不含输入值）
- * @param {{ cancel?: (target: object) => void }} [options]
+ * @param {{ cancel?: (target: object) => void, element?: Element | null }} [options]
+ *   element 用于 flush 时确认当前焦点仍属于这次编辑；没有 element 的快照
+ *   只会在 flush 时被清除，不会被用来 blur 当前焦点。
  */
-export function beginPendingEdit(owner, target, { cancel } = {}) {
-  pendingEdits.set(owner, { target, cancel })
+export function beginPendingEdit(owner, target, { cancel, element } = {}) {
+  pendingEdits.set(owner, { target, cancel, element: element ?? null })
 }
 
 /** 读取当前待提交目标，不清除。 */
@@ -81,13 +83,16 @@ export function cancelAllPendingEdits() {
  * 同步提交当前焦点控件里尚未失焦的编辑。
  *
  * 必须在修改选中项之前调用：此时 blur 处理器读到的仍是旧目标。
- * 不等待网络请求。注册表为空时直接返回——表格方向键导航会在聚焦
- * 单元格后调用选中 action，无条件 blur 会夺走刚聚焦的元素。
+ * 不等待网络请求。只有当前焦点正是快照记录的元素时才 blur；
+ * 否则只清除过期快照——表格方向键导航会在聚焦单元格后调用选中
+ * action，blur 无关元素会夺走刚聚焦的单元格。
  */
 export function flushPendingEdit() {
   if (pendingEdits.size === 0) return
   const el = typeof document !== 'undefined' ? document.activeElement : null
-  if (el && EDITABLE_TAGS.has(el.tagName) && typeof el.blur === 'function') {
+  const ownsFocus = el != null && EDITABLE_TAGS.has(el.tagName) &&
+    [...pendingEdits.values()].some(entry => entry.element === el)
+  if (ownsFocus && typeof el.blur === 'function') {
     el.blur()
   }
   for (const owner of [...pendingEdits.keys()]) {
@@ -105,10 +110,13 @@ export function flushPendingEdit() {
  */
 export function usePanelEdit(owner, getTarget) {
   return {
-    /** focusin 时调用，快照目标。 */
-    begin() {
+    /** focusin 时调用，快照目标和当前焦点元素。 */
+    begin(event) {
       const target = getTarget()
-      if (target) beginPendingEdit(owner, target)
+      if (!target) return
+      const element = event?.target ??
+        (typeof document !== 'undefined' ? document.activeElement : null)
+      beginPendingEdit(owner, target, { element })
     },
     peek() { return peekPendingEdit(owner) },
     take() { return takePendingEditTarget(owner) },

@@ -364,7 +364,7 @@ export const useCoreStore = defineStore('core', {
             t?.msgId === msg_id && t?.signalName === signal_name
           )
           const ui = useUiStore()
-          if (ui.selectedSignalName === signal_name) {
+          if (this.selectedMsgId === msg_id && ui.selectedSignalName === signal_name) {
             ui.clearSignalSelection({ discard: true })
           }
           break

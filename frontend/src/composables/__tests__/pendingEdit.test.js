@@ -56,14 +56,15 @@ test('flush 在注册表为空时不会 blur（保护方向键焦点）', () => 
 test('flush 先 blur 再取消；blur 中能取到旧目标', () => {
   const committed = []
   const state = { selected: 'A' }
-  setActiveElement({
+  const el = {
     tagName: 'INPUT',
     blur() {
       const t = takePendingEditTarget('f')
       if (t) committed.push(t.signalName)
     },
-  })
-  beginPendingEdit('f', { signalName: state.selected })
+  }
+  setActiveElement(el)
+  beginPendingEdit('f', { signalName: state.selected }, { element: el })
   flushPendingEdit()
   state.selected = 'B'
   assert.deepEqual(committed, ['A'])
@@ -72,11 +73,23 @@ test('flush 先 blur 再取消；blur 中能取到旧目标', () => {
 
 test('flush 会取消 blur 后仍未消费的快照', () => {
   let cancelled = 0
-  setActiveElement({ tagName: 'INPUT', blur: () => {} })
-  beginPendingEdit('g', { name: 'G' }, { cancel: () => { cancelled += 1 } })
+  const el = { tagName: 'INPUT', blur: () => {} }
+  setActiveElement(el)
+  beginPendingEdit('g', { name: 'G' }, { cancel: () => { cancelled += 1 }, element: el })
   flushPendingEdit()
   assert.equal(cancelled, 1)
   assert.equal(peekPendingEdit('g'), null)
+})
+
+test('flush 不 blur 与快照无关的当前焦点，只清除过期快照', () => {
+  let blurred = 0
+  const tableInput = { tagName: 'INPUT', blur: () => { blurred += 1 } }
+  const staleSelect = { tagName: 'SELECT', blur: () => { blurred += 1 } }
+  setActiveElement(tableInput)
+  beginPendingEdit('stale', { name: 'X' }, { element: staleSelect })
+  flushPendingEdit()
+  assert.equal(blurred, 0)
+  assert.equal(peekPendingEdit('stale'), null)
 })
 
 test('usePanelEdit.commit 使用快照；无快照时回退当前目标', () => {
