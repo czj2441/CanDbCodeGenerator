@@ -414,7 +414,7 @@ export function gridCellToPixel(row, col, { labelWidth, headerH, cellSize }) {
  * @param {Object<string, number>} [overrides] - Override start_bit for specific signals by name
  * @returns {{ cells: Array<{bit, row, col, name, color, isStartBit, byteOrder, startBit, length}>, overlapBits: Set<number> }}
  */
-export function computeCellMap(signals, overrides = {}) {
+export function computeCellMap(signals, overrides = {}, occupiedBits = null) {
   const allCells = []
   const bitOwner = {}
   const overlapBits = new Set()
@@ -437,6 +437,45 @@ export function computeCellMap(signals, overrides = {}) {
       else bitOwner[bit] = sig.name
     }
   }
+  if (occupiedBits) {
+    for (const cell of allCells) {
+      if (occupiedBits.has(cell.bit)) overlapBits.add(cell.bit)
+    }
+  }
   return { cells: allCells, overlapBits }
+}
+
+/**
+ * 已有信号占用的 bit 集合（并集），用于批量创建预览的灰色占用底图。
+ *
+ * @param {Array<{start_bit: number, length: number, byte_order: string}>} signals
+ * @returns {Set<number>}
+ */
+export function computeOccupiedBits(signals) {
+  const occupied = new Set()
+  for (const sig of signals) {
+    for (const bit of getSignalBits(sig.start_bit, sig.length, sig.byte_order)) {
+      occupied.add(bit)
+    }
+  }
+  return occupied
+}
+
+/**
+ * 占用 bit 集合 → 网格 cell（仅保留 DLC 内的行，用于渲染灰底）。
+ *
+ * @param {Set<number>} occupiedBits
+ * @param {number} dlc - 报文数据长度（字节数）
+ * @returns {Array<{bit: number, row: number, col: number}>}
+ */
+export function occupiedBitsToCells(occupiedBits, dlc) {
+  const cells = []
+  for (const bit of occupiedBits) {
+    if (bit < 0 || bit > 511) continue
+    const { row, col } = bitToGridCell(bit)
+    if (row >= dlc) continue
+    cells.push({ bit, row, col })
+  }
+  return cells
 }
 
