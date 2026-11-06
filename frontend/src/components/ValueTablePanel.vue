@@ -1,5 +1,5 @@
 <template>
-  <div class="panel" :class="{ 'panel-readonly': editor.readOnly }">
+  <div class="panel" :class="{ 'panel-readonly': editor.readOnly }" @focusin="edit.begin">
     <template v-if="selectedName">
       <!-- 属性 section -->
       <div class="panel-section">
@@ -50,6 +50,7 @@ import { useCoreStore } from '../stores/coreStore.js'
 import { useValueTablesStore } from '../stores/valueTables.js'
 import { useUiStore } from '../stores/uiStore.js'
 import { t } from '../i18n.js'
+import { usePanelEdit } from '../composables/pendingEdit.js'
 
 const editor = useCoreStore()
 const valueTables = useValueTablesStore()
@@ -60,6 +61,9 @@ const selectedName = computed(() => {
   const name = ui.selectedVtName
   return (name && editor.valueTables[name]) ? name : null
 })
+
+// 开始编辑时快照表名；blur 提交只认快照。
+const edit = usePanelEdit('value-table-panel', () => ({ vtName: selectedName.value }))
 
 // ── 引用计数 ──
 const refCountMap = computed(() => {
@@ -112,8 +116,9 @@ watch(() => selectedName.value && editor.valueTables[selectedName.value], () => 
 
 // ── 重命名 ──
 async function commitRename() {
-  const oldName = selectedName.value
-  if (!oldName) return
+  const target = edit.snapshot()
+  if (!target?.vtName) return
+  const oldName = target.vtName
   const newName = editingName.value.trim()
   if (!newName) {
     editingName.value = oldName
@@ -129,10 +134,12 @@ async function commitRename() {
   try {
     await valueTables.renameValueTable(oldName, newName)
     _skipVtWatch = true
-    ui.selectedVtName = newName
-    editingName.value = newName
+    if (ui.selectedVtName === oldName) {
+      ui.selectValueTable(newName, { flush: false })
+      editingName.value = newName
+    }
   } catch {
-    editingName.value = oldName
+    if (ui.selectedVtName === oldName) editingName.value = oldName
   }
 }
 
@@ -150,26 +157,28 @@ function removeEntry(idx) {
 }
 
 function commitEntries() {
-  if (!selectedName.value) return
-  let valid = true
-  const seen = new Set()
-  for (const row of localEntries.value) {
-    row._error = false
-    if (row.value === '' || row.value === null || !Number.isInteger(row.value)) {
-      row._error = true; valid = false
-    } else if (!row.desc?.trim()) {
-      row._error = true; valid = false
-    } else if (seen.has(row.value)) {
-      row._error = true; valid = false
+  edit.commit((t) => {
+    if (!t?.vtName) return
+    let valid = true
+    const seen = new Set()
+    for (const row of localEntries.value) {
+      row._error = false
+      if (row.value === '' || row.value === null || !Number.isInteger(row.value)) {
+        row._error = true; valid = false
+      } else if (!row.desc?.trim()) {
+        row._error = true; valid = false
+      } else if (seen.has(row.value)) {
+        row._error = true; valid = false
+      }
+      seen.add(row.value)
     }
-    seen.add(row.value)
-  }
-  if (!valid) return
-  const dict = {}
-  for (const row of localEntries.value) {
-    dict[String(row.value)] = row.desc
-  }
-  valueTables.updateValueTable(selectedName.value, dict).catch(() => {})
+    if (!valid) return
+    const dict = {}
+    for (const row of localEntries.value) {
+      dict[String(row.value)] = row.desc
+    }
+    valueTables.updateValueTable(t.vtName, dict).catch(() => {})
+  })
 }
 </script>
 

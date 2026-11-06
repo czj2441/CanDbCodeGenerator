@@ -184,7 +184,7 @@ async function commitRename(name, event) {
   if (!newName || newName === name) return
   try {
     await valueTables.renameValueTable(name, newName)
-    if (ui.selectedVtName === name) ui.selectedVtName = newName
+    if (ui.selectedVtName === name) ui.selectValueTable(newName, { flush: false })
   } catch { /* toast already shown */ }
 }
 
@@ -200,13 +200,15 @@ function handleRowMouseDown(name, event) {
     if (INTERACTIVE_TAGS.has(event.target.tagName)) event.preventDefault()
     return
   }
+
+  // 切换选中前由 ui.selectValueTable() 统一 flush 面板中尚未失焦的编辑。
   const isInteractive = INTERACTIVE_TAGS.has(event.target.tagName)
   if (isInteractive) {
     if (event.detail >= 2) editingName.value = name
-    ui.selectedVtName = name
+    ui.selectValueTable(name)
   } else {
     editingName.value = null
-    ui.selectedVtName = name
+    ui.selectValueTable(name)
   }
 }
 
@@ -216,7 +218,7 @@ const { onCellKeyDown } = useTableNavigation(tableRef, visibleColumns, {
   getTotalRows: () => sortedFilteredNames.value.length,
   isEditing: () => editingName.value !== null,
   onRowSelect: (rowIdx) => {
-    ui.selectedVtName = sortedFilteredNames.value[rowIdx]
+    ui.selectValueTable(sortedFilteredNames.value[rowIdx])
   },
   onStartEdit: (el) => {
     if (editor.readOnly) return false
@@ -235,7 +237,7 @@ async function addNewTable() {
   const name = baseName + i
   try {
     await valueTables.addValueTable(name, { '0': 'Default' })
-    ui.selectedVtName = name
+    ui.selectValueTable(name)
   } catch { /* toast already shown */ }
 }
 
@@ -250,7 +252,7 @@ async function deleteTable(name) {
   try {
     await valueTables.deleteValueTable(name)
     if (ui.selectedVtName === name) {
-      ui.selectedVtName = null
+      ui.selectValueTable(null, { flush: false })
     }
   } catch { /* toast already shown */ }
 }
@@ -258,7 +260,7 @@ async function deleteTable(name) {
 // ── 外部跳转支持 ──
 watch(() => ui.valueTableFocusName, (name) => {
   if (name && editor.valueTables[name]) {
-    ui.selectedVtName = name
+    ui.selectValueTable(name)
     searchQuery.value = ''
   }
   ui.valueTableFocusName = ''
@@ -266,7 +268,7 @@ watch(() => ui.valueTableFocusName, (name) => {
 
 onMounted(() => {
   if (sortedNames.value.length > 0 && !ui.selectedVtName) {
-    ui.selectedVtName = sortedNames.value[0]
+    ui.selectValueTable(sortedNames.value[0])
   }
 })
 </script>
