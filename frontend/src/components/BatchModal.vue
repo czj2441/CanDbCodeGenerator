@@ -314,7 +314,8 @@ async function doCreate() {
   min-width: 300px;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   padding: 14px 18px 14px 16px;
 }
 
@@ -328,7 +329,9 @@ async function doCreate() {
 }
 
 .preview-canvas-wrap {
-  flex: 0 0 auto;
+  /* 可收缩：空间不足时先让出高度，避免挤压下方表格 */
+  flex: 0 1 auto;
+  min-height: 90px;
   max-height: 280px;
   overflow: auto;
   background: var(--bg);
@@ -338,7 +341,9 @@ async function doCreate() {
 }
 
 .preview-table-wrap {
-  flex: 1;
+  /* 保底高度：表头 + 约 3 行始终可见，其余内部滚动 */
+  flex: 1 1 0;
+  min-height: 120px;
   overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -448,7 +453,8 @@ async function doCreate() {
   font-size: 11px;
   color: oklch(0.78 0.17 25);
   line-height: 1.7;
-  max-height: 132px;
+  /* 矮屏时按视口高度封顶，把高度让给预览表格 */
+  max-height: min(132px, 16vh);
   overflow-y: auto;
 }
 
