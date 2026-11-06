@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { t } from '../i18n.js'
 import { useUiStore } from './uiStore.js'
 import { useCoreStore } from './coreStore.js'
+import { flushPendingEdit } from '../composables/pendingEdit.js'
 import { translateError, generateMessageId } from '../utils/storeHelpers.js'
 
 export const useMessagesStore = defineStore('messages', {
@@ -25,9 +26,13 @@ export const useMessagesStore = defineStore('messages', {
      * 选中报文
      * 如果已选中同一报文且缓存存在，跳过重复的 get_message 请求
      */
-    selectMessage(id) {
+    selectMessage(id, { flush = true } = {}) {
       const editor = useCoreStore()
-      if (editor.selectedMsgId === id && editor.messageCache[id] != null) return
+      if (editor.selectedMsgId === id) {
+        if (editor.messageCache[id] == null) this.loadSelectedMessage()
+        return
+      }
+      if (flush) flushPendingEdit()
       editor.selectedMsgId = id
       this.loadSelectedMessage()
     },
@@ -60,6 +65,7 @@ export const useMessagesStore = defineStore('messages', {
         })
         if (result?.id != null) {
           editor.messageCache[result.id] = result
+          flushPendingEdit()
           editor.selectedMsgId = result.id
         }
         useUiStore().showToast(t('toast.messageAdded'))

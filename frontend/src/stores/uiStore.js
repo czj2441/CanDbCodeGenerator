@@ -1,6 +1,9 @@
 import { defineStore } from 'pinia'
 import { useCoreStore } from './coreStore.js'
 import { useMessagesStore } from './messages.js'
+import {
+  flushPendingEdit, cancelPendingEdit, cancelAllPendingEdits, PENDING_EDIT_OWNERS,
+} from '../composables/pendingEdit.js'
 
 // 信号表默认隐藏列（无 localStorage 记录时使用）
 const DEFAULT_SIGNAL_HIDDEN_COLS = ['unit', 'max', 'min', 'offset', 'factor']
@@ -225,8 +228,30 @@ export const useUiStore = defineStore('ui', {
     },
 
     toggleLayoutView() {
+      flushPendingEdit()
       this.layoutViewMode = !this.layoutViewMode
       this.selectedSignalName = null
+    },
+
+    // ── 选中项 action ──
+    // 所有选中变更必须在修改前 flush 待提交编辑，否则 blur 会读到新选中项。
+
+    selectSignal(name, { flush = true } = {}) {
+      if (this.selectedSignalName === name) return
+      if (flush) flushPendingEdit()
+      this.selectedSignalName = name
+    },
+
+    clearSignalSelection({ discard = false } = {}) {
+      if (discard) cancelPendingEdit(PENDING_EDIT_OWNERS.signalPanel)
+      else flushPendingEdit()
+      this.selectedSignalName = null
+    },
+
+    selectValueTable(name, { flush = true } = {}) {
+      if (this.selectedVtName === name) return
+      if (flush) flushPendingEdit()
+      this.selectedVtName = name
     },
 
     // ── 底部面板 / 侧栏 ──
@@ -249,6 +274,8 @@ export const useUiStore = defineStore('ui', {
      * 动态 tab 请使用 openMessageTab / activateMessageTab
      */
     switchCenterTab(tab) {
+      if (this.activeTabId === tab) return
+      flushPendingEdit()
       this._saveActiveTabState()
       this.centerTab = tab
       this.activeTabId = tab
@@ -263,6 +290,7 @@ export const useUiStore = defineStore('ui', {
         this.activateMessageTab(msgId)
         return
       }
+      flushPendingEdit()
       this._saveActiveTabState()
       // 创建新 tab
       this.openTabs.push({ msgId, selectedSignalName: null, layoutViewMode: false })
@@ -282,9 +310,13 @@ export const useUiStore = defineStore('ui', {
     /**
      * 关闭动态报文标签页，自动激活相邻 tab
      */
-    closeMessageTab(msgId) {
+    closeMessageTab(msgId, { discard = false } = {}) {
       const idx = this.openTabs.findIndex(t => t.msgId === msgId)
       if (idx < 0) return
+      if (this.activeTabId === msgId) {
+        if (discard) cancelAllPendingEdits()
+        else flushPendingEdit()
+      }
       this.openTabs.splice(idx, 1)
       if (this.activeTabId === msgId) {
         if (this.openTabs.length > 0) {
@@ -302,6 +334,7 @@ export const useUiStore = defineStore('ui', {
     activateMessageTab(msgId) {
       const tab = this.openTabs.find(t => t.msgId === msgId)
       if (!tab) return
+      flushPendingEdit()
       this._saveActiveTabState()
       this.centerTab = `msg_${msgId}`
       this.activeTabId = msgId
