@@ -81,6 +81,19 @@
 
       <!-- 信号着色层（拖动时禁用 hit detection，避免大量无用 pointerleave 事件） -->
       <v-layer :config="{ listening: !dragging }">
+        <!-- 已有信号占用底图（灰色半透明，无 label） -->
+        <v-rect
+          v-for="cell in occupiedCells" :key="'occ-' + cell.bit"
+          :config="{
+            x: labelWidth + cell.col * cellSizeComputed,
+            y: headerH + cell.row * cellSizeComputed,
+            width: cellSizeComputed, height: cellSizeComputed,
+            fill: 'oklch(0.55 0.01 260)',
+            opacity: 0.3,
+            cornerRadius: 2,
+            listening: false,
+          }"
+        />
         <!-- 着色方格 -->
         <v-rect
           v-for="cell in coloredCells" :key="'c-' + cell.name + '-' + cell.bit"
@@ -180,7 +193,7 @@
 
 <script setup>
 import { computed, ref, onMounted, onUnmounted } from 'vue'
-import { computeCellMap, bitToGridCell } from '../utils/signalLayout.js'
+import { computeCellMap, bitToGridCell, occupiedBitsToCells } from '../utils/signalLayout.js'
 
 const props = defineProps({
   signals: {
@@ -210,6 +223,10 @@ const props = defineProps({
   dragging: {
     type: Boolean,
     default: false,
+  },
+  occupiedBits: {
+    type: [Set, null],
+    default: null,
   },
 })
 
@@ -257,10 +274,14 @@ const cellSizeComputed = computed(() => {
 const rows = computed(() => props.dlc || 1)
 
 const cellMapResult = computed(() =>
-  computeCellMap(props.signals, props.startBitOverrides)
+  computeCellMap(props.signals, props.startBitOverrides, props.occupiedBits)
 )
 
 const coloredCells = computed(() => cellMapResult.value.cells)
+
+const occupiedCells = computed(() =>
+  props.occupiedBits ? occupiedBitsToCells(props.occupiedBits, rows.value) : []
+)
 
 const maxUsedRow = computed(() => {
   const cells = coloredCells.value
