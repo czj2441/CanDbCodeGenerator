@@ -480,3 +480,57 @@ export function occupiedBitsToCells(occupiedBits, dlc) {
   return cells
 }
 
+/**
+ * 批量创建预检：统计越界无效、与已有信号重叠、名称重复三类问题。
+ * 无效信号（_invalid）不会实际创建，因此不参与重叠/重名统计。
+ *
+ * @param {Array<{name: string, start_bit: number, length: number, byte_order: string, _invalid?: boolean}>} signals
+ * @param {Set<number>|null} occupiedBits - 已有信号占用 bit 集合
+ * @param {Iterable<string>} [existingSignalNames] - 当前报文已有信号名
+ * @returns {{ invalidCount: number, overlapSignalCount: number, overlapBits: number, duplicateCount: number, hasProblems: boolean }}
+ */
+export function analyzeBatchProblems(signals, occupiedBits, existingSignalNames = []) {
+  const existing = existingSignalNames instanceof Set
+    ? existingSignalNames
+    : new Set(existingSignalNames)
+
+  let invalidCount = 0
+  const valid = []
+  const nameCounts = new Map()
+
+  for (const sig of signals) {
+    if (sig._invalid) {
+      invalidCount++
+      continue
+    }
+    valid.push(sig)
+    nameCounts.set(sig.name, (nameCounts.get(sig.name) || 0) + 1)
+  }
+
+  let overlapSignalCount = 0
+  let overlapBits = 0
+  let duplicateCount = 0
+
+  for (const sig of valid) {
+    let hits = 0
+    for (const bit of getSignalBits(sig.start_bit, sig.length, sig.byte_order)) {
+      if (occupiedBits && occupiedBits.has(bit)) hits++
+    }
+    if (hits > 0) {
+      overlapSignalCount++
+      overlapBits += hits
+    }
+    if (existing.has(sig.name) || (nameCounts.get(sig.name) || 0) > 1) {
+      duplicateCount++
+    }
+  }
+
+  return {
+    invalidCount,
+    overlapSignalCount,
+    overlapBits,
+    duplicateCount,
+    hasProblems: invalidCount > 0 || overlapSignalCount > 0 || duplicateCount > 0,
+  }
+}
+

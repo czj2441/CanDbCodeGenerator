@@ -4,6 +4,15 @@
       <div v-if="visible" class="modal-overlay" @mousedown.self="close">
         <div class="modal-panel">
           <div class="modal-header">{{ t('batch.title') }}</div>
+          <!-- 创建前检查：有问题时显示，无问题时整块隐藏 -->
+          <div v-if="problems.hasProblems" class="problem-bar">
+            <div class="problem-title">{{ t('batch.problemsTitle') }}</div>
+            <ul class="problem-list">
+              <li v-if="problems.invalidCount > 0">{{ t('batch.problemInvalid', { count: problems.invalidCount }) }}</li>
+              <li v-if="problems.overlapSignalCount > 0">{{ t('batch.problemOverlap', { count: problems.overlapSignalCount, bits: problems.overlapBits }) }}</li>
+              <li v-if="problems.duplicateCount > 0">{{ t('batch.problemDuplicate', { count: problems.duplicateCount }) }}</li>
+            </ul>
+          </div>
           <div class="modal-body">
             <!-- 左侧：表单 -->
             <div class="form-side">
@@ -94,18 +103,30 @@
             <button class="btn btn-accent" @click="create">{{ t('batch.create') }}</button>
           </div>
         </div>
+
+        <!-- 创建前确认弹窗（通用提示，不列具体错误） -->
+        <div v-if="confirmOpen" class="confirm-overlay" @mousedown.self="confirmOpen = false">
+          <div class="confirm-box" @click.stop>
+            <h4>{{ t('batch.confirmTitle') }}</h4>
+            <p>{{ t('batch.confirmDesc') }}</p>
+            <div class="confirm-actions">
+              <button class="btn" @click="confirmOpen = false">{{ t('batch.confirmCancel') }}</button>
+              <button class="btn btn-warn" @click="doCreate">{{ t('batch.confirmContinue') }}</button>
+            </div>
+          </div>
+        </div>
       </div>
     </Transition>
   </Teleport>
 </template>
 
 <script setup>
-import { computed, reactive, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { useSignalsStore } from '../stores/signals.js'
 import { useCoreStore } from '../stores/coreStore.js'
 import { t } from '../i18n.js'
 import { expandTemplate } from '../utils/format.js'
-import { computeBatchSignals, computeOccupiedBits } from '../utils/signalLayout.js'
+import { computeBatchSignals, computeOccupiedBits, analyzeBatchProblems } from '../utils/signalLayout.js'
 import BitLayoutCanvas from './BitLayoutCanvas.vue'
 
 const signals = useSignalsStore()
@@ -135,6 +156,7 @@ const form = reactive(createDefaultForm())
 watch(visible, (newVal) => {
   if (newVal) {
     Object.assign(form, createDefaultForm())
+    confirmOpen.value = false
   }
 })
 
@@ -194,11 +216,31 @@ const previewSignals = computed(() => {
 /** 画布只渲染有效信号 */
 const canvasSignals = computed(() => previewSignals.value.filter(sig => !sig._invalid))
 
+/** 已有信号名，用于重名检测 */
+const existingSignalNames = computed(() => existingSignals.value.map(s => s.name))
+
+/** 创建前检查：无效 / 重叠 / 重名 */
+const problems = computed(() =>
+  analyzeBatchProblems(previewSignals.value, existingOccupiedBits.value, existingSignalNames.value)
+)
+
+const confirmOpen = ref(false)
+
 function close() {
+  confirmOpen.value = false
   visible.value = false
 }
 
-async function create() {
+function create() {
+  if (problems.value.hasProblems) {
+    confirmOpen.value = true
+    return
+  }
+  doCreate()
+}
+
+async function doCreate() {
+  confirmOpen.value = false
   await signals.batchAddSignals({ ...form })
   close()
 }
@@ -373,6 +415,65 @@ async function create() {
 .btn-accent {
   background: var(--accent);
   color: oklch(0.12 0.01 155);
+  border-color: transparent;
+  font-weight: 600;
+}
+
+/* ── 创建前问题提示条 ── */
+.problem-bar {
+  flex: 0 0 auto;
+  padding: 8px 18px 10px;
+  border-bottom: 1px solid var(--border);
+  background: oklch(0.32 0.05 85 / 0.28);
+}
+.problem-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: oklch(0.82 0.13 85);
+  margin-bottom: 4px;
+}
+.problem-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 11px;
+  color: var(--text);
+  line-height: 1.7;
+}
+
+/* ── 创建前确认弹窗 ── */
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  background: oklch(0.08 0.01 260 / 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.confirm-box {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 18px 20px;
+  width: 360px;
+  max-width: 90vw;
+  box-shadow: var(--shadow);
+}
+.confirm-box h4 { margin: 0 0 8px; font-size: 13px; }
+.confirm-box p {
+  margin: 0 0 16px;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.btn-warn {
+  background: oklch(0.72 0.15 75);
+  color: oklch(0.16 0.02 75);
   border-color: transparent;
   font-weight: 600;
 }
