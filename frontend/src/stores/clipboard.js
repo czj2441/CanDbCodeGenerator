@@ -4,6 +4,7 @@ import { useUiStore } from './uiStore.js'
 import { useCoreStore } from './coreStore.js'
 import { useMessagesStore } from './messages.js'
 import { useSignalsStore } from './signals.js'
+import { flushPendingEdit } from '../composables/pendingEdit.js'
 import { generateMessageId, resolveCopyName } from '../utils/storeHelpers.js'
 
 export const useClipboardStore = defineStore('clipboard', {
@@ -209,6 +210,9 @@ export const useClipboardStore = defineStore('clipboard', {
       // 兼容旧格式
       const sourceItems = this.clipboard.items || [this.clipboard.data]
       if (!sourceItems.length) return
+
+      // 粘贴会切换选中报文；先把面板中尚未失焦的编辑提交到旧目标。
+      flushPendingEdit()
 
       const existingNames = new Set(Object.values(editor.messages).map(m => m.name))
       let successCount = 0

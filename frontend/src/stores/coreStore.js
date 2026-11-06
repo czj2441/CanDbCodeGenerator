@@ -7,6 +7,9 @@ import { useUndoRedoStore } from './undoRedo.js'
 import { WsSyncClient, WsFrontendDiag } from '../utils/ws-client.js'
 import { checkVersionHash } from '../utils/version-check.js'
 import { resetMessageIdGenerator } from '../utils/storeHelpers.js'
+import {
+  cancelAllPendingEdits, cancelPendingEdit, remapPendingEditTarget, PENDING_EDIT_OWNERS,
+} from '../composables/pendingEdit.js'
 import { setConnectionStatus, resetConnection } from './connectionHealth.js'
 import { useAuthStore } from './authStore.js'
 
@@ -104,6 +107,7 @@ export const useCoreStore = defineStore('core', {
     },
 
     resetEditorState() {
+      cancelAllPendingEdits()
       this.messages = {}
       this.selectedMsgId = null
       this.messageCache = {}
@@ -255,6 +259,7 @@ export const useCoreStore = defineStore('core', {
       switch (msg.type) {
         case 'full_sync': {
           WsFrontendDiag.count('full_sync')
+          cancelAllPendingEdits()
           this._dataVersion = msg.data_version ?? 0
           const d = msg.data
 
@@ -276,11 +281,12 @@ export const useCoreStore = defineStore('core', {
               !this.messages[String(this.selectedMsgId)]) {
             this.selectedMsgId = null
             this.messageCache = {}
+            useUiStore().clearSignalSelection({ discard: true })
           }
           // 关闭指向已不存在报文的动态标签页
           useUiStore().openTabs
             .filter(t => !this.messages[String(t.msgId)])
-            .forEach(t => useUiStore().closeMessageTab(t.msgId))
+            .forEach(t => useUiStore().closeMessageTab(t.msgId, { discard: true }))
           // full_sync 完成后自动拉取全局错误列表
           this._wsRequest('get_data_errors').then(errors => {
             this.dataErrors = errors || []
@@ -297,6 +303,17 @@ export const useCoreStore = defineStore('core', {
               delete cache.signals[old_name]
             }
             cache.signals[signal.name] = signal
+          }
+          if (old_name && old_name !== signal.name) {
+            const ui = useUiStore()
+            if (this.selectedMsgId === msg_id && ui.selectedSignalName === old_name) {
+              ui.selectSignal(signal.name, { flush: false })
+            }
+            remapPendingEditTarget(PENDING_EDIT_OWNERS.signalPanel, (t) =>
+              t?.msgId === msg_id && t?.signalName === old_name
+                ? { ...t, signalName: signal.name }
+                : t
+            )
           }
           if (total_signal_bits != null) {
             const summary = this.messages[String(msg_id)]
@@ -343,8 +360,12 @@ export const useCoreStore = defineStore('core', {
             }
           }
           // 删除的信号若正在选中，清空 selectedSignalName
-          if (useUiStore().selectedSignalName === signal_name) {
-            useUiStore().selectedSignalName = null
+          cancelPendingEdit(PENDING_EDIT_OWNERS.signalPanel, (t) =>
+            t?.msgId === msg_id && t?.signalName === signal_name
+          )
+          const ui = useUiStore()
+          if (ui.selectedSignalName === signal_name) {
+            ui.clearSignalSelection({ discard: true })
           }
           break
         }
@@ -375,6 +396,12 @@ export const useCoreStore = defineStore('core', {
             if (this.selectedMsgId === oldId) {
               this.selectedMsgId = m.id
             }
+            remapPendingEditTarget(PENDING_EDIT_OWNERS.messagePanel, (t) =>
+              t?.msgId === oldId ? { ...t, msgId: m.id } : t
+            )
+            remapPendingEditTarget(PENDING_EDIT_OWNERS.signalPanel, (t) =>
+              t?.msgId === oldId ? { ...t, msgId: m.id } : t
+            )
             // 更新动态标签页的 msgId
             const uiForTab = useUiStore()
             const tab = uiForTab.openTabs.find(t => t.msgId === oldId)
@@ -399,17 +426,22 @@ export const useCoreStore = defineStore('core', {
           const newMessages = { ...this.messages }
           delete newMessages[delKey]
           this.messages = newMessages
+          cancelPendingEdit(PENDING_EDIT_OWNERS.messagePanel, (t) => t?.msgId === deletedId)
+          cancelPendingEdit(PENDING_EDIT_OWNERS.signalPanel, (t) => t?.msgId === deletedId)
+          const uiForDelete = useUiStore()
           if (this.selectedMsgId === deletedId) {
             this.selectedMsgId = null
+            uiForDelete.clearSignalSelection({ discard: true })
           }
           delete this.messageCache[deletedId]
           // 关闭引用此报文的动态标签页
-          useUiStore().closeMessageTab(deletedId)
+          uiForDelete.closeMessageTab(deletedId, { discard: true })
           break
         }
 
         case 'undo_applied':
         case 'redo_applied': {
+          cancelAllPendingEdits()
           this._syncBackendStatus(msg.data.status)
           if (msg.data.bus_type) {
             this.busType = msg.data.bus_type
@@ -432,11 +464,12 @@ export const useCoreStore = defineStore('core', {
           if (this.selectedMsgId != null &&
               !this.messages[String(this.selectedMsgId)]) {
             this.selectedMsgId = null
+            useUiStore().clearSignalSelection({ discard: true })
           }
           // 关闭指向已不存在报文的动态标签页
           useUiStore().openTabs
             .filter(t => !this.messages[String(t.msgId)])
-            .forEach(t => useUiStore().closeMessageTab(t.msgId))
+            .forEach(t => useUiStore().closeMessageTab(t.msgId, { discard: true }))
           break
         }
 
@@ -468,6 +501,11 @@ export const useCoreStore = defineStore('core', {
         case 'value_table_deleted': {
           const { name } = msg.data
           delete this.valueTables[name]
+          cancelPendingEdit(PENDING_EDIT_OWNERS.valueTablePanel, (t) => t?.vtName === name)
+          cancelPendingEdit(PENDING_EDIT_OWNERS.signalPanel, (t) => t?.valueTableName === name)
+          if (useUiStore().selectedVtName === name) {
+            useUiStore().selectValueTable(null, { flush: false })
+          }
           break
         }
         case 'value_table_renamed': {
@@ -486,6 +524,14 @@ export const useCoreStore = defineStore('core', {
               }
             }
           }
+          const ui = useUiStore()
+          if (ui.selectedVtName === old_name) ui.selectValueTable(new_name, { flush: false })
+          remapPendingEditTarget(PENDING_EDIT_OWNERS.valueTablePanel, (t) =>
+            t?.vtName === old_name ? { ...t, vtName: new_name } : t
+          )
+          remapPendingEditTarget(PENDING_EDIT_OWNERS.signalPanel, (t) =>
+            t?.valueTableName === old_name ? { ...t, valueTableName: new_name } : t
+          )
           break
         }
 

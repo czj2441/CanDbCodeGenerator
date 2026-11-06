@@ -4,6 +4,7 @@ import { setSessionId, getSessionId } from '../api/client.js'
 import { useUiStore } from './uiStore.js'
 import { useCoreStore } from './coreStore.js'
 import { useUndoRedoStore } from './undoRedo.js'
+import { cancelAllPendingEdits } from '../composables/pendingEdit.js'
 import { resetMessageIdGenerator } from '../utils/storeHelpers.js'
 
 export const useFileOperationsStore = defineStore('fileOperations', {
@@ -37,6 +38,7 @@ export const useFileOperationsStore = defineStore('fileOperations', {
       const undoRedo = useUndoRedoStore()
 
       useUiStore().closeAllMessageTabs()
+      cancelAllPendingEdits()
       editor.selectedMsgId = null
       editor.messageCache = {}
       editor.messages = {}
@@ -110,6 +112,7 @@ export const useFileOperationsStore = defineStore('fileOperations', {
       const undoRedo = useUndoRedoStore()
 
       useUiStore().closeAllMessageTabs()
+      cancelAllPendingEdits()
       editor.selectedMsgId = null
       editor.messageCache = {}
       editor.messages = {}
@@ -163,6 +166,7 @@ export const useFileOperationsStore = defineStore('fileOperations', {
         editor.currentFileName = data.file_name
         editor.busType = data.bus_type || 'CAN'
         useUiStore().closeAllMessageTabs()
+        cancelAllPendingEdits()
         editor.selectedMsgId = null
         editor.messageCache = {}
         editor.messages = {}
