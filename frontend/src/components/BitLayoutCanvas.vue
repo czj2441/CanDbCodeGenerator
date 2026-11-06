@@ -225,7 +225,7 @@ const props = defineProps({
     default: false,
   },
   occupiedBits: {
-    type: [Set, null],
+    type: Set,
     default: null,
   },
 })

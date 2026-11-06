@@ -412,6 +412,7 @@ export function gridCellToPixel(row, col, { labelWidth, headerH, cellSize }) {
  *
  * @param {Array<{name: string, start_bit: number, length: number, byte_order: string}>} signals
  * @param {Object<string, number>} [overrides] - Override start_bit for specific signals by name
+ * @param {Set<number>|null} [occupiedBits] - Bits owned by existing signals; cell bits that intersect it are added to overlapBits
  * @returns {{ cells: Array<{bit, row, col, name, color, isStartBit, byteOrder, startBit, length}>, overlapBits: Set<number> }}
  */
 export function computeCellMap(signals, overrides = {}, occupiedBits = null) {
@@ -471,7 +472,7 @@ export function computeOccupiedBits(signals) {
 export function occupiedBitsToCells(occupiedBits, dlc) {
   const cells = []
   for (const bit of occupiedBits) {
-    if (bit < 0 || bit > 511) continue
+    if (!Number.isFinite(bit) || bit < 0 || bit > 511) continue
     const { row, col } = bitToGridCell(bit)
     if (row >= dlc) continue
     cells.push({ bit, row, col })

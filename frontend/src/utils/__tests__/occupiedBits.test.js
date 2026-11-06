@@ -29,6 +29,11 @@ describe('occupiedBitsToCells', () => {
     assert.strictEqual(cells.length, 1)
     assert.strictEqual(cells[0].bit, 0)
   })
+
+  it('忽略 NaN / 非有限 bit', () => {
+    const cells = occupiedBitsToCells(new Set([0, NaN, undefined, Infinity]), 8)
+    assert.deepStrictEqual(cells.map(c => c.bit), [0])
+  })
 })
 
 describe('computeCellMap 与 occupiedBits 重叠', () => {
