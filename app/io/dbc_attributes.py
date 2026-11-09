@@ -143,6 +143,7 @@ _STRUCTURE_TOKENS: tuple[str, ...] = (
 )
 
 _NODE_COMMENT_RE = re.compile(r"(?m)^\s*CM_\s+BU_\s+(\S+)")
+_BO_LINE_RE = re.compile(r"(?m)^\s*BO_\s+(\d+)\s+([^:\r\n]+?)\s*:")
 
 
 def _collect_structure(
@@ -234,6 +235,42 @@ def collect_import_warnings(can_db: Any, content: str) -> list[dict]:
         buckets.values(),
         key=lambda w: (w["code"], w["level"], w["name"]),
     )
+
+
+def collect_source_warnings(content: str) -> list[dict]:
+    """检测解析前就会互相覆盖的重复报文声明。
+
+    cantools 在加载阶段遇到相同报文 ID 时会用后者覆盖前者，并只在日志里
+    提示；这里直接从原始 ``BO_`` 行提取，确保用户能在导入提示中看到。
+    """
+    seen: dict[str, str] = {}
+    duplicate_count = 0
+    examples: list[str] = []
+
+    for match in _BO_LINE_RE.finditer(content):
+        raw_id = int(match.group(1))
+        name = match.group(2).strip()
+        is_extended = bool(raw_id & 0x80000000)
+        can_id = raw_id & 0x1FFFFFFF
+        key = f"0x{can_id:X}:{'ext' if is_extended else 'std'}"
+        first_name = seen.get(key)
+        if first_name is None:
+            seen[key] = name
+            continue
+        duplicate_count += 1
+        if len(examples) < _EXAMPLE_LIMIT:
+            examples.append(f"{first_name} / {name} ({key})")
+
+    if duplicate_count == 0:
+        return []
+    return [{
+        "code": "message_duplicate",
+        "level": "BO",
+        "level_label": _LEVEL_LABELS["BO"],
+        "name": "BO_",
+        "count": duplicate_count,
+        "examples": examples,
+    }]
 
 
 def drop_attribute_definitions(content: str, names: set[str]) -> str:

@@ -147,6 +147,8 @@ class TestDbcAttributes:
         assert "GenSigStartValue" in names
         assert "BO_TX_BU_" in names
         assert "SIG_GROUP_" in names
+        # 标准帧与扩展帧共用数值 ID 不是重复报文
+        assert "message_duplicate" not in {w["code"] for w in db.import_warnings}
         # 长名符号按决策静默接受
         assert "SystemSignalLongSymbol" not in names
 
@@ -211,6 +213,62 @@ class TestDbcAttributes:
         )
         old_db = CanDatabase.from_properties_str(legacy)
         assert set(old_db.messages) == {"0x100:std"}
+
+    def test_duplicate_message_is_reported(self):
+        content = '''VERSION ""
+
+NS_ :
+BS_:
+BU_: ECU1
+
+BO_ 256 First: 8 ECU1
+ SG_ A : 0|8@1+ (1,0) [0|255] "" ECU1
+BO_ 256 Second: 8 ECU1
+ SG_ B : 0|8@1+ (1,0) [0|255] "" ECU1
+'''
+        db = CanDatabase.from_dbc_str(content)
+
+        duplicates = [
+            w for w in db.import_warnings if w["code"] == "message_duplicate"
+        ]
+        assert len(duplicates) == 1
+        assert duplicates[0]["count"] == 1
+        assert "First / Second (0x100:std)" in duplicates[0]["examples"]
+        # cantools 保留后声明的报文，导入提示必须让用户知道前者被覆盖
+        assert list(db.messages) == ["0x100:std"]
+        assert db.messages["0x100:std"].name == "Second"
+
+    def test_properties_always_persist_value_type(self):
+        db = CanDatabase()
+        cases = [
+            (0x100, SignalValueType.UINT, 8),
+            (0x101, SignalValueType.INT, 8),
+            (0x102, SignalValueType.FLOAT, 32),
+            (0x103, SignalValueType.DOUBLE, 64),
+        ]
+        for can_id, value_type, length in cases:
+            db.add_message(Message(
+                can_id=can_id,
+                name=f"Msg{value_type.value}",
+                signals={"S": Signal(
+                    name="S", start_bit=0, length=length, value_type=value_type,
+                )},
+            ))
+
+        props = db.to_properties_str()
+        for value_type in ("uint", "int", "float", "double"):
+            assert f".value_type={value_type}" in props
+
+        restored = CanDatabase.from_properties_str(props)
+        restored_types = {
+            msg.signals["S"].value_type for msg in restored.messages.values()
+        }
+        assert restored_types == {
+            SignalValueType.UINT,
+            SignalValueType.INT,
+            SignalValueType.FLOAT,
+            SignalValueType.DOUBLE,
+        }
 
 
 class TestSignalValidation:

@@ -30,9 +30,12 @@ CanDbCodeGenerator 的核心目标是：**以 Properties 作为主存储格式�
 
 ### 1.3 核心特性
 
-- **Properties 主存储**：信号以 dotted keys 形式嵌套在报文下（如 `messages.0x100.signals.RPM`），增删信号只影响该报文块。
-- **稀疏输出**：默认值的字段（`factor=1.0`、`offset=0.0` 等）在保存时省略，减少 diff 噪音。
-- **十六进制 CAN ID**：Properties 中 `messages.0x100.name=EngineData`，与 CAN 工具链和硬件文档保持一致。
+- **Properties 主存储**：信号以 dotted keys 形式嵌套在报文下（如 `messages.0x100:std.signals.RPM`），增删信号只影响该报文块。
+- **稀疏输出**：默认值的字段（`factor=1.0`、`offset=0.0` 等）在保存时省略，减少 diff 噪音；`value_type` 例外，始终写出以保证类型无歧义。
+- **报文身份 key**：Properties 中报文键使用 `0x100:std` / `0x100:ext`，标准帧与扩展帧可以共用同一个数值 CAN ID。
+- **十六进制 CAN ID**：Properties 中 `messages.0x100:std.name=EngineData`，与 CAN 工具链和硬件文档保持一致。
+- **信号类型**：内部使用 `uint` / `int` / `float` / `double`，DBC 导入导出保留 `SIG_VALTYPE_`。
+- **DBC 属性策略**：采用项进入模型并往返，未采用项在导入后提示，不静默丢失。
 - **Web 前端 + Python 后端**：Vue 3 + Vite 构建前端，WebSocket 全双工通信 + HTTP 辅助（静态文件 / 导出 / 版本检查）。
 - **会话隔离与手动持久化**：每个浏览器标签页绑定独立 session，前端显式触发保存，崩溃后可恢复。
 - **信号布局验证**：后端实时校验信号位域重叠和越界，支持 Intel（小端）和 Motorola（大端）两种字节序。
@@ -136,9 +139,10 @@ app/io/  (格式 IO 层)
 本地文件 → 前端 FileReader 读取内容
   → WS request: import_file {format, content, filename}
     → ImportFileHandler.__call__()
-      → CanDatabase.from_properties_str() / from_dict()
-        → 创建新 Session，返回 session_id
+      → CanDatabase.from_properties_str() / from_dbc_str()
+        → 创建新 Session，返回 session_id 与 import_warnings
           → WS 重连 + full_sync 同步全量数据
+          → 前端展示导入提示（如有）
 ```
 
 **运行时编辑**：
@@ -185,11 +189,10 @@ DBC 语义中，**信号是 per-message 的定义**——同一个信号名（�
 ```python
 class Signal:
     name: str = ""
-    uuid: str          # 运行时唯一标识（8 位 hex），前端-后端通信用
     start_bit: int = 0
     length: int = 8
-    byte_order: str = "little_endian"   # "little_endian" | "big_endian"
-    is_signed: bool = False
+    byte_order: str = "motorola"        # "intel" | "motorola"
+    value_type: SignalValueType = SignalValueType.UINT
     factor: float = 1.0
     offset: float = 0.0
     min_val: float = 0.0
@@ -199,6 +202,7 @@ class Signal:
     receivers: list[str] = []
     multiplexer_mode: str = "none"      # "none" | "multiplexer" | "multiplexed"
     multiplexer_value: int = 0
+    value_table_name: str = ""
 ```
 
 **字段说明**：
@@ -206,38 +210,51 @@ class Signal:
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `name` | `str` | `""` | 信号名称 |
-| `uuid` | `str` | 自动生成 | 运行时标识（仅 app/models/ 版） |
 | `start_bit` | `int` | `0` | 起始位（0~63） |
 | `length` | `int` | `8` | 信号长度（位） |
-| `byte_order` | `str` | `"little_endian"` | Intel（小端）/ Motorola（大端） |
-| `is_signed` | `bool` | `False` | 是否有符号整数 |
+| `byte_order` | `str` | `"motorola"` | `intel`（小端）/ `motorola`（大端） |
+| `value_type` | `SignalValueType` | `uint` | `uint` / `int` / `float` / `double`；float=32 位，double=64 位 |
 | `factor` | `float` | `1.0` | 物理值 = 原始值 × factor + offset |
 | `offset` | `float` | `0.0` | 偏移量 |
 | `min_val` / `max_val` | `float` | `0.0` | 物理值有效范围 |
 | `unit` | `str` | `""` | 物理单位（如 `rpm`、`°C`） |
+| `comment` | `str` | `""` | 注释 |
 | `receivers` | `list[str]` | `[]` | 接收节点列表 |
 | `multiplexer_mode` | `str` | `"none"` | 复用模式 |
 | `multiplexer_value` | `int` | `0` | 复用值（仅 `multiplexed` 模式有效） |
+| `value_table_name` | `str` | `""` | 引用的全局值描述表 |
+
+> `is_signed` / `is_float` 是 `value_type` 的派生属性，不作为独立字段存储。
 
 ### 3.3 Message
 
 ```python
 class Message:
-    id: int = 0
+    can_id: int = 0
     name: str = ""
     dlc: int = 8
-    cycle_time: int = 0        # ms, 0 = event-triggered
+    cycle_time: int = 0             # ms, 0 = event-triggered
     comment: str = ""
     sender: str = ""
-    signals: list[Signal] = []  # 该报文包含的信号对象列表
+    is_fd: bool = False             # True = CAN FD
+    is_extended_frame: bool = False
+    signals: dict[str, Signal] = {} # key: signal name
 ```
+
+报文身份由 `key` 属性统一生成：
+
+- 标准帧：`0x100:std`
+- 扩展帧：`0x100:ext`
 
 ### 3.4 CanDatabase（运行时版本）
 
 ```python
 class CanDatabase:
     name: str
-    messages: dict[int, Message]   # key: CAN ID (int)
+    bus_type: str                   # "CAN" | "CAN FD"
+    messages: dict[str, Message]    # key: 报文身份 key（0x100:std / 0x100:ext）
+    value_tables: dict[str, dict]   # 全局值描述表
+    import_warnings: list[dict]     # DBC 导入时收集的未采用/异常提示
     modified: bool                  # 是否有未保存的修改
     __lock: threading.RLock         # 线程安全锁
 ```
@@ -246,22 +263,23 @@ class CanDatabase:
 
 | 方法 | 说明 |
 |------|------|
-| `add_message(msg) → bool` | 按 CAN ID 添加报文（重名返回 False） |
-| `remove_message(msg_id) → Message | None` | 按 ID 删除报文 |
-| `get_message(msg_id) → Message | None` | 按 ID 获取报文 |
-| `update_message(msg_id, **kwargs) → bool` | 按关键字更新报文属性 |
-| `move_message(old_id, new_id) → bool` | 移动报文到新 CAN ID |
-| `add_signal_to_message(msg_id, sig) → bool` | 向报文追加信号（以 name 为 dict key） |
-| `remove_signal_from_message(msg_id, sig_name) → bool` | 按 name 从报文删除信号 |
-| `update_signal_in_message(msg_id, sig_name, **kwargs) → (bool, old_name)` | 按 name 更新信号字段（重命名时自动更新 dict key） |
-| `validate_signal(msg_id, sig) → (bool, str, dict)` | 验证单个信号的位域合法性 |
-| `validate_all_signals(msg_id) → list[dict]` | 返回报文全部信号的布局错误列表 |
+| `add_message(msg) → bool` | 按 `msg.key` 添加报文（重复返回 False） |
+| `remove_message(msg_key) → Message | None` | 按 key 删除报文 |
+| `get_message(msg_key) → Message | None` | 按 key 获取报文 |
+| `update_message(msg_key, **kwargs) → bool` | 按关键字更新报文属性 |
+| `move_message(old_key, new_can_id, new_is_extended) → str | None` | 修改 ID / 帧类型，返回新 key |
+| `add_signal_to_message(msg_key, sig) → bool` | 向报文追加信号（以 name 为 dict key） |
+| `remove_signal_from_message(msg_key, sig_name) → bool` | 按 name 从报文删除信号 |
+| `update_signal_in_message(msg_key, sig_name, **kwargs) → (bool, old_name)` | 按 name 更新信号字段（重命名时自动更新 dict key） |
+| `validate_signal(msg, sig, exclude_name=None) → (bool, str, dict)` | 验证单个信号的位域合法性 |
+| `validate_all_signals(msg_key) → list[dict]` | 返回报文全部信号的布局错误列表 |
 | `total_signals() → int` | 统计全部信号总数 |
-| `to_dict() → dict` | 序列化为字典（含十六进制 key） |
+| `to_dict() → dict` | 序列化为字典（含 `key` / `id` / `is_extended_frame`） |
 | `to_properties_str() → str` | 序列化为 Properties 字符串（稀疏输出） |
 | `to_dbc_str() → str` | 导出为 DBC 格式字符串 |
 | `from_properties_str(content) → CanDatabase` | 从 Properties 字符串反序列化 |
 | `from_dict(data) → CanDatabase` | 从字典反序列化 |
+| `from_dbc_str(content) → CanDatabase` | 从 DBC 字符串导入 |
 
 ### 3.5 信号布局验证
 
@@ -297,19 +315,22 @@ class CanDatabase:
 # CanDbCodeGenerator - CAN Database Definition
 
 database.name=MyVehicle
-messages.0x100.name=EngineData
-messages.0x100.dlc=8
-messages.0x100.cycle_time=10
-messages.0x100.sender=ECU1
-messages.0x100.signals.RPM.name=RPM
-messages.0x100.signals.RPM.start_bit=0
-messages.0x100.signals.RPM.length=16
-messages.0x100.signals.RPM.byte_order=little_endian
-messages.0x100.signals.RPM.factor=1.0
-messages.0x100.signals.RPM.max_val=8000.0
-messages.0x100.signals.RPM.unit=rpm
-messages.0x100.signals.RPM.receivers=["BCM", "ICU"]
+messages.0x100:std.name=EngineData
+messages.0x100:std.dlc=8
+messages.0x100:std.cycle_time=10
+messages.0x100:std.sender=ECU1
+messages.0x100:std.signals.RPM.name=RPM
+messages.0x100:std.signals.RPM.start_bit=0
+messages.0x100:std.signals.RPM.length=16
+messages.0x100:std.signals.RPM.byte_order=intel
+messages.0x100:std.signals.RPM.value_type=int
+messages.0x100:std.signals.RPM.factor=1.0
+messages.0x100:std.signals.RPM.max_val=8000.0
+messages.0x100:std.signals.RPM.unit=rpm
+messages.0x100:std.signals.RPM.receivers=["BCM", "ICU"]
 ```
+
+> 报文 key 以 `:std` / `:ext` 结尾；扩展帧与标准帧可以共用同一数值 CAN ID。`value_type` 始终写出。
 
 **Properties 序列化实现**：
 
@@ -327,36 +348,48 @@ messages.0x100.signals.RPM.receivers=["BCM", "ICU"]
 ```python
 _SIGNAL_DEFAULTS = {
     "name": "", "start_bit": 0, "length": 8,
-    "byte_order": "little_endian", "is_signed": False,
+    "byte_order": "motorola", "value_type": SignalValueType.UINT,
     "factor": 1.0, "offset": 0.0, "min_val": 0.0, "max_val": 0.0,
     "unit": "", "comment": "", "receivers": [],
     "multiplexer_mode": "none", "multiplexer_value": 0,
+    "value_table_name": "",
 }
 ```
 
-**效果**：完整 Signal 有 14 个字段，稀疏输出后平均只输出 4~6 个非默认字段。
+**效果**：完整 Signal 有 15 个字段，稀疏输出后平均只输出 4~6 个非默认字段。
 
-### 4.4 十六进制 CAN ID
+> 例外：`value_type` 即使为默认值 `uint` 也始终写出，避免旧文件或手工编辑时丢失信号类型语义。
+>
+> 旧版本 Properties 中的 `is_signed` 字段不再迁移；重新保存后以 `value_type` 为准。
 
-- Properties 输出时 CAN ID 使用 `"0x100"` 字符串格式作为 dotted key 的一部分
-- 反序列化时检测 `0x` 前缀后调用 `int(val, 16)` 解析
+### 4.4 报文身份 key
+
+- Properties 中报文键使用 `"0x100:std"`（标准帧）或 `"0x100:ext"`（扩展帧），作为 dotted key 的一部分
+- key 的生成、解析与范围校验集中在 `app/models/can_id.py`
+- 反序列化兼容旧 `"0x100"` 键，按标准帧处理
+- 标准帧 ID 范围 `0x000~0x7FF`，扩展帧 `0x00000000~0x1FFFFFFF`
 
 ### 4.5 DBC 导入/导出
 
-**导入**（`app/io/dbc_io.py` → `import_dbc()`）：
-1. `cantools.database.load_file()` 解析 DBC
-2. 遍历 `can_db.messages`，转换每个 `cantools Message` → 内部 `Message`
-3. 转换每个 `cantools Signal` → 内部 `Signal`（处理字节序、线性/恒等转换、复用模式）
-4. 提取周期时间（从 DBC attributes 中匹配 `cycle` 关键字）和发送节点
-5. 构建并返回内部 `CanDatabase`
+**运行时导入**（`app/models/database.py` → `CanDatabase.from_dbc_str()`）：
 
-**导出**（`app/io/dbc_io.py` → `export_dbc()`）：
-1. 构建 `cantools.database.Database()` 对象
-2. 遍历内部 `Message` → `cantools Message`，`Signal` → `cantools Signal`
-3. 根据 factor/offset 选择 `LinearConversion` 或 `IdentityConversion`
-4. `cantools.database.dump_file()` 写入 DBC
+1. 使用 `cantools.database.load_string()` 解析 DBC
+2. 读取 `BusType`；缺失且存在 FD 报文时推断为 `CAN FD` 并生成提示
+3. 报文身份：`is_extended_frame`（bit31 或 `VFrameFormat` 枚举）→ `0x100:std` / `0x100:ext`
+4. 信号类型：`SIG_VALTYPE_` → `float` / `double`，否则按 signed 推导 `int` / `uint`
+5. 复用模式保留 multiplexer / multiplexed + 首个复用值
+6. 未采用属性与结构记录由 `app/io/dbc_attributes.py` 收集到 `import_warnings`
+7. 解析前就会覆盖的重复报文声明也会进入 `import_warnings`
 
-**Web 运行时**的 DBC 导出走 `app/models/database.py` 的 `CanDatabase.to_dbc_str()`，手动构造 DBC 文本（不依赖 `app/io/dbc_io.py`），包含完整的 `NS_`、`BU_`、`BO_`、`SG_`、`CM_` 段。
+**运行时导出**（`app/models/database.py` → `CanDatabase.to_dbc_str()`）：
+
+1. 构造 `cantools.database.Database()`，写入 `BusType` 属性定义
+2. 报文按 `can_id` + `is_extended_frame` 导出；扩展帧由 cantools 写入 bit31
+3. 信号按 `value_type` 构造 conversion，自动写回 `SIG_VALTYPE_`
+4. 只输出采用项（`BusType`、`VFrameFormat`、`GenMsgCycleTime`）
+5. 剔除 cantools 自动附加的 `CANFD_BRS` 定义；未采用属性不输出
+
+**CLI 路径** 仍通过 `app/io/dbc_io.py` 调用上述方法，二者行为一致。
 
 ### 4.6 序列化格式小结
 
@@ -443,7 +476,7 @@ class Session:
 
 **广播事件**（后端 → 同 session 所有连接）：
 ```json
-{ "type": "signal_updated", "data": { "msg_id": 256, "signal": {...} }, "data_version": 42 }
+{ "type": "signal_updated", "data": { "msg_key": "0x100:std", "signal": {...} }, "data_version": 42 }
 ```
 
 ### 6.3 Handler 清单（27 个 type）
@@ -614,7 +647,7 @@ frontend/
 
 **决策**：以 Java Properties 为主存储格式，DBC 仅作为导入/导出格式。
 
-- ✅ dotted keys 嵌套贴合 per-message 信号模型（如 `messages.0x100.signals.RPM`）
+- ✅ dotted keys 嵌套贴合 per-message 信号模型（如 `messages.0x100:std.signals.RPM`）
 - ✅ 增删信号只影响所在报文块，不会导致全文行位移
 - ✅ 注释以 `#` 书写，工程师可自由添加备注
 - ✅ O(n) 线性序列化性能（javaproperties 库）
@@ -693,9 +726,10 @@ frontend/
 
 | 字段 | 后端验证 |
 |------|---------|
-| 报文 CAN ID | 支持十进制和 `0x` 十六进制解析，重复检查 |
+| 报文 CAN ID / 帧类型 | 支持十进制和 `0x` 十六进制解析；标准帧 ≤ `0x7FF`，扩展帧 ≤ `0x1FFFFFFF`；身份 key 为 `0x100:std` / `0x100:ext` |
 | 报文 DLC | 隐式通过信号越界检查约束（`dlc × 8` 位范围） |
 | 信号起始位/长度 | `validate_signal()` 检查越界和重叠 |
+| 信号 `value_type` | `float` 必须 32 位，`double` 必须 64 位 |
 | 信号名称 | `add_signal_to_message()` 以 name 为 dict key，重名覆盖 |
 
 ### 10.4 依赖

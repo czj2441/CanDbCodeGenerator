@@ -6,6 +6,9 @@
 
 - **Properties 主存储**：信号以 dotted keys 形式存储，增删只影响该块，Git diff 精准到字段级别
 - **DBC 导入/导出**：通过 `cantools` 与 Vector CANdb++、CANoe 等工具无缝协作
+- **报文身份 key**：标准帧与扩展帧可共用数值 ID，Properties 键使用 `0x100:std` / `0x100:ext`
+- **信号类型**：支持 `uint` / `int` / `float` / `double`，并保留 DBC 的 `SIG_VALTYPE_`
+- **导入提示**：未采用的 DBC 属性、重复报文等会在导入后列出，避免静默丢失
 - **Web 可视化编辑**：信号表格 + 布局可视化，支持拖拽调整位置
 - **信号验证**：实时检测位域越界和重叠，自动推荐修复位置
 - **撤销/重做**：最多 50 步操作历史
@@ -117,17 +120,19 @@ git commit -m "修改 EngineSpeed 因子"
 
 **Properties（优）：**
 ```diff
- messages.0x123.signals.EngineSpeed.name=EngineSpeed
- messages.0x123.signals.EngineSpeed.start_bit=0
- messages.0x123.signals.EngineSpeed.length=16
- messages.0x123.signals.EngineSpeed.byte_order=little_endian
- messages.0x123.signals.EngineSpeed.is_signed=false
--messages.0x123.signals.EngineSpeed.factor=1
-+messages.0x123.signals.EngineSpeed.factor=0.5
- messages.0x123.signals.EngineSpeed.max_val=65535
- messages.0x123.signals.EngineSpeed.unit=rpm
+ messages.0x123:std.signals.EngineSpeed.name=EngineSpeed
+ messages.0x123:std.signals.EngineSpeed.start_bit=0
+ messages.0x123:std.signals.EngineSpeed.length=16
+ messages.0x123:std.signals.EngineSpeed.byte_order=intel
+ messages.0x123:std.signals.EngineSpeed.value_type=int
+-messages.0x123:std.signals.EngineSpeed.factor=1
++messages.0x123:std.signals.EngineSpeed.factor=0.5
+ messages.0x123:std.signals.EngineSpeed.max_val=65535
+ messages.0x123:std.signals.EngineSpeed.unit=rpm
 ```
 独立的信号块，只显示实际变更的字段，人类和 Git 都能精准理解。
+
+> 报文 key 以 `:std`（标准帧）或 `:ext`（扩展帧）结尾，因此标准帧和扩展帧可以共用同一个数值 CAN ID。`value_type` 始终写出，避免信号类型歧义。
 
 ## MCP 服务器
 

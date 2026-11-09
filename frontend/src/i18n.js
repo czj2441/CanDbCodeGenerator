@@ -374,6 +374,8 @@ const dict = {
     'importWarnings.code.extended_multiplexing': '扩展复用（仅保留首个复用值）',
     'importWarnings.code.invalid_float_length': '浮点信号长度非法（已降级为整数）',
     'importWarnings.code.bus_type_inferred': '总线类型推断',
+    'importWarnings.code.message_duplicate': '报文 ID 重复（后者覆盖前者）',
+    'importWarnings.code.message_skipped': '报文因 ID 非法被跳过',
 
     // 值描述表管理
     'valtable.title': '全局值描述表管理',

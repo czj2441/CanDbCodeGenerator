@@ -713,8 +713,8 @@ class CanDatabase:
                         props[f"{sp}.length"] = str(sig.length)
                         props[f"{sp}.byte_order"] = sig.byte_order
 
-                        if sig.value_type != _SIGNAL_DEFAULTS["value_type"]:
-                            props[f"{sp}.value_type"] = str(sig.value_type)
+                        # value_type 是信号语义的一部分，始终写出，避免旧文件/稀疏输出导致类型歧义
+                        props[f"{sp}.value_type"] = str(sig.value_type)
                         if sig.factor != _SIGNAL_DEFAULTS["factor"]:
                             props[f"{sp}.factor"] = repr(sig.factor)
                         if sig.offset != _SIGNAL_DEFAULTS["offset"]:
@@ -971,6 +971,7 @@ class CanDatabase:
 
         from app.io.dbc_attributes import (
             collect_import_warnings,
+            collect_source_warnings,
             is_extended_frame,
             summarize_import_warnings,
         )
@@ -1003,6 +1004,7 @@ class CanDatabase:
                     explicit_bus_type = "CAN FD"
 
         any_fd = False
+        skipped_messages: list[str] = []
         for can_msg in can_db.messages:
             cycle_time = 0
             try:
@@ -1026,6 +1028,7 @@ class CanDatabase:
                 validate_id(can_id, is_extended)
             except CanIdError as e:
                 logger.warning("Skipping DBC message %s: %s", can_msg.name, e)
+                skipped_messages.append(f"{can_msg.name}: {e}")
                 continue
 
             msg = Message(
@@ -1117,6 +1120,16 @@ class CanDatabase:
             db.bus_type = "CAN FD"
 
         warnings = collect_import_warnings(can_db, content)
+        warnings.extend(collect_source_warnings(content))
+        if skipped_messages:
+            warnings.append({
+                "code": "message_skipped",
+                "level": "BO",
+                "level_label": "报文",
+                "name": "BO_",
+                "count": len(skipped_messages),
+                "examples": skipped_messages[:5],
+            })
         if explicit_bus_type is None and any_fd:
             warnings.append({
                 "code": "bus_type_inferred",
@@ -1126,6 +1139,7 @@ class CanDatabase:
                 "count": 1,
                 "examples": ["未找到 BusType，按 CAN FD 报文推断为 CAN FD"],
             })
+        warnings.sort(key=lambda w: (w["code"], w["level"], w["name"]))
         db.import_warnings = warnings
         if warnings:
             logger.warning(
