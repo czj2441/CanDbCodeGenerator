@@ -310,6 +310,9 @@ const dict = {
     'toast.validation.factor_zero': '缩放因子不能为零',
     'toast.validation.signal_overlap': '信号 "{name}" 与 "{other}" 位重叠',
     'toast.validation.signal_out_of_bounds': '信号超出报文范围',
+    'toast.validation.signal_min_max_invalid': '最小值/最大值不合法或最小值大于最大值',
+    'toast.validation.signal_min_out_of_range': '最小值 {value} 超出可表示物理范围 [{min_allowed}, {max_allowed}]',
+    'toast.validation.signal_max_out_of_range': '最大值 {value} 超出可表示物理范围 [{min_allowed}, {max_allowed}]',
     'toast.validation.dbc_export_errors': '存在 {total} 个数据错误，无法导出 DBC。请先修复错误面板中的问题。',
     'toast.validation.checking': '正在全量检查...',
     'toast.validation.noErrors': '数据检查通过，无错误',
@@ -361,6 +364,9 @@ const dict = {
     'dataErrors.type.canfd_in_can_bus': '报文标记为 CAN FD，但当前总线类型为 CAN',
     'dataErrors.type.message_id_out_of_range': '报文 ID 超出当前帧类型的合法范围',
     'dataErrors.type.signal_value_type_length_invalid': '信号 \'{name}\' 的值类型与长度不匹配',
+    'dataErrors.type.signal_min_max_invalid': '信号 \'{name}\' 的最小值/最大值不合法（最小值 {min_val}，最大值 {max_val}）',
+    'dataErrors.type.signal_min_out_of_range': '信号 \'{name}\' 的最小值 {value} 超出可表示范围 [{min_allowed}, {max_allowed}]',
+    'dataErrors.type.signal_max_out_of_range': '信号 \'{name}\' 的最大值 {value} 超出可表示范围 [{min_allowed}, {max_allowed}]',
 
     // DBC 导入提示
     'importWarnings.title': '导入提示',

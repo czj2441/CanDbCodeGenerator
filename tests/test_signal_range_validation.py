@@ -164,3 +164,45 @@ def test_value_type_change_revalidates_existing_max():
     ok, _, info = db.validate_signal(db.messages["0x100:std"], sig)
     assert ok is False
     assert info["error_code"] == "signal_max_out_of_range"
+
+def _db_with_sig(**kwargs) -> CanDatabase:
+    db = CanDatabase()
+    sig = _sig(**kwargs)
+    db.add_message(Message(
+        can_id=0x100, name="M", is_extended_frame=False,
+        signals={sig.name: sig},
+    ))
+    return db
+
+
+def _error_types(db: CanDatabase) -> set[str]:
+    return {e["type"] for e in db.full_validate()}
+
+
+RANGE_ERRORS = {"signal_min_max_invalid", "signal_min_out_of_range", "signal_max_out_of_range"}
+
+
+def test_integrity_reports_min_out_of_range():
+    assert "signal_min_out_of_range" in _error_types(_db_with_sig(min_val=-1, max_val=255))
+
+
+def test_integrity_reports_max_out_of_range():
+    assert "signal_max_out_of_range" in _error_types(_db_with_sig(min_val=0, max_val=256))
+
+
+def test_integrity_reports_min_max_invalid():
+    assert "signal_min_max_invalid" in _error_types(_db_with_sig(min_val=10, max_val=5))
+
+
+def test_integrity_reports_non_finite_range():
+    assert "signal_min_max_invalid" in _error_types(
+        _db_with_sig(min_val=float("inf"), max_val=0)
+    )
+
+
+def test_integrity_skips_zero_zero():
+    assert not (RANGE_ERRORS & _error_types(_db_with_sig(offset=1000.0)))
+
+
+def test_integrity_skips_factor_zero():
+    assert not (RANGE_ERRORS & _error_types(_db_with_sig(factor=0.0)))

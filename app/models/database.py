@@ -608,6 +608,47 @@ class CanDatabase:
                     "signal_name": sig.name,
                     "message": f"Signal '{sig.name}' factor is 0",
                 })
+            if sig.factor != 0 and not (sig.min_val == 0 and sig.max_val == 0):
+                if not all(math.isfinite(v) for v in (
+                    sig.factor, sig.offset, sig.min_val, sig.max_val
+                )):
+                    errors.append({
+                        "type": "signal_min_max_invalid", **msg_ref,
+                        "signal_name": sig.name,
+                        "min_val": sig.min_val, "max_val": sig.max_val,
+                        "message": f"Signal '{sig.name}' min/max values must be finite",
+                    })
+                elif sig.min_val > sig.max_val:
+                    errors.append({
+                        "type": "signal_min_max_invalid", **msg_ref,
+                        "signal_name": sig.name,
+                        "min_val": sig.min_val, "max_val": sig.max_val,
+                        "message": f"Signal '{sig.name}' min value exceeds max value",
+                    })
+                else:
+                    p_min, p_max = self.signal_physical_range(sig)
+                    if sig.min_val < p_min:
+                        errors.append({
+                            "type": "signal_min_out_of_range", **msg_ref,
+                            "signal_name": sig.name,
+                            "value": sig.min_val,
+                            "min_allowed": p_min, "max_allowed": p_max,
+                            "message": (
+                                f"Signal '{sig.name}' min value {sig.min_val} "
+                                f"is below {p_min}"
+                            ),
+                        })
+                    if sig.max_val > p_max:
+                        errors.append({
+                            "type": "signal_max_out_of_range", **msg_ref,
+                            "signal_name": sig.name,
+                            "value": sig.max_val,
+                            "min_allowed": p_min, "max_allowed": p_max,
+                            "message": (
+                                f"Signal '{sig.name}' max value {sig.max_val} "
+                                f"is above {p_max}"
+                            ),
+                        })
             if sig.value_type == SignalValueType.FLOAT and sig.length != 32:
                 errors.append({
                     "type": "signal_value_type_length_invalid",
