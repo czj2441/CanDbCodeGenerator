@@ -556,6 +556,28 @@ export function analyzeBatchProblems(signals, existingSignals = []) {
   }
 }
 
+export function analyzeBatchRangeProblem({ range, minVal, maxVal, valueType }) {
+  if (!range || range.min == null || range.max == null) return null
+  if (minVal == null || maxVal == null) return null
+  if (!Number.isFinite(minVal) || !Number.isFinite(maxVal)) return null
+  if (minVal === 0 && maxVal === 0) return null  // 0/0 = 未设置
+
+  if (minVal > maxVal) {
+    return { kind: 'min_max', minVal, maxVal }
+  }
+
+  const tol = (valueType === 'float' || valueType === 'double')
+    ? 1e-6 * Math.max(Math.abs(range.min), Math.abs(range.max), 1)
+    : 0
+  if (minVal < range.min - tol) {
+    return { kind: 'min_out', value: minVal, min: range.min, max: range.max }
+  }
+  if (maxVal > range.max + tol) {
+    return { kind: 'max_out', value: maxVal, min: range.min, max: range.max }
+  }
+  return null
+}
+
 /**
  * 把 bit 集合格式化为紧凑区间，如 [0,1,2,5] → "0-2, 5"。
  *

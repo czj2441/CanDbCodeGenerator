@@ -5,7 +5,7 @@
         <div class="modal-panel">
           <div class="modal-header">{{ t('batch.title') }}</div>
           <!-- 创建前检查：有问题时显示，无问题时整块隐藏 -->
-          <div v-if="problems.hasProblems" class="problem-bar">
+          <div v-if="hasProblems" class="problem-bar">
             <ul class="problem-list">
               <li v-for="(msg, idx) in problemMessages" :key="idx">{{ msg }}</li>
             </ul>
@@ -159,7 +159,7 @@ import { useSignalsStore } from '../stores/signals.js'
 import { useCoreStore } from '../stores/coreStore.js'
 import { t } from '../i18n.js'
 import { expandTemplate } from '../utils/format.js'
-import { computeBatchSignals, computeOccupiedBits, analyzeBatchProblems, formatBitRanges } from '../utils/signalLayout.js'
+import { computeBatchSignals, computeOccupiedBits, analyzeBatchProblems, analyzeBatchRangeProblem, formatBitRanges } from '../utils/signalLayout.js'
 import BitLayoutCanvas from './BitLayoutCanvas.vue'
 
 const signals = useSignalsStore()
@@ -188,6 +188,7 @@ const form = reactive(createDefaultForm())
 
 // 自动量程：默认跟随 length/factor/offset；用户手动改 min/max 后停止自动覆盖
 const autoRange = ref({ min: null, max: null })
+const rangeBounds = ref({ min: null, max: null })
 let autoRangeSeq = 0
 let autoRangePromise = Promise.resolve()
 
@@ -196,7 +197,7 @@ function isAutoRange() {
 }
 
 function applyAutoRange(force = false) {
-  if (!force && !isAutoRange()) return autoRangePromise
+  const shouldApply = force || isAutoRange()
   const seq = ++autoRangeSeq
   autoRangePromise = (async () => {
     try {
@@ -207,12 +208,14 @@ function applyAutoRange(force = false) {
         offset: form.offset,
       })
       if (seq !== autoRangeSeq) return
+      rangeBounds.value = { min: range.min_val, max: range.max_val }
+      if (!shouldApply) return
       if (!force && !isAutoRange()) return
       form.minVal = range.min_val
       form.maxVal = range.max_val
       autoRange.value = { min: range.min_val, max: range.max_val }
     } catch {
-      // 输入非法（如 factor=0）时保留当前值，由创建前检查处理
+      if (seq === autoRangeSeq) rangeBounds.value = { min: null, max: null }
     }
   })()
   return autoRangePromise
@@ -224,7 +227,7 @@ watch(visible, (newVal) => {
     Object.assign(form, createDefaultForm())
     confirmOpen.value = false
     autoRange.value = { min: form.minVal, max: form.maxVal }
-    applyAutoRange(true)
+    applyAutoRange()
   }
 })
 
@@ -304,6 +307,14 @@ const problems = computed(() =>
   analyzeBatchProblems(previewSignals.value, existingSignals.value)
 )
 
+/** 量程检查：与后端 validate_signal / 完整性检查同一套规则 */
+const rangeProblem = computed(() => analyzeBatchRangeProblem({
+  range: rangeBounds.value,
+  minVal: form.minVal,
+  maxVal: form.maxVal,
+  valueType: form.valueType,
+}))
+
 /** 明细转可读文案 */
 const problemMessages = computed(() => {
   const p = problems.value
@@ -323,8 +334,20 @@ const problemMessages = computed(() => {
       ? t('batch.problemDuplicateExisting', { name: item.name })
       : t('batch.problemDuplicateBatch', { name: item.name, count: item.count }))
   }
+  if (rangeProblem.value) {
+    const r = rangeProblem.value
+    if (r.kind === 'min_max') {
+      msgs.push(t('batch.problemMinMax', { min: r.minVal, max: r.maxVal }))
+    } else if (r.kind === 'min_out') {
+      msgs.push(t('batch.problemMinRange', { value: r.value, min: r.min, max: r.max }))
+    } else {
+      msgs.push(t('batch.problemMaxRange', { value: r.value, min: r.min, max: r.max }))
+    }
+  }
   return msgs
 })
+
+const hasProblems = computed(() => problemMessages.value.length > 0)
 
 const confirmOpen = ref(false)
 
@@ -334,7 +357,7 @@ function close() {
 }
 
 function create() {
-  if (problems.value.hasProblems) {
+  if (hasProblems.value) {
     confirmOpen.value = true
     return
   }
