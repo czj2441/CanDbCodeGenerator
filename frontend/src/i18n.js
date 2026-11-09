@@ -193,6 +193,8 @@ const dict = {
     'panel.signalOffset': '偏移',
     'panel.signalMin': '最小值',
     'panel.signalMax': '最大值',
+    'panel.autoFitRange': '自动计算量程',
+    'panel.autoFitRangeHint': '按值类型、长度、系数、偏移计算并填入最大/最小值',
     'panel.signalUnit': '单位',
     'panel.intel': '小端 (Intel)',
     'panel.motorola': '大端 (Motorola)',

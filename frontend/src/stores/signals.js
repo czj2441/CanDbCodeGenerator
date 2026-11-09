@@ -105,6 +105,27 @@ export const useSignalsStore = defineStore('signals', {
     },
 
     /**
+     * 按值类型/长度/系数/偏移自动计算并写入 min_val/max_val
+     */
+    async fitSignalRange(sigName, msgKey) {
+      const editor = useCoreStore()
+      const targetId = msgKey ?? editor.selectedMsgKey
+      if (targetId == null) return
+      try {
+        await editor._wsRequest('fit_signal_range', {
+          msg_key: targetId,
+          sig_name: sigName,
+        })
+        editor.addLogEntry('update', `自动计算信号 ${sigName} 的最大/最小值`)
+      } catch (e) {
+        if (!e.message?.includes?.('Connection lost')) {
+          useUiStore().showToast(translateError(e), true)
+        }
+        throw e
+      }
+    },
+
+    /**
      * 删除信号（等待服务器模式）
      */
     async deleteSignal(sigName) {
