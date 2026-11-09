@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import math
 
-from app.models import Signal
+from app.models import CanDatabase, Signal
 from app.models.signal import SignalValueType
 from app.ws.router import HandlerResult, HandlerError, EDITABLE_SIGNAL_FIELDS
 from ._common import parse_msg_key, push_data_errors
@@ -247,6 +247,72 @@ class FitSignalRangeHandler:
             push_data_errors(events, db, new_version, {msg_key})
             return HandlerResult(data=sig.to_dict(), events=events,
                                  new_version=new_version, session_id=sid)
+
+
+class GetSignalRangeHandler:
+    """按长度/值类型/系数/偏移计算物理量程，供创建信号时自动填值。"""
+
+    def __call__(self, data: dict) -> HandlerResult:
+        raw_value_type = data.get("value_type", "uint")
+        try:
+            value_type = SignalValueType(raw_value_type)
+        except ValueError:
+            valid = ", ".join(t.value for t in SignalValueType)
+            raise HandlerError(
+                "VALUE_INVALID",
+                f"Invalid value_type {raw_value_type!r}; valid: {valid}",
+                {"error_code": "value_type_invalid", "field": "value_type"},
+            )
+
+        raw_length = data.get("length", 8)
+        if (isinstance(raw_length, bool)
+                or not isinstance(raw_length, (int, float))
+                or int(raw_length) < 1):
+            raise HandlerError(
+                "VALUE_INVALID", "Signal length must be at least 1",
+                {"error_code": "signal_length_invalid", "field": "length"},
+            )
+        length = int(raw_length)
+
+        raw_factor = data.get("factor", 1.0)
+        raw_offset = data.get("offset", 0.0)
+        if (isinstance(raw_factor, bool)
+                or not isinstance(raw_factor, (int, float))
+                or not math.isfinite(raw_factor)
+                or isinstance(raw_offset, bool)
+                or not isinstance(raw_offset, (int, float))
+                or not math.isfinite(raw_offset)):
+            raise HandlerError(
+                "VALUE_INVALID", "factor/offset must be finite numbers",
+                {"error_code": "invalid_number", "field": "factor"},
+            )
+        factor = float(raw_factor)
+        offset = float(raw_offset)
+        if factor == 0:
+            raise HandlerError(
+                "VALUE_INVALID", "Cannot compute range when factor is 0",
+                {"error_code": "factor_zero", "field": "factor"},
+            )
+        if value_type == SignalValueType.FLOAT and length != 32:
+            raise HandlerError(
+                "VALUE_INVALID", "Float signal requires length 32",
+                {"error_code": "signal_value_type_length_invalid", "field": "length"},
+            )
+        if value_type == SignalValueType.DOUBLE and length != 64:
+            raise HandlerError(
+                "VALUE_INVALID", "Double signal requires length 64",
+                {"error_code": "signal_value_type_length_invalid", "field": "length"},
+            )
+
+        sig = Signal(
+            name="", start_bit=0, length=length, value_type=value_type,
+            factor=factor, offset=offset, min_val=0.0, max_val=0.0,
+        )
+        p_min, p_max = CanDatabase.signal_physical_range(sig)
+        return HandlerResult(
+            data={"min_val": p_min, "max_val": p_max},
+            session_id=data.get("session_id", ""),
+        )
 
 
 class AddSignalHandler:

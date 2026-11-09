@@ -51,6 +51,33 @@
                   </select>
                 </div>
               </div>
+              <div class="row">
+                <div class="field">
+                  <label>{{ t('batch.factor') }}</label>
+                  <input class="mono" type="number" step="any" v-model.number="form.factor">
+                </div>
+                <div class="field">
+                  <label>{{ t('batch.offset') }}</label>
+                  <input class="mono" type="number" step="any" v-model.number="form.offset">
+                </div>
+              </div>
+              <div class="row">
+                <div class="field">
+                  <label>{{ t('batch.min') }}</label>
+                  <input class="mono" type="number" step="any" v-model.number="form.minVal">
+                </div>
+                <div class="field">
+                  <label>{{ t('batch.max') }}</label>
+                  <input class="mono" type="number" step="any" v-model.number="form.maxVal">
+                </div>
+              </div>
+              <button
+                class="btn auto-range-btn"
+                :disabled="form.factor === 0"
+                @click="applyAutoRange(true)"
+              >
+                {{ t('batch.autoFitRange') }}
+              </button>
               <div class="field">
                 <label>{{ t('batch.unit') }}</label>
                 <input v-model="form.unit">
@@ -149,13 +176,51 @@ const createDefaultForm = () => ({
 
 const form = reactive(createDefaultForm())
 
+// 自动量程：默认跟随 length/factor/offset；用户手动改 min/max 后停止自动覆盖
+const autoRange = ref({ min: null, max: null })
+let autoRangeSeq = 0
+let autoRangePromise = Promise.resolve()
+
+function isAutoRange() {
+  return form.minVal === autoRange.value.min && form.maxVal === autoRange.value.max
+}
+
+function applyAutoRange(force = false) {
+  if (!force && !isAutoRange()) return autoRangePromise
+  const seq = ++autoRangeSeq
+  autoRangePromise = (async () => {
+    try {
+      const range = await signals.getSignalRange({
+        length: form.length,
+        factor: form.factor,
+        offset: form.offset,
+      })
+      if (seq !== autoRangeSeq) return
+      if (!force && !isAutoRange()) return
+      form.minVal = range.min_val
+      form.maxVal = range.max_val
+      autoRange.value = { min: range.min_val, max: range.max_val }
+    } catch {
+      // 输入非法（如 factor=0）时保留当前值，由创建前检查处理
+    }
+  })()
+  return autoRangePromise
+}
+
 // 每次打开模态框时重置表单
 watch(visible, (newVal) => {
   if (newVal) {
     Object.assign(form, createDefaultForm())
     confirmOpen.value = false
+    autoRange.value = { min: form.minVal, max: form.maxVal }
+    applyAutoRange(true)
   }
 })
+
+watch(
+  [() => form.length, () => form.factor, () => form.offset],
+  () => { applyAutoRange() }
+)
 
 // ── 预览计算 ──
 
@@ -257,6 +322,7 @@ function create() {
 
 async function doCreate() {
   confirmOpen.value = false
+  await autoRangePromise
   await signals.batchAddSignals({ ...form })
   close()
 }
@@ -306,6 +372,10 @@ async function doCreate() {
   padding: 14px 16px 14px 18px;
   overflow-y: auto;
   border-right: 1px solid var(--border);
+}
+
+.auto-range-btn {
+  margin-top: 4px;
 }
 
 /* ── 右侧预览 ── */

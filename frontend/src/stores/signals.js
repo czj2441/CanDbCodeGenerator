@@ -22,6 +22,20 @@ export const useSignalsStore = defineStore('signals', {
     },
 
     /**
+     * 按长度/值类型/系数/偏移计算物理量程（只读，不落库）
+     */
+    async getSignalRange({ length, valueType = 'uint', factor = 1.0, offset = 0.0 }) {
+      const editor = useCoreStore()
+      const result = await editor._wsRequest('get_signal_range', {
+        length,
+        value_type: valueType,
+        factor,
+        offset,
+      })
+      return result || {}
+    },
+
+    /**
      * 添加信号（等待服务器模式）
      */
     async addSignal(signalData) {
@@ -39,14 +53,42 @@ export const useSignalsStore = defineStore('signals', {
         if (available != null) defaultStartBit = available
       }
 
-      const { name: reqName, ...restSignalData } = signalData || {}
+      const {
+        name: reqName,
+        min_val: explicitMin,
+        max_val: explicitMax,
+        ...restSignalData
+      } = signalData || {}
       const baseName = reqName || 'NewSignal'
       const uniqueName = generateSignalName(msg.signals, baseName)
 
+      // 新建信号时按长度/类型/系数/偏移自动计算 min/max；显式传入的值优先
+      const rangeLength = restSignalData.length ?? editor._defaultSignalLength
+      const rangeType = restSignalData.value_type ?? 'uint'
+      const rangeFactor = restSignalData.factor ?? 1.0
+      const rangeOffset = restSignalData.offset ?? 0.0
+      let minVal = explicitMin
+      let maxVal = explicitMax
+      if (minVal == null || maxVal == null) {
+        try {
+          const range = await this.getSignalRange({
+            length: rangeLength,
+            valueType: rangeType,
+            factor: rangeFactor,
+            offset: rangeOffset,
+          })
+          if (minVal == null) minVal = range.min_val
+          if (maxVal == null) maxVal = range.max_val
+        } catch {
+          if (minVal == null) minVal = 0.0
+          if (maxVal == null) maxVal = 0.0
+        }
+      }
+
       const fullData = {
         name: uniqueName, start_bit: defaultStartBit, length: editor._defaultSignalLength,
-        byte_order: 'motorola', factor: 1.0, offset: 0.0, min_val: 0.0, max_val: 0.0,
-        unit: '', comment: '', ...restSignalData,
+        byte_order: 'motorola', factor: 1.0, offset: 0.0, unit: '', comment: '',
+        ...restSignalData, min_val: minVal, max_val: maxVal,
       }
 
       try {

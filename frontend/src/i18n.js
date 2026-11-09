@@ -227,6 +227,7 @@ const dict = {
     'batch.offset': '偏移',
     'batch.min': '最小值',
     'batch.max': '最大值',
+    'batch.autoFitRange': '自动计算量程',
     'batch.unit': '单位',
     'batch.commentTemplate': '注释模板（可选，使用 {n}）',
     'batch.commentHint': '例如：ADC 通道 {n} 原始值',

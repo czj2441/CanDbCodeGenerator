@@ -33,6 +33,13 @@
 - **数值精度**：写入精确的 `p_min` / `p_max`，不做四舍五入；float/double 会得到 `±3.4e38` / `±1.8e308` 量级的值。
 - **计算位置**：复用后端 helper，前端不重复实现公式，避免规则漂移。
 
+## 创建信号时自动填充量程
+
+- **单个信号创建**：`signals.addSignal()` 先调用只读 WS 动作 `get_signal_range`，按 `length`（以及可选的 `value_type` / `factor` / `offset`）计算 `[p_min, p_max]`，作为新信号的 `min_val` / `max_val`；显式传入的 min/max 优先。默认 `uint` + factor 1 + offset 0 时即 `0 … 2^length−1`，主要变量是信号长度。
+- **批量创建**：`BatchModal` 恢复 `factor` / `offset` / `min` / `max` 输入；打开时、以及 `length` / `factor` / `offset` 变化时自动计算量程并填入。用户手动修改 min/max 后停止自动覆盖；“自动计算量程”按钮可强制重算；创建前会等待未完成的量程请求。
+- **只读 WS 动作 `get_signal_range`**：入参 `{length, value_type?, factor?, offset?}`，返回 `{min_val, max_val}`；复用 `CanDatabase.signal_physical_range()`，不落库、不广播。
+- 批量创建仍沿用现有 `uint` 行为（批量表单没有 value type 字段）；单个创建若传入 `value_type` 则使用之。
+
 ## 非目标
 
 - 不校验 `factor` 是否合理；`factor == 0` 继续由现有 `factor_zero` 完整性错误负责。

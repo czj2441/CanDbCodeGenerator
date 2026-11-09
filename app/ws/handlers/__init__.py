@@ -5,7 +5,7 @@ from .signal_handlers import (
     EditSignalHandler, AddSignalHandler, DeleteSignalHandler,
     BatchAddSignalsHandler, GetDataErrorsHandler,
     BatchEditSignalsHandler, BatchDeleteSignalsHandler,
-    FitSignalRangeHandler,
+    FitSignalRangeHandler, GetSignalRangeHandler,
 )
 
 # Message handlers
@@ -44,7 +44,7 @@ __all__ = [
     'EditSignalHandler', 'AddSignalHandler', 'DeleteSignalHandler',
     'BatchAddSignalsHandler', 'GetDataErrorsHandler',
     'BatchEditSignalsHandler', 'BatchDeleteSignalsHandler',
-    'FitSignalRangeHandler',
+    'FitSignalRangeHandler', 'GetSignalRangeHandler',
     # Message
     'EditMessageHandler', 'AddMessageHandler', 'DeleteMessageHandler',
     'GetMessageHandler', 'GetMessagesHandler',
