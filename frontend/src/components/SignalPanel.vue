@@ -55,6 +55,14 @@
             <input class="mono" type="number" step="any" v-lazy-value="selectedSig.max_val" @blur="e => updateSignal('max_val', parseFloat(e.target.value))">
           </div>
         </div>
+        <button
+          class="btn fit-range-btn"
+          :disabled="selectedSig.factor === 0"
+          :title="t('panel.autoFitRangeHint')"
+          @click="fitSignalRange"
+        >
+          {{ t('panel.autoFitRange') }}
+        </button>
         <div class="field">
           <label>{{ t('panel.signalUnit') }}</label>
           <input v-lazy-value="selectedSig.unit" @blur="e => updateSignal('unit', e.target.value)">
@@ -324,6 +332,13 @@ function updateSignal(field, value) {
   })
 }
 
+function fitSignalRange() {
+  edit.commit((t) => {
+    if (!t.signalName) return
+    signals.fitSignalRange(t.signalName, t.msgKey).catch(() => {})
+  })
+}
+
 function handleByteOrderChange(e) {
   edit.commit((t) => {
     if (!t.signalName) return
@@ -414,5 +429,9 @@ function handleByteOrderChange(e) {
   font-size: 11px;
   color: var(--text-dim, #888);
   line-height: 1.4;
+}
+
+.fit-range-btn {
+  margin-top: 4px;
 }
 </style>

@@ -128,6 +128,7 @@ def _register_all_handlers(ws_router, session_mgr, ws_transport=None):
     """注册所有 WS handler 到 router（消除重复代码）。"""
     from app.ws.handlers import (
         EditSignalHandler, AddSignalHandler, DeleteSignalHandler, BatchAddSignalsHandler,
+        FitSignalRangeHandler,
         EditMessageHandler, AddMessageHandler, DeleteMessageHandler,
         UndoHandler, RedoHandler, SaveHandler, NewFileHandler, ImportFileHandler,
         DownloadFileHandler, CreateFileHandler, LoadFileHandler,
@@ -144,6 +145,7 @@ def _register_all_handlers(ws_router, session_mgr, ws_transport=None):
     )
 
     ws_router.register("edit_signal", EditSignalHandler(session_mgr))
+    ws_router.register("fit_signal_range", FitSignalRangeHandler(session_mgr))
     ws_router.register("add_signal", AddSignalHandler(session_mgr))
     ws_router.register("delete_signal", DeleteSignalHandler(session_mgr))
     ws_router.register("batch_add_signals", BatchAddSignalsHandler(session_mgr))

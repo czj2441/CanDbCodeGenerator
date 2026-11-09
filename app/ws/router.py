@@ -49,6 +49,7 @@ EDITABLE_SIGNAL_FIELDS = {
 WRITE_OPERATIONS = frozenset({
     'edit_signal', 'add_signal', 'delete_signal',
     'batch_add_signals', 'batch_edit_signals', 'batch_delete_signals',
+    'fit_signal_range',
     'edit_message', 'add_message', 'delete_message',
     'batch_edit_messages', 'batch_delete_messages',
     'edit_database', 'undo', 'redo', 'save',

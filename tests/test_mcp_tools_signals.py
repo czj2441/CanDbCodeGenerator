@@ -256,3 +256,50 @@ def test_batch_add_invalid_value_type_is_per_signal_error(live_backend, monkeypa
             await pool.aclose_all()
 
     asyncio.run(run())
+
+
+def test_batch_add_rejects_out_of_physical_range(live_backend, monkeypatch):
+    """批量新增绕过 _validate_signal_fields，量程校验仍必须生效。"""
+
+    async def run():
+        pool = _prepare(live_backend, monkeypatch)
+        try:
+            set_current_pat(live_backend["pat_alice"])
+            sid = await _new_session("sig_batch_range")
+            await candb_add_message(sid, _msg(402, "BatchRange"))
+            result = await candb_batch_add_signals(sid, 402, [
+                _sig("Good", 0, min_val=0, max_val=255),
+                _sig("Bad", 8, min_val=0, max_val=256),
+            ])
+            assert result["count"] == 1
+            assert result["errors"][0]["name"] == "Bad"
+            assert "256" in result["errors"][0]["error"]
+        finally:
+            await pool.aclose_all()
+
+    asyncio.run(run())
+
+
+def test_edit_revalidates_physical_range(live_backend, monkeypatch):
+    """edit_signal 合并新值后必须重新做物理量程校验。"""
+
+    async def run():
+        pool = _prepare(live_backend, monkeypatch)
+        try:
+            set_current_pat(live_backend["pat_alice"])
+            sid = await _new_session("sig_edit_range")
+            await candb_add_message(sid, _msg(403, "EditRange"))
+            await candb_add_signal(sid, 403, _sig("R", 0, min_val=0, max_val=255))
+
+            with pytest.raises(ToolError):
+                await candb_edit_signal(sid, 403, "R", "length", 4)
+            got = await candb_get_signal(sid, 403, "R")
+            assert got["length"] == 8
+            assert got["max_val"] == 255
+
+            with pytest.raises(ToolError):
+                await candb_edit_signal(sid, 403, "R", "factor", 0.5)
+        finally:
+            await pool.aclose_all()
+
+    asyncio.run(run())

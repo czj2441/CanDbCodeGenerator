@@ -58,6 +58,9 @@ const ERROR_ICONS = {
   canfd_in_can_bus: '⚠',
   message_id_out_of_range: '❌',
   signal_value_type_length_invalid: '❌',
+  signal_min_max_invalid: '⚠',
+  signal_min_out_of_range: '⚠',
+  signal_max_out_of_range: '⚠',
 }
 function errorIcon(type) { return ERROR_ICONS[type] || '⚠' }
 
@@ -68,6 +71,10 @@ function errorDescription(err) {
     other: err.conflicts_name || '',
     bits: (err.out_of_bounds_bits || err.overlapping_bits || []).join(','),
     max: err.max_bit ?? '',
+    min_val: err.min_val ?? '',
+    value: err.value ?? '',
+    min_allowed: err.min_allowed ?? '',
+    max_allowed: err.max_allowed ?? '',
   })
 }
 
