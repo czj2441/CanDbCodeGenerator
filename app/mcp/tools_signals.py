@@ -22,7 +22,7 @@ async def _get_conn(session_id: str):
         raise tool_error(e) from e
 
 
-async def _message_signals(conn, session_id: str, msg_id: int) -> list[dict]:
+async def _message_signals(conn, session_id: str, msg_id: int | str) -> list[dict]:
     """取单报文信号明细列表，每条附 msg_id。"""
     try:
         result = await conn.call("get_message", {"session_id": session_id, "msg_id": msg_id})
@@ -40,16 +40,16 @@ async def _all_signals(conn, session_id: str) -> list[dict]:
         raise tool_error(e) from e
     summaries = result.data or {}
     items: list[dict] = []
-    for mid in summaries.keys():
+    for msg_key in summaries.keys():
         try:
-            items.extend(await _message_signals(conn, session_id, int(mid)))
+            items.extend(await _message_signals(conn, session_id, msg_key))
         except ToolError:
             continue
     return items
 
 
 async def candb_list_signals(
-    session_id: str, msg_id: int | None = None, filter: str | None = None,
+    session_id: str, msg_id: int | str | None = None, filter: str | None = None,
     limit: int = 50, offset: int = 0,
 ) -> dict:
     """分页列出信号明细（每条附 msg_id）；msg_id 给定时只看该报文，否则遍历全部报文。"""
@@ -62,7 +62,7 @@ async def candb_list_signals(
     return paginate(items, limit=limit, offset=offset, filter=filter, filter_fields=("name",))
 
 
-async def candb_get_signal(session_id: str, msg_id: int, sig_name: str) -> dict:
+async def candb_get_signal(session_id: str, msg_id: int | str, sig_name: str) -> dict:
     """获取单个信号明细（附 msg_id）。"""
     await require_user()
     conn = await _get_conn(session_id)
@@ -70,10 +70,10 @@ async def candb_get_signal(session_id: str, msg_id: int, sig_name: str) -> dict:
     for sig in items:
         if sig.get("name") == sig_name:
             return sig
-    raise ToolError(f"信号 {sig_name} 在报文 0x{msg_id:X} 中不存在")
+    raise ToolError(f"信号 {sig_name} 在报文 {msg_id} 中不存在")
 
 
-async def candb_add_signal(session_id: str, msg_id: int, signal: dict) -> dict:
+async def candb_add_signal(session_id: str, msg_id: int | str, signal: dict) -> dict:
     """在报文中新增一个信号（signal 字段集与后端 add_signal 一致）。"""
     await require_user()
     conn = await _get_conn(session_id)
@@ -84,7 +84,7 @@ async def candb_add_signal(session_id: str, msg_id: int, signal: dict) -> dict:
     return dict(result.data or {})
 
 
-async def candb_batch_add_signals(session_id: str, msg_id: int, signals: list[dict]) -> dict:
+async def candb_batch_add_signals(session_id: str, msg_id: int | str, signals: list[dict]) -> dict:
     """在报文中批量新增多个信号。"""
     await require_user()
     conn = await _get_conn(session_id)
@@ -96,7 +96,7 @@ async def candb_batch_add_signals(session_id: str, msg_id: int, signals: list[di
     return dict(result.data or {})
 
 
-async def candb_edit_signal(session_id: str, msg_id: int, sig_name: str, field: str, value) -> dict:
+async def candb_edit_signal(session_id: str, msg_id: int | str, sig_name: str, field: str, value) -> dict:
     """修改单个信号的一个字段（field/value）。"""
     await require_user()
     conn = await _get_conn(session_id)
@@ -110,7 +110,7 @@ async def candb_edit_signal(session_id: str, msg_id: int, sig_name: str, field: 
 
 
 async def candb_batch_edit_signals(
-    session_id: str, msg_id: int, sig_names: list[str], fields: dict,
+    session_id: str, msg_id: int | str, sig_names: list[str], fields: dict,
 ) -> dict:
     """批量修改报文中多个信号的字段（禁止 name/start_bit）。"""
     await require_user()
@@ -124,7 +124,7 @@ async def candb_batch_edit_signals(
     return dict(result.data or {})
 
 
-async def candb_delete_signal(session_id: str, msg_id: int, sig_name: str) -> dict:
+async def candb_delete_signal(session_id: str, msg_id: int | str, sig_name: str) -> dict:
     """删除报文中的一个信号。"""
     await require_user()
     conn = await _get_conn(session_id)
@@ -136,7 +136,7 @@ async def candb_delete_signal(session_id: str, msg_id: int, sig_name: str) -> di
     return dict(result.data or {})
 
 
-async def candb_batch_delete_signals(session_id: str, msg_id: int, sig_names: list[str]) -> dict:
+async def candb_batch_delete_signals(session_id: str, msg_id: int | str, sig_names: list[str]) -> dict:
     """批量删除报文中的多个信号。"""
     await require_user()
     conn = await _get_conn(session_id)

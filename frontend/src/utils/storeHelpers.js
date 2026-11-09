@@ -110,20 +110,39 @@ export function findNextAvailableStartBit(signals, dlc, length, byteOrder) {
 let _lastGeneratedMsgId = null
 
 /**
- * 生成新的报文 ID（优先基于最后一次新增的 ID +1）
+ * 生成报文身份 key。
+ * @param {number} id - 原始 CAN ID
+ * @param {boolean} isExtended
+ * @returns {string}
+ */
+export function messageKey(id, isExtended = false) {
+  return `0x${id.toString(16).toUpperCase()}:${isExtended ? 'ext' : 'std'}`
+}
+
+/**
+ * 生成新的标准帧报文 ID（跳过已占用的 key）
  * @param {Object} messages - 当前报文 dict
  * @returns {number}
  */
 export function generateMessageId(messages) {
+  const used = new Set(Object.keys(messages || {}))
+  let candidate
   if (_lastGeneratedMsgId != null) {
-    _lastGeneratedMsgId += 1
+    candidate = _lastGeneratedMsgId + 1
   } else {
-    const msgArray = Object.values(messages)
-    _lastGeneratedMsgId = msgArray.length > 0
-      ? Math.max(...msgArray.map(m => m.id)) + 1
-      : 0x300
+    const rawIds = Object.values(messages || {}).map(m => m.id)
+    candidate = rawIds.length > 0 ? Math.max(...rawIds) + 1 : 0x300
   }
-  return _lastGeneratedMsgId
+  if (candidate > 0x7FF) candidate = 0x300
+
+  let guard = 0
+  while (used.has(messageKey(candidate, false)) && guard < 0x800) {
+    candidate += 1
+    if (candidate > 0x7FF) candidate = 0x300
+    guard += 1
+  }
+  _lastGeneratedMsgId = candidate
+  return candidate
 }
 
 /**

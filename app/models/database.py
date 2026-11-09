@@ -10,8 +10,9 @@ import logging
 import threading
 from typing import Any
 
-from .signal import Signal
+from .signal import Signal, SignalValueType
 from .message import Message
+from .can_id import CanIdError, parse_ref, to_key, validate_id
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +26,7 @@ _SIGNAL_DEFAULTS = {
     "start_bit": 0,
     "length": 8,
     "byte_order": "motorola",
-    "is_signed": False,
+    "value_type": SignalValueType.UINT,
     "factor": 1.0,
     "offset": 0.0,
     "min_val": 0.0,
@@ -72,12 +73,14 @@ class CanDatabase:
     def __init__(self, name: str = "Untitled") -> None:
         self.name: str = name
         self.bus_type: str = "CAN"  # "CAN" 或 "CAN FD"，由用户显式配置
-        self.messages: dict[int, Message] = {}
+        self.messages: dict[str, Message] = {}
         self.modified: bool = False
         self.__lock = threading.RLock()
         self.data_version: int = 0  # WS 版本号，每次变更 +1
-        self._validation_cache: dict[int, list[dict]] = {}  # msg_id -> 校验错误列表
+        self._validation_cache: dict[str, list[dict]] = {}  # msg_key -> 校验错误列表
         self.value_tables: dict[str, dict[str, str]] = {}  # 全局值描述表
+        # DBC 导入产生的未采用属性/结构提示（瞬时，不持久化）
+        self.import_warnings: list[dict] = []
 
     def with_lock(self):
         """返回锁上下文管理器，供外部需要原子操作时使用。"""
@@ -146,35 +149,45 @@ class CanDatabase:
 
     # ── 报文操作 ─────────────────────────────────────────────────────────
 
+    def sorted_keys(self) -> list[str]:
+        """按 CAN ID + 帧类型排序的报文 key 列表。**不加锁**。"""
+        return sorted(
+            self.messages,
+            key=lambda k: self.messages[k].sort_key,
+        )
+
     def add_message(self, msg: Message) -> bool:
-        """添加或替换报文。"""
+        """添加报文。"""
         with self.__lock:
-            if msg.id in self.messages:
+            key = msg.key
+            if key in self.messages:
                 return False
-            self.messages[msg.id] = msg
+            self.messages[key] = msg
             self.modified = True
             return True
 
-    def remove_message(self, msg_id: int) -> Message | None:
+    def remove_message(self, msg_key: str) -> Message | None:
         """删除报文。"""
         with self.__lock:
-            msg = self.messages.pop(msg_id, None)
+            msg = self.messages.pop(msg_key, None)
             if msg:
                 self.modified = True
             return msg
 
-    def get_message(self, msg_id: int) -> Message | None:
+    def get_message(self, msg_key: str) -> Message | None:
         """获取报文。"""
         with self.__lock:
-            return self.messages.get(msg_id)
+            return self.messages.get(msg_key)
 
-    def update_message(self, msg_id: int, **kwargs: Any) -> bool:
+    def update_message(self, msg_key: str, **kwargs: Any) -> bool:
         """更新报文属性。"""
         with self.__lock:
-            msg = self.messages.get(msg_id)
+            msg = self.messages.get(msg_key)
             if not msg:
                 return False
-            kwargs.pop("id", None)  # ID 不可修改
+            kwargs.pop("id", None)  # ID 通过 move_message 修改
+            kwargs.pop("can_id", None)
+            kwargs.pop("is_extended_frame", None)
             changed = False
             for k, v in kwargs.items():
                 if hasattr(msg, k) and getattr(msg, k) != v:
@@ -187,7 +200,7 @@ class CanDatabase:
     # 经典 CAN 允许的 DLC 值（1~8）
     CLASSIC_CAN_DLC_VALUES = frozenset({1, 2, 3, 4, 5, 6, 7, 8})
 
-    def validate_message_fields(self, msg_id: int, updates: dict) -> tuple[bool, str, dict]:
+    def validate_message_fields(self, msg_key: str, updates: dict) -> tuple[bool, str, dict]:
         """校验报文更新字段。返回 (ok, error_msg, details)。"""
         # #3: name 非空
         if "name" in updates:
@@ -195,6 +208,38 @@ class CanDatabase:
             if not isinstance(name, str) or not name.strip():
                 return False, "Message name cannot be empty", {
                     "error_code": "message_name_empty", "field": "name"
+                }
+
+        # CAN ID / 帧类型
+        if "id" in updates or "is_extended_frame" in updates:
+            msg = self.messages.get(msg_key)
+            raw_id = updates.get("id", msg.can_id if msg else 0)
+            if isinstance(raw_id, str):
+                try:
+                    raw_id = int(raw_id, 0)
+                except ValueError:
+                    return False, "Invalid CAN ID", {
+                        "error_code": "message_id_invalid", "field": "id"
+                    }
+            if isinstance(raw_id, bool) or not isinstance(raw_id, int):
+                return False, "Invalid CAN ID", {
+                    "error_code": "message_id_invalid", "field": "id"
+                }
+            is_extended = updates.get(
+                "is_extended_frame", msg.is_extended_frame if msg else False
+            )
+            if not isinstance(is_extended, bool):
+                return False, "is_extended_frame must be a boolean", {
+                    "error_code": "message_frame_type_invalid", "field": "is_extended_frame"
+                }
+            try:
+                validate_id(raw_id, is_extended)
+            except CanIdError as e:
+                return False, str(e), {
+                    "error_code": "message_id_out_of_range",
+                    "field": "id",
+                    "can_id": raw_id,
+                    "is_extended_frame": is_extended,
                 }
 
         # is_fd 类型校验
@@ -205,7 +250,7 @@ class CanDatabase:
                 }
             # is_fd 切换兼容性校验：切换为经典 CAN 时，当前 DLC 必须 ≤ 8
             if not updates["is_fd"] and "dlc" not in updates:
-                msg = self.messages.get(msg_id)
+                msg = self.messages.get(msg_key)
                 if msg and msg.dlc not in self.CLASSIC_CAN_DLC_VALUES:
                     return False, f"Classic CAN only supports DLC 1-8, current DLC is {msg.dlc}", {
                         "error_code": "dlc_fd_only", "field": "is_fd",
@@ -236,7 +281,7 @@ class CanDatabase:
             # 根据 is_fd 限制 DLC 范围
             is_fd = updates.get("is_fd")
             if is_fd is None:
-                msg = self.messages.get(msg_id)
+                msg = self.messages.get(msg_key)
                 is_fd = msg.is_fd if msg else False
             if not is_fd and dlc_int not in self.CLASSIC_CAN_DLC_VALUES:
                 return False, f"Classic CAN only supports DLC 1-8, got {dlc_int}", {
@@ -271,33 +316,47 @@ class CanDatabase:
 
         return True, "", {"error_code": "ok"}
 
-    def move_message(self, old_id: int, new_id: int) -> bool:
-        """修改报文 ID。"""
+    def move_message(
+        self, old_key: str, new_can_id: int, new_is_extended: bool | None = None
+    ) -> str | None:
+        """修改报文 ID / 帧类型，返回新的 key；失败返回 None。"""
         with self.__lock:
-            if new_id in self.messages or old_id not in self.messages:
-                return False
-            msg = self.messages.pop(old_id)
-            msg.id = new_id
-            self.messages[new_id] = msg
+            msg = self.messages.get(old_key)
+            if msg is None:
+                return None
+            if new_is_extended is None:
+                new_is_extended = msg.is_extended_frame
+            try:
+                new_key = to_key(new_can_id, new_is_extended)
+            except CanIdError:
+                return None
+            if new_key == old_key:
+                return old_key
+            if new_key in self.messages:
+                return None
+            del self.messages[old_key]
+            msg.can_id = new_can_id
+            msg.is_extended_frame = new_is_extended
+            self.messages[new_key] = msg
             self.modified = True
-            return True
+            return new_key
 
     # ── 信号操作 ─────────────────────────────────────────────────────────
 
-    def add_signal_to_message(self, msg_id: int, sig: Signal) -> bool:
+    def add_signal_to_message(self, msg_key: str, sig: Signal) -> bool:
         """添加信号到报文。信号以 name 为 key 存入 dict。"""
         with self.__lock:
-            msg = self.messages.get(msg_id)
+            msg = self.messages.get(msg_key)
             if not msg:
                 return False
             msg.signals[sig.name] = sig
             self.modified = True
             return True
 
-    def remove_signal_from_message(self, msg_id: int, sig_name: str) -> bool:
+    def remove_signal_from_message(self, msg_key: str, sig_name: str) -> bool:
         """从报文中删除信号。"""
         with self.__lock:
-            msg = self.messages.get(msg_id)
+            msg = self.messages.get(msg_key)
             if not msg:
                 return False
             if sig_name in msg.signals:
@@ -307,13 +366,13 @@ class CanDatabase:
             return False
 
     def update_signal_in_message(
-        self, msg_id: int, sig_name: str, **kwargs: Any
+        self, msg_key: str, sig_name: str, **kwargs: Any
     ) -> tuple[bool, str | None]:
         """更新信号属性。返回 (success, old_name_if_renamed)。
 
         重命名时自动更新 dict key。"""
         with self.__lock:
-            msg = self.messages.get(msg_id)
+            msg = self.messages.get(msg_key)
             if not msg:
                 return False, None
             sig = msg.signals.get(sig_name)
@@ -380,12 +439,22 @@ class CanDatabase:
                 "error_code": "signal_length_invalid", "type": "invalid_param",
                 "field": "length", "value": sig.length,
             }
+        if sig.value_type == SignalValueType.FLOAT and sig.length != 32:
+            return False, "Float signal requires length 32", {
+                "error_code": "signal_value_type_length_invalid", "type": "invalid_param",
+                "field": "length", "value": sig.length,
+            }
+        if sig.value_type == SignalValueType.DOUBLE and sig.length != 64:
+            return False, "Double signal requires length 64", {
+                "error_code": "signal_value_type_length_invalid", "type": "invalid_param",
+                "field": "length", "value": sig.length,
+            }
         # A3/A4 已延后：越界和重叠由 validate_all_signals() 非阻断检测
         return True, "", {"type": "ok"}
 
-    def validate_all_signals(self, msg_id: int) -> list[dict]:
+    def validate_all_signals(self, msg_key: str) -> list[dict]:
         """验证报文中所有信号，返回全部错误列表（越界 + 重叠）。"""
-        msg = self.messages.get(msg_id)
+        msg = self.messages.get(msg_key)
         if not msg:
             return []
         errors: list[dict] = []
@@ -419,37 +488,48 @@ class CanDatabase:
                     })
         return errors
 
-    def _validate_single_message_integrity(self, msg_id: int) -> list[dict]:
-        """验证单个报文的全部完整性错误。必须在 __lock 持有下调用。
-
-        覆盖 8 种错误类型：message_name_empty、canfd_in_can_bus、out_of_bounds、overlap、
-        factor_zero、signal_name_empty、signal_name_duplicate、signal_length_zero。
-        """
-        msg = self.messages.get(msg_id)
+    def _validate_single_message_integrity(self, msg_key: str) -> list[dict]:
+        """验证单个报文的全部完整性错误。必须在 __lock 持有下调用。"""
+        msg = self.messages.get(msg_key)
         if not msg:
             return []
         errors: list[dict] = []
+        msg_ref = {
+            "msg_key": msg_key,
+            "msg_id": msg.can_id,
+            "msg_id_hex": f"0x{msg.can_id:X}",
+            "is_extended_frame": msg.is_extended_frame,
+        }
 
         # ── 报文级 ──
         if not msg.name or not msg.name.strip():
             errors.append({
                 "type": "message_name_empty",
-                "msg_id": msg_id,
-                "message": f"Message 0x{msg_id:X} name is empty",
+                **msg_ref,
+                "message": f"Message {msg_ref['msg_id_hex']} name is empty",
+            })
+
+        try:
+            validate_id(msg.can_id, msg.is_extended_frame)
+        except CanIdError as e:
+            errors.append({
+                "type": "message_id_out_of_range",
+                **msg_ref,
+                "message": str(e),
             })
 
         # ── CAN FD 兼容性 ──
         if msg.is_fd and self.bus_type == "CAN":
             errors.append({
                 "type": "canfd_in_can_bus",
-                "msg_id": msg_id,
-                "message": f"Message 0x{msg_id:X} is marked as CAN FD but bus type is CAN",
+                **msg_ref,
+                "message": f"Message {msg_ref['msg_id_hex']} is marked as CAN FD but bus type is CAN",
             })
 
         # ── 信号位布局 ──
-        sig_errors = self.validate_all_signals(msg_id)
+        sig_errors = self.validate_all_signals(msg_key)
         for err in sig_errors:
-            err["msg_id"] = msg_id
+            err.update(msg_ref)
             if err["type"] == "out_of_bounds":
                 err["max_bit"] = msg.dlc * 8 - 1
         errors.extend(sig_errors)
@@ -460,50 +540,77 @@ class CanDatabase:
             if sig.factor == 0:
                 errors.append({
                     "type": "factor_zero",
-                    "msg_id": msg_id,
+                    **msg_ref,
                     "signal_name": sig.name,
                     "message": f"Signal '{sig.name}' factor is 0",
+                })
+            if sig.value_type == SignalValueType.FLOAT and sig.length != 32:
+                errors.append({
+                    "type": "signal_value_type_length_invalid",
+                    **msg_ref,
+                    "signal_name": sig.name,
+                    "value_type": str(sig.value_type),
+                    "length": sig.length,
+                    "message": (
+                        f"Signal '{sig.name}' is float but length is {sig.length}; "
+                        "float requires 32 bits"
+                    ),
+                })
+            elif sig.value_type == SignalValueType.DOUBLE and sig.length != 64:
+                errors.append({
+                    "type": "signal_value_type_length_invalid",
+                    **msg_ref,
+                    "signal_name": sig.name,
+                    "value_type": str(sig.value_type),
+                    "length": sig.length,
+                    "message": (
+                        f"Signal '{sig.name}' is double but length is {sig.length}; "
+                        "double requires 64 bits"
+                    ),
                 })
             if not sig.name or not sig.name.strip():
                 errors.append({
                     "type": "signal_name_empty",
-                    "msg_id": msg_id,
+                    **msg_ref,
                     "signal_name": "(empty)",
-                    "message": f"Signal in message 0x{msg_id:X} has empty name",
+                    "message": f"Signal in message {msg_ref['msg_id_hex']} has empty name",
                 })
             else:
                 if sig.name in seen_names:
                     errors.append({
                         "type": "signal_name_duplicate",
-                        "msg_id": msg_id,
+                        **msg_ref,
                         "signal_name": sig.name,
-                        "message": f"Signal name '{sig.name}' duplicated in message 0x{msg_id:X}",
+                        "message": (
+                            f"Signal name '{sig.name}' duplicated in message "
+                            f"{msg_ref['msg_id_hex']}"
+                        ),
                     })
                 seen_names.add(sig.name)
             if sig.length < 1:
                 errors.append({
                     "type": "signal_length_zero",
-                    "msg_id": msg_id,
+                    **msg_ref,
                     "signal_name": sig.name,
                     "message": f"Signal '{sig.name}' length must be ≥ 1",
                 })
         return errors
 
-    def validate_data_integrity(self, affected_msg_ids: set[int]) -> list[dict]:
-        """增量数据完整性校验。仅重验 affected_msg_ids 中的报文，其余读缓存。
+    def validate_data_integrity(self, affected_msg_keys: set[str]) -> list[dict]:
+        """增量数据完整性校验。仅重验 affected_msg_keys 中的报文，其余读缓存。
 
         必须在 __lock 持有下调用。调用方通过 push_data_errors() 间接调用。
-        若 affected_msg_ids 含不存在的 ID → 自动回退 full_validate()。
+        若 affected_msg_keys 含不存在的 key → 自动回退 full_validate()。
         """
-        if not affected_msg_ids.issubset(self.messages.keys()):
+        if not affected_msg_keys.issubset(self.messages.keys()):
             return self.full_validate()
 
-        for mid in affected_msg_ids:
-            self._validation_cache[mid] = self._validate_single_message_integrity(mid)
+        for msg_key in affected_msg_keys:
+            self._validation_cache[msg_key] = self._validate_single_message_integrity(msg_key)
 
         errors: list[dict] = []
-        for msg_id in sorted(self.messages.keys()):
-            errors.extend(self._validation_cache.get(msg_id, []))
+        for msg_key in self.sorted_keys():
+            errors.extend(self._validation_cache.get(msg_key, []))
         return errors
 
     def full_validate(self) -> list[dict]:
@@ -513,9 +620,9 @@ class CanDatabase:
         """
         self._validation_cache.clear()
         all_errors: list[dict] = []
-        for msg_id in sorted(self.messages.keys()):
-            msg_errors = self._validate_single_message_integrity(msg_id)
-            self._validation_cache[msg_id] = msg_errors
+        for msg_key in self.sorted_keys():
+            msg_errors = self._validate_single_message_integrity(msg_key)
+            self._validation_cache[msg_key] = msg_errors
             all_errors.extend(msg_errors)
         return all_errors
 
@@ -533,26 +640,38 @@ class CanDatabase:
                 "bus_type": self.bus_type,
                 "value_tables": {k: dict(v) for k, v in self.value_tables.items()},
                 "messages": {
-                    f"0x{mid:X}": m.to_dict() for mid, m in sorted(self.messages.items())
+                    m.key: m.to_dict() for m in sorted(
+                        self.messages.values(), key=lambda m: m.sort_key
+                    )
                 },
             }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> CanDatabase:
-        """从字典创建。"""
+        """从字典创建。兼容旧 ``messages.0x100`` 键。"""
         db = cls(name=data.get("name", "Untitled"))
         bt = data.get("bus_type", "CAN")
         if bt in ("CAN", "CAN FD"):
             db.bus_type = bt
         for mid_str, mdata in data.get("messages", {}).items():
-            try:
-                mid = int(mid_str, 16) if mid_str.startswith("0x") else int(mid_str)
-            except (ValueError, TypeError):
-                logger.warning("Skipping message with invalid ID in from_dict: %s", mid_str)
+            if not isinstance(mdata, dict):
                 continue
-            mdata["id"] = mid
-            msg = Message.from_dict(mdata)
-            db.messages[mid] = msg
+            payload = dict(mdata)
+            if not payload.get("key"):
+                try:
+                    can_id, is_extended = parse_ref(mid_str)
+                    payload["key"] = to_key(can_id, is_extended)
+                except (CanIdError, ValueError):
+                    logger.warning(
+                        "Skipping message with invalid key in from_dict: %s", mid_str
+                    )
+                    continue
+            try:
+                msg = Message.from_dict(payload)
+            except (CanIdError, ValueError, TypeError) as e:
+                logger.warning("Skipping invalid message in from_dict: %s", e)
+                continue
+            db.messages[msg.key] = msg
         db.value_tables = {str(k): {str(ek): str(ev) for ek, ev in v.items()}
                            for k, v in data.get("value_tables", {}).items()}
         return db
@@ -568,10 +687,9 @@ class CanDatabase:
             if self.bus_type != "CAN":
                 props["database.bus_type"] = self.bus_type
 
-            for mid in sorted(self.messages):
-                msg = self.messages[mid]
-                mid_key = f"0x{mid:X}"
-                mp = f"messages.{mid_key}"
+            for msg_key in self.sorted_keys():
+                msg = self.messages[msg_key]
+                mp = f"messages.{msg_key}"
 
                 props[f"{mp}.name"] = msg.name
                 props[f"{mp}.dlc"] = str(msg.dlc)
@@ -595,8 +713,8 @@ class CanDatabase:
                         props[f"{sp}.length"] = str(sig.length)
                         props[f"{sp}.byte_order"] = sig.byte_order
 
-                        if sig.is_signed != _SIGNAL_DEFAULTS["is_signed"]:
-                            props[f"{sp}.is_signed"] = str(sig.is_signed).lower()
+                        if sig.value_type != _SIGNAL_DEFAULTS["value_type"]:
+                            props[f"{sp}.value_type"] = str(sig.value_type)
                         if sig.factor != _SIGNAL_DEFAULTS["factor"]:
                             props[f"{sp}.factor"] = repr(sig.factor)
                         if sig.offset != _SIGNAL_DEFAULTS["offset"]:
@@ -677,13 +795,16 @@ class CanDatabase:
 
         for mid_key, msg_d in messages_data.items():
             try:
-                mid = int(mid_key, 16) if mid_key.startswith("0x") else int(mid_key)
-            except (ValueError, TypeError):
-                logger.warning("Skipping message with invalid ID in from_properties_str: %s", mid_key)
+                can_id, is_extended = parse_ref(mid_key)
+            except (CanIdError, ValueError):
+                logger.warning(
+                    "Skipping message with invalid key in from_properties_str: %s", mid_key
+                )
                 continue
 
             msg = Message(
-                id=mid,
+                can_id=can_id,
+                is_extended_frame=is_extended,
                 name=msg_d.get("name", ""),
                 dlc=int(msg_d.get("dlc", 8)),
                 cycle_time=int(msg_d.get("cycle_time", 0)),
@@ -708,7 +829,7 @@ class CanDatabase:
                     "start_bit": int(sig_d.get("start_bit", 0)),
                     "length": int(sig_d.get("length", 8)),
                     "byte_order": sig_d.get("byte_order", "motorola"),
-                    "is_signed": sig_d.get("is_signed", "false").lower() == "true",
+                    "value_type": sig_d.get("value_type", SignalValueType.UINT.value),
                     "factor": float(sig_d.get("factor", 1.0)),
                     "offset": float(sig_d.get("offset", 0.0)),
                     "min_val": float(sig_d.get("min_val", 0.0)),
@@ -722,7 +843,7 @@ class CanDatabase:
                 })
                 msg.signals[sig.name] = sig
 
-            db.messages[mid] = msg
+            db.messages[msg.key] = msg
         return db
 
     # ── DBC 序列化 ─────────────────────────────────────────────────────
@@ -739,6 +860,8 @@ class CanDatabase:
         from cantools.database.can.formats.dbc_specifics import DbcSpecifics
         from cantools.database.can.attribute import Attribute
         from copy import copy
+
+        from app.io.dbc_attributes import drop_attribute_definitions
         
         with self.__lock:
             can_db = cantools.database.Database()
@@ -769,10 +892,20 @@ class CanDatabase:
                 value_tables=ct_value_tables,
             )
             
-            for msg in sorted(self.messages.values(), key=lambda m: m.id):
+            for msg in sorted(self.messages.values(), key=lambda m: m.sort_key):
                 can_signals = []
                 
                 for sig in msg.signals.values():
+                    if sig.value_type == SignalValueType.FLOAT and sig.length != 32:
+                        raise ValueError(
+                            f"Signal '{msg.name}.{sig.name}' is float but length is "
+                            f"{sig.length}; float requires 32 bits"
+                        )
+                    if sig.value_type == SignalValueType.DOUBLE and sig.length != 64:
+                        raise ValueError(
+                            f"Signal '{msg.name}.{sig.name}' is double but length is "
+                            f"{sig.length}; double requires 64 bits"
+                        )
                     choices = None
                     if sig.value_table_name and sig.value_table_name in self.value_tables:
                         vt = self.value_tables[sig.value_table_name]
@@ -784,7 +917,7 @@ class CanDatabase:
                                 logger.warning("Signal '%s' value table: skipping non-numeric key '%s'", sig.name, k)
                     conversion = BaseConversion.factory(
                         scale=sig.factor, offset=sig.offset,
-                        choices=choices, is_float=False,
+                        choices=choices, is_float=sig.is_float,
                     )
                     
                     can_sig = cantools.database.Signal(
@@ -805,7 +938,7 @@ class CanDatabase:
                     can_signals.append(can_sig)
                 
                 can_msg = cantools.database.Message(
-                    frame_id=msg.id,
+                    frame_id=msg.can_id,
                     name=msg.name,
                     length=msg.dlc,
                     signals=can_signals,
@@ -813,10 +946,13 @@ class CanDatabase:
                     senders=[sender] if (sender := msg.sender) else [],
                     cycle_time=msg.cycle_time if msg.cycle_time > 0 else None,
                     is_fd=msg.is_fd,
+                    is_extended_frame=msg.is_extended_frame,
                 )
                 can_db.messages.append(can_msg)
             
-            return can_db.as_dbc_string()
+            content = can_db.as_dbc_string()
+            # cantools 会在 CAN FD 总线上自动附加 CANFD_BRS 定义；本工具不采用该属性
+            return drop_attribute_definitions(content, {"CANFD_BRS"})
 
     def to_c_header_str(self) -> str:
         """导出为 C 头文件字符串（Jinja2 模板渲染）。"""
@@ -832,7 +968,13 @@ class CanDatabase:
     def from_dbc_str(cls, content: str) -> CanDatabase:
         """从 DBC 格式解析（使用 cantools 库）。"""
         import cantools.database
-        
+
+        from app.io.dbc_attributes import (
+            collect_import_warnings,
+            is_extended_frame,
+            summarize_import_warnings,
+        )
+
         can_db = cantools.database.load_string(content, database_format='dbc')
         db = cls(name="Imported from DBC")
 
@@ -844,6 +986,23 @@ class CanDatabase:
                     str(k): str(v) for k, v in vt_choices.items()
                 }
 
+        # BusType：仅当 DBC 中存在显式 BA_ 时才采用；缺失时由调用方按 FD 报文推断
+        import re as _re
+        has_explicit_bus_type = _re.search(
+            r'(?m)^\s*BA_\s+"BusType"\s+', content
+        ) is not None
+        explicit_bus_type = None
+        if has_explicit_bus_type and dbc_specs is not None:
+            attrs = getattr(dbc_specs, "attributes", None) or {}
+            bus_attr = attrs.get("BusType")
+            if bus_attr is not None:
+                raw = str(getattr(bus_attr, "value", bus_attr)).strip()
+                if raw in ("CAN", "CAN FD"):
+                    explicit_bus_type = raw
+                elif raw.upper().replace("_", "").replace("-", "").replace(" ", "") == "CANFD":
+                    explicit_bus_type = "CAN FD"
+
+        any_fd = False
         for can_msg in can_db.messages:
             cycle_time = 0
             try:
@@ -860,16 +1019,27 @@ class CanDatabase:
             except Exception as e:
                 logger.debug("Failed to extract sender from DBC message %s: %s", can_msg.name, e)
                 pass
-            msg = Message.from_dict({
-                "id": can_msg.frame_id,
-                "name": can_msg.name,
-                "dlc": can_msg.length,
-                "cycle_time": cycle_time,
-                "comment": str(can_msg.comment) if can_msg.comment else "",
-                "sender": sender,
-                "is_fd": getattr(can_msg, 'is_fd', False),
-            })
-            
+
+            can_id = int(can_msg.frame_id)
+            is_extended = is_extended_frame(can_msg)
+            try:
+                validate_id(can_id, is_extended)
+            except CanIdError as e:
+                logger.warning("Skipping DBC message %s: %s", can_msg.name, e)
+                continue
+
+            msg = Message(
+                can_id=can_id,
+                is_extended_frame=is_extended,
+                name=can_msg.name,
+                dlc=can_msg.length,
+                cycle_time=cycle_time,
+                comment=str(can_msg.comment) if can_msg.comment else "",
+                sender=sender,
+                is_fd=getattr(can_msg, 'is_fd', False),
+            )
+            any_fd = any_fd or msg.is_fd
+
             for can_sig in can_msg.signals:
                 bo = can_sig.byte_order
                 order_str = bo.name.lower() if hasattr(bo, "name") else str(bo).lower()
@@ -884,6 +1054,18 @@ class CanDatabase:
                 elif can_sig.multiplexer_ids:
                     mux_mode = "multiplexed"
                     mux_value = can_sig.multiplexer_ids[0]
+
+                # 浮点信号只在长度 32/64 时有效；否则降级为整数并报告
+                is_float = bool(getattr(can_sig, "is_float", False))
+                if is_float and can_sig.length == 32:
+                    value_type = SignalValueType.FLOAT
+                elif is_float and can_sig.length == 64:
+                    value_type = SignalValueType.DOUBLE
+                else:
+                    value_type = (
+                        SignalValueType.INT if can_sig.is_signed
+                        else SignalValueType.UINT
+                    )
 
                 # 提升信号内联 VAL_ choices 到全局值描述表
                 sig_vt_name = ""
@@ -913,7 +1095,7 @@ class CanDatabase:
                     "start_bit": can_sig.start,
                     "length": can_sig.length,
                     "byte_order": order_str,
-                    "is_signed": can_sig.is_signed,
+                    "value_type": value_type.value,
                     "factor": float(can_sig.scale) if hasattr(can_sig, 'scale') else 1.0,
                     "offset": float(can_sig.offset) if hasattr(can_sig, 'offset') else 0.0,
                     "min_val": can_sig.minimum if can_sig.minimum is not None else 0.0,
@@ -926,7 +1108,29 @@ class CanDatabase:
                     "value_table_name": sig_vt_name,
                 })
                 msg.signals[sig.name] = sig
-            
-            db.messages[msg.id] = msg
+
+            db.messages[msg.key] = msg
+
+        if explicit_bus_type is not None:
+            db.bus_type = explicit_bus_type
+        elif any_fd:
+            db.bus_type = "CAN FD"
+
+        warnings = collect_import_warnings(can_db, content)
+        if explicit_bus_type is None and any_fd:
+            warnings.append({
+                "code": "bus_type_inferred",
+                "level": "DB",
+                "level_label": "数据库",
+                "name": "BusType",
+                "count": 1,
+                "examples": ["未找到 BusType，按 CAN FD 报文推断为 CAN FD"],
+            })
+        db.import_warnings = warnings
+        if warnings:
+            logger.warning(
+                "DBC import dropped or adjusted attributes: %s",
+                summarize_import_warnings(warnings),
+            )
 
         return db

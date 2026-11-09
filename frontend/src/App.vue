@@ -17,15 +17,15 @@
         </button>
         <button class="nav-tab" :class="{ active: ui.centerTab === 'valtables' }"
                 @click="ui.switchCenterTab('valtables')">{{ t('tab.valtables') }}</button>
-        <button v-for="tab in ui.openTabs" :key="tab.msgId"
+        <button v-for="tab in ui.openTabs" :key="tab.msgKey"
                 class="nav-tab nav-tab-dynamic"
-                :class="{ active: ui.activeTabId === tab.msgId }"
-                :title="getTabTooltip(tab.msgId)"
-                @click="ui.activateMessageTab(tab.msgId)"
-                @mousedown.middle.prevent="ui.closeMessageTab(tab.msgId)"
-                @contextmenu.prevent="onTabContextMenu($event, tab.msgId)">
-          <span class="tab-label">{{ getTabLabel(tab.msgId) }}</span>
-          <span class="tab-close" @click.stop="ui.closeMessageTab(tab.msgId)">×</span>
+                :class="{ active: ui.activeTabId === tab.msgKey }"
+                :title="getTabTooltip(tab.msgKey)"
+                @click="ui.activateMessageTab(tab.msgKey)"
+                @mousedown.middle.prevent="ui.closeMessageTab(tab.msgKey)"
+                @contextmenu.prevent="onTabContextMenu($event, tab.msgKey)">
+          <span class="tab-label">{{ getTabLabel(tab.msgKey) }}</span>
+          <span class="tab-close" @click.stop="ui.closeMessageTab(tab.msgKey)">×</span>
         </button>
       </div>
       <div class="main">
@@ -33,7 +33,7 @@
           <!-- 主内容区（flex:1） -->
           <SignalEditorTab v-if="ui.isAnyMessageTabActive"
                            :key="ui.activeTabId"
-                           :msg-id="ui.activeTabId" />
+                           :msg-key="ui.activeTabId" />
           <MessageTab v-else-if="ui.centerTab === 'messages'" />
           <ValueTableTab v-else-if="ui.centerTab === 'valtables'" />
 
@@ -104,6 +104,12 @@
     </div>
     <!-- Toast 在所有模式下都渲染 -->
     <Toast />
+    <!-- DBC 导入提示（不阻断） -->
+    <ImportWarningsModal
+      v-if="importWarnings.length"
+      :warnings="importWarnings"
+      @close="importWarnings = []"
+    />
     <!-- 返回确认对话框（未保存更改） -->
     <Teleport to="body">
       <Transition name="fade">
@@ -168,10 +174,11 @@ import Toast from './components/Toast.vue'
 import ContextMenu from './components/ContextMenu.vue'
 import LogPanel from './components/LogPanel.vue'
 import DataErrorList from './components/DataErrorList.vue'
+import ImportWarningsModal from './components/ImportWarningsModal.vue'
 import ValueTableTab from './components/ValueTableTab.vue'
 import ValueTablePanel from './components/ValueTablePanel.vue'
 import { versionMismatch } from './utils/version-check.js'
-import { toHex } from './utils/format.js'
+
 
 const store = useCoreStore()
 const authStore = useAuthStore()
@@ -186,24 +193,24 @@ const errorCount = computed(() => (store.dataErrors || []).length)
 
 // ── 动态标签页辅助函数 ──
 /** 动态 tab 显示文字：ID 在前 + 报文名称 */
-function getTabLabel(msgId) {
-  const msg = store.messages[String(msgId)]
-  if (!msg) return toHex(msgId)
-  return `${toHex(msgId)} ${msg.name || 'Unnamed'}`
+function getTabLabel(msgKey) {
+  const msg = store.messages[String(msgKey)]
+  if (!msg) return String(msgKey)
+  return `${msg.id_hex || msgKey} ${msg.name || 'Unnamed'}`
 }
 
 /** Tab 悬浮提示：完整报文标识 */
-function getTabTooltip(msgId) {
-  const msg = store.messages[String(msgId)]
+function getTabTooltip(msgKey) {
+  const msg = store.messages[String(msgKey)]
   if (!msg) return ''
-  return `${toHex(msgId)} ${msg.name || 'Unnamed'}`
+  return `${msg.id_hex || msgKey} ${msg.name || 'Unnamed'}`
 }
 
 /** Tab 右键菜单 */
-function onTabContextMenu(e, msgId) {
+function onTabContextMenu(e, msgKey) {
   const x = Math.min(e.clientX, window.innerWidth - 180)
   const y = Math.min(e.clientY, window.innerHeight - 200)
-  ui.showContextMenu(x, y, 'tab', msgId)
+  ui.showContextMenu(x, y, 'tab', msgKey)
 }
 
 // ── 底部面板 resize ──
@@ -326,6 +333,7 @@ watchEffect(() => { if (versionMismatch.value) _initVmPos() })
 
 // 应用模式：'login' | 'change-password' | 'browser' | 'editor'
 const mode = ref('login')
+const importWarnings = ref([])
 
 function handleSessionStolen(stolenSessionId) {
   // WS lock_stolen 事件触发时调用
@@ -483,8 +491,9 @@ async function createNewFile(name) {
 // 从 FileBrowser 导入文件
 async function importFileFromBrowser({ format, content, filename }) {
   try {
-    await fileOps.importFile({ format, content, filename })
+    const data = await fileOps.importFile({ format, content, filename })
     mode.value = 'editor'
+    importWarnings.value = data?.import_warnings || []
   } catch (e) {
     console.error('Failed to import file:', e)
   }
@@ -569,13 +578,13 @@ const contextMenuItems = computed(() => {
   if (target === 'message') {
     const multiKeys = ui.msgMultiKeys
     const isMulti = multiKeys.length > 1
-    const hasMsg = store.selectedMsgId != null
+    const hasMsg = store.selectedMsgKey != null
     return [
-      { label: t('ctx.openInTab'), action: () => ui.openMessageTab(store.selectedMsgId), disabled: !hasMsg },
+      { label: t('ctx.openInTab'), action: () => ui.openMessageTab(store.selectedMsgKey), disabled: !hasMsg },
       { label: t('ctx.copyMessage'), action: () => isMulti ? clipboard.copyMessages(multiKeys) : clipboard.copyMessage(), disabled: !isMulti && !hasMsg },
       { label: t('ctx.cutMessage'), action: () => isMulti ? clipboard.cutMessages(multiKeys) : clipboard.cutMessage(), disabled: !isMulti && !hasMsg },
       { label: t('ctx.pasteMessage'), action: () => clipboard.pasteMessages(), disabled: !clipboard.clipboard || clipboard.clipboard.type !== 'message' },
-      { label: t('ctx.deleteMessage'), action: () => isMulti ? messages.batchDeleteMessages(multiKeys) : messages.deleteMessage(store.selectedMsgId), danger: true, disabled: !isMulti && !hasMsg },
+      { label: t('ctx.deleteMessage'), action: () => isMulti ? messages.batchDeleteMessages(multiKeys) : messages.deleteMessage(store.selectedMsgKey), danger: true, disabled: !isMulti && !hasMsg },
     ]
   }
   if (target === 'tab') {
@@ -585,7 +594,7 @@ const contextMenuItems = computed(() => {
       {
         label: t('tab.closeOtherTabs'),
         action: () => {
-          ui.openTabs.filter(t => t.msgId !== tabMsgId).forEach(t => ui.closeMessageTab(t.msgId))
+          ui.openTabs.filter(t => t.msgKey !== tabMsgId).forEach(t => ui.closeMessageTab(t.msgKey))
         },
       },
     ]
@@ -604,11 +613,11 @@ function onContextMenu(e) {
     ui.showContextMenu(x, y, 'signal', sigRow.dataset.sigId)
     return
   }
-  const msgRow = e.target.closest('tr[data-msg-id]')
+  const msgRow = e.target.closest('tr[data-msg-key]')
   if (msgRow) {
     e.preventDefault()
-    const msgId = Number(msgRow.dataset.msgId)
-    if (store.selectedMsgId !== msgId) messages.selectMessage(msgId)
+    const msgKey = msgRow.dataset.msgKey
+    if (store.selectedMsgKey !== msgKey) messages.selectMessage(msgKey)
     ui.showContextMenu(x, y, 'message', null)
     return
   }

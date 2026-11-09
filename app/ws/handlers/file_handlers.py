@@ -101,7 +101,9 @@ class ImportFileHandler:
             data={"message_count": len(new_db.messages),
                   "session_id": new_sid,
                   "bus_type": new_db.bus_type,
-                  "file_name": file_name},
+                  "file_name": file_name,
+                  "import_warnings": list(getattr(new_db, "import_warnings", []) or []),
+                  "warning_count": len(getattr(new_db, "import_warnings", []) or [])},
             new_version=0, session_id=sid,
             new_session_id=new_sid)
 

@@ -11,7 +11,7 @@ def _make_msg(msg_id: int, name: str = "TestMsg", dlc: int = 8,
     """创建测试报文。signals 支持 list（按信号名转 dict）或显式 dict（如构造重名信号）。"""
     if isinstance(signals, list):
         signals = {s.name: s for s in signals}
-    msg = Message(id=msg_id, name=name, dlc=dlc, signals=signals or {})
+    msg = Message(can_id=msg_id, name=name, dlc=dlc, signals=signals or {})
     return msg
 
 
@@ -134,14 +134,14 @@ class TestFullValidateBaseline:
         db.add_message(_make_msg(0x100, "Msg", 8, [_make_sig("S", factor=0)]))
         # 先填充缓存
         db.full_validate()
-        assert 0x100 in db._validation_cache
-        assert len(db._validation_cache[0x100]) == 1  # factor_zero
+        assert "0x100:std" in db._validation_cache
+        assert len(db._validation_cache["0x100:std"]) == 1  # factor_zero
 
         # 修复错误后全量扫描应重建缓存
-        db.messages[0x100].signals["S"].factor = 1.0
+        db.messages["0x100:std"].signals["S"].factor = 1.0
         errors = db.full_validate()
         assert errors == []
-        assert db._validation_cache[0x100] == []
+        assert db._validation_cache["0x100:std"] == []
 
 
 class TestIncrementalValidation:
@@ -156,8 +156,8 @@ class TestIncrementalValidation:
         db.full_validate()
 
         # 编辑信号：设置 factor=0 制造错误
-        db.messages[0x100].signals["S1"].factor = 0
-        incremental = db.validate_data_integrity({0x100})
+        db.messages["0x100:std"].signals["S1"].factor = 0
+        incremental = db.validate_data_integrity({"0x100:std"})
         full = db.full_validate()
         assert _error_types(incremental) == _error_types(full)
 
@@ -170,8 +170,8 @@ class TestIncrementalValidation:
 
         # 添加重叠信号
         new_sig = _make_sig("Overlap", 4, 8)
-        db.messages[0x100].signals[new_sig.name] = new_sig
-        incremental = db.validate_data_integrity({0x100})
+        db.messages["0x100:std"].signals[new_sig.name] = new_sig
+        incremental = db.validate_data_integrity({"0x100:std"})
         full = db.full_validate()
         assert _error_types(incremental) == _error_types(full)
 
@@ -182,8 +182,8 @@ class TestIncrementalValidation:
         db.full_validate()
 
         # 清空报文名
-        db.messages[0x100].name = ""
-        incremental = db.validate_data_integrity({0x100})
+        db.messages["0x100:std"].name = ""
+        incremental = db.validate_data_integrity({"0x100:std"})
         full = db.full_validate()
         assert _error_types(incremental) == _error_types(full)
         assert any(e["type"] == "message_name_empty" for e in incremental)
@@ -196,9 +196,9 @@ class TestIncrementalValidation:
         db.full_validate()
 
         # 修改多个报文
-        db.messages[0x100].signals["S0"].factor = 0
-        db.messages[0x105].name = ""
-        incremental = db.validate_data_integrity({0x100, 0x105})
+        db.messages["0x100:std"].signals["S0"].factor = 0
+        db.messages["0x105:std"].name = ""
+        incremental = db.validate_data_integrity({"0x100:std", "0x105:std"})
         full = db.full_validate()
         assert _error_types(incremental) == _error_types(full)
 
@@ -214,10 +214,10 @@ class TestFallbackOnDeletedMsgId:
         db.full_validate()
 
         # 删除 0x100
-        db.remove_message(0x100)
+        db.remove_message("0x100:std")
 
         # 传入已删除的 ID → issubset 失败 → 回退全量
-        errors = db.validate_data_integrity({0x100, 0x200})
+        errors = db.validate_data_integrity({"0x100:std", "0x200:std"})
         # 应该等于 full_validate 结果
         full = db.full_validate()
         assert _error_types(errors) == _error_types(full)
@@ -231,8 +231,8 @@ class TestFallbackOnDeletedMsgId:
         db.add_message(_make_msg(0x200, "Msg2", 8))
         db.full_validate()
 
-        db.remove_message(0x100)
-        errors = db.validate_data_integrity({0x100})
+        db.remove_message("0x100:std")
+        errors = db.validate_data_integrity({"0x100:std"})
         # 回退全量扫描，结果应只含 0x200（无错误）
         assert errors == []
 
@@ -244,9 +244,9 @@ class TestFallbackOnDeletedMsgId:
         db.full_validate()
 
         # 修改 0x200
-        db.messages[0x200].signals["S2"].factor = 0  # 制造错误
+        db.messages["0x200:std"].signals["S2"].factor = 0  # 制造错误
         # 仅传 0x200（存在）→ 增量模式
-        errors = db.validate_data_integrity({0x200})
+        errors = db.validate_data_integrity({"0x200:std"})
         assert any(e["type"] == "factor_zero" and e["msg_id"] == 0x200 for e in errors)
 
 
@@ -259,8 +259,8 @@ class TestCacheConsistency:
         db.add_message(_make_msg(0x100, "Msg1", 8, [_make_sig("S", 0, 8)]))
         db.full_validate()
 
-        db.messages[0x100].signals["S"].factor = 0
-        incremental = db.validate_data_integrity({0x100})
+        db.messages["0x100:std"].signals["S"].factor = 0
+        incremental = db.validate_data_integrity({"0x100:std"})
         full = db.full_validate()
         assert _error_types(incremental) == _error_types(full)
 
@@ -269,7 +269,7 @@ class TestCacheConsistency:
         db = CanDatabase()
         db.add_message(_make_msg(0x100, "Msg1", 8, [_make_sig("S", factor=0)]))
         # 不调 full_validate，直接增量
-        errors = db.validate_data_integrity({0x100})
+        errors = db.validate_data_integrity({"0x100:std"})
         assert any(e["type"] == "factor_zero" for e in errors)
 
     def test_unaffected_messages_use_cache(self):
@@ -279,11 +279,11 @@ class TestCacheConsistency:
         db.add_message(_make_msg(0x200, "Msg2", 8, [_make_sig("S2", factor=0)]))
         # 初始化缓存
         db.full_validate()
-        cached_200 = db._validation_cache[0x200]
+        cached_200 = db._validation_cache["0x200:std"]
         assert any(e["type"] == "factor_zero" for e in cached_200)
 
         # 仅增量 0x100
-        errors = db.validate_data_integrity({0x100})
+        errors = db.validate_data_integrity({"0x100:std"})
         # 0x200 的错误应来自缓存（仍然存在）
         assert any(e["type"] == "factor_zero" and e["msg_id"] == 0x200 for e in errors)
 
@@ -293,7 +293,7 @@ class TestCacheConsistency:
         db.add_message(_make_msg(0x100, "Msg", 8, [_make_sig("S", factor=0)]))
         db.full_validate()
         # 修复
-        db.messages[0x100].signals["S"].factor = 1.0
+        db.messages["0x100:std"].signals["S"].factor = 1.0
         # 缓存仍有旧的 factor_zero 错误
         # 但 full_validate 应返回空
         export_errors = db.validate_for_dbc_export()

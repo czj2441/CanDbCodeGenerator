@@ -139,28 +139,28 @@ class UndoEngine:
         if snap_type == "message_delete":
             self._restore_message(session, snap["data"])
         elif snap_type == "signal_delete":
-            self._restore_signal(session, snap["msgId"], snap["data"])
+            self._restore_signal(session, snap["msgKey"], snap["data"])
         elif snap_type == "message_update":
-            self._restore_message_update(session, snap["msgId"], snap, "prev")
+            self._restore_message_update(session, snap["msgKey"], snap, "prev")
         elif snap_type == "signal_update":
-            self._restore_signal_update(session, snap["msgId"], snap, "prev")
+            self._restore_signal_update(session, snap["msgKey"], snap, "prev")
         elif snap_type == "message_add":
-            self._delete_message(session, snap["msgId"])
+            self._delete_message(session, snap["msgKey"])
         elif snap_type == "signal_add":
-            self._delete_signal(session, snap["msgId"], snap["sigName"])
+            self._delete_signal(session, snap["msgKey"], snap["sigName"])
         elif snap_type == "batch_signal_add":
             for sig in snap["signals"]:
-                self._delete_signal(session, snap["msgId"], sig["name"])
+                self._delete_signal(session, snap["msgKey"], sig["name"])
         elif snap_type == "batch_signal_update":
             # prev: {sigName: {field: old_val}, ...}, next: {field: value}
-            self._restore_batch_signal_update(session, snap["msgId"], snap, "prev")
+            self._restore_batch_signal_update(session, snap["msgKey"], snap, "prev")
         elif snap_type == "batch_message_update":
-            # prev: [{msgId: id, field: old_val}, ...], next: {field: value}
+            # prev: [{msgKey: key, field: old_val}, ...], next: {field: value}
             self._restore_batch_message_update(session, snap, "prev")
         elif snap_type == "batch_signal_delete":
             # signals: [{name, data: sig.to_dict()}, ...]
             for sig in snap["signals"]:
-                self._restore_signal(session, snap["msgId"], sig["data"])
+                self._restore_signal(session, snap["msgKey"], sig["data"])
         elif snap_type == "batch_message_delete":
             # messages: [msg.to_dict(), ...]
             for msg_data in snap["messages"]:
@@ -186,31 +186,31 @@ class UndoEngine:
         snap_type = snap.get("type")
 
         if snap_type == "message_delete":
-            self._delete_message(session, snap["data"]["id"])
+            self._delete_message(session, snap["data"].get("key", ""))
         elif snap_type == "signal_delete":
-            self._delete_signal(session, snap["msgId"], snap["data"]["name"])
+            self._delete_signal(session, snap["msgKey"], snap["data"]["name"])
         elif snap_type == "message_update":
-            self._restore_message_update(session, snap["msgId"], snap, "next")
+            self._restore_message_update(session, snap["msgKey"], snap, "next")
         elif snap_type == "signal_update":
-            self._restore_signal_update(session, snap["msgId"], snap, "next")
+            self._restore_signal_update(session, snap["msgKey"], snap, "next")
         elif snap_type == "message_add":
             self._restore_message(session, snap["data"])
         elif snap_type == "signal_add":
-            self._restore_signal(session, snap["msgId"], snap["data"])
+            self._restore_signal(session, snap["msgKey"], snap["data"])
         elif snap_type == "batch_signal_add":
             for sig in snap["signals"]:
-                self._restore_signal(session, snap["msgId"], sig["data"])
+                self._restore_signal(session, snap["msgKey"], sig["data"])
         elif snap_type == "batch_signal_update":
             # undo 的逆操作：用 next 重新应用变更
-            self._restore_batch_signal_update(session, snap["msgId"], snap, "next")
+            self._restore_batch_signal_update(session, snap["msgKey"], snap, "next")
         elif snap_type == "batch_message_update":
             self._restore_batch_message_update(session, snap, "next")
         elif snap_type == "batch_signal_delete":
             for sig in snap["signals"]:
-                self._delete_signal(session, snap["msgId"], sig["name"])
+                self._delete_signal(session, snap["msgKey"], sig["name"])
         elif snap_type == "batch_message_delete":
             for msg_data in snap["messages"]:
-                self._delete_message(session, msg_data["id"])
+                self._delete_message(session, msg_data.get("key", ""))
         elif snap_type == "database_update":
             self._restore_database_update(session, snap["next"])
         elif snap_type == "value_table_add":
@@ -239,84 +239,78 @@ class UndoEngine:
 
     def _restore_message(self, session, msg_data: dict):
         """恢复报文（含所有信号）。"""
-        from app.models import Signal, Message
+        from app.models import Message
 
-        msg_id = msg_data["id"]
-        signals: dict[str, Signal] = {}
-        raw_signals = msg_data.get("signals", {})
-        for _key, sig_data in raw_signals.items():
-            sig = Signal.from_dict(sig_data)
-            signals[sig.name] = sig
+        msg = Message.from_dict(msg_data)
+        session.db.messages[msg.key] = msg
 
-        msg = Message(
-            id=msg_id,
-            name=msg_data["name"],
-            dlc=msg_data.get("dlc", 8),
-            cycle_time=msg_data.get("cycle_time", 0),
-            sender=msg_data.get("sender", ""),
-            comment=msg_data.get("comment", ""),
-            is_fd=msg_data["is_fd"],
-            signals=signals,
-        )
-
-        session.db.messages[msg_id] = msg
-
-    def _restore_signal(self, session, msg_id: int, sig_data: dict):
+    def _restore_signal(self, session, msg_key: str, sig_data: dict):
         """恢复信号。"""
         from app.models import Signal
-        msg = session.db.messages.get(msg_id)
+        msg = session.db.messages.get(msg_key)
         if not msg:
-            raise ValueError(f"Message {msg_id} not found")
+            raise ValueError(f"Message {msg_key} not found")
 
         sig = Signal.from_dict(sig_data)
         msg.signals[sig.name] = sig
 
-    def _restore_message_update(self, session, msg_id: int, snap: dict, direction: str):
-        """恢复报文属性更新（含 ID 变更）。
+    def _restore_message_update(self, session, msg_key: str, snap: dict, direction: str):
+        """恢复报文属性更新（含 key 变更）。
 
         Args:
             session: 当前会话
-            msg_id: 快照中的 msgId（消息在操作后的 ID）
-            snap: 完整快照，含 prev/next 和可选的 id 变更
+            msg_key: 快照中的报文 key（操作后的 key）
+            snap: 完整快照，含 prevKey/nextKey 和 prev/next
             direction: "prev"（undo）或 "next"（redo）
         """
-        updates = snap[direction]
-        other_dir = "next" if direction == "prev" else "prev"
-        target_id = updates.get("id")
+        from app.models.can_id import parse_key
 
-        if target_id is not None:
-            # 含 ID 变更：source_id 来自快照的另一方向
-            source_id = snap[other_dir].get("id", msg_id)
-            msg = session.db.messages.get(source_id)
-            if not msg:
-                raise ValueError(f"Message 0x{source_id:X} not found")
-            current_id = msg.id
-            if target_id != current_id:
-                if not session.db.move_message(current_id, target_id):
-                    raise ValueError(f"Cannot move message 0x{current_id:X} to 0x{target_id:X}")
-                msg = session.db.messages[target_id]
+        if direction == "prev":
+            source_key = snap.get("nextKey", msg_key)
+            target_key = snap.get("prevKey", source_key)
         else:
-            # 无 ID 变更：标准属性恢复
-            msg = session.db.messages.get(msg_id)
-            if not msg:
-                raise ValueError(f"Message {msg_id} not found")
+            source_key = snap.get("prevKey", msg_key)
+            target_key = snap.get("nextKey", source_key)
 
-        for key, value in updates.items():
-            if key == "id":
-                continue  # move_message 已处理 msg.id
-            if hasattr(msg, key):
-                setattr(msg, key, value)
+        msg = session.db.messages.get(source_key)
+        if msg is None:
+            msg = session.db.messages.get(msg_key)
+        if msg is None:
+            raise ValueError(f"Message {msg_key} not found")
 
-    def _restore_signal_update(self, session, msg_id: int, snap: dict, direction: str):
+        if msg.key != target_key:
+            can_id, is_extended = parse_key(target_key)
+            moved = session.db.move_message(msg.key, can_id, is_extended)
+            if moved is None:
+                raise ValueError(
+                    f"Cannot move message {msg.key} to {target_key}"
+                )
+            msg = session.db.messages[moved]
+
+        for field, value in snap[direction].items():
+            if field in ("id", "is_extended_frame", "key", "can_id"):
+                continue  # move_message 已处理身份
+            if hasattr(msg, field):
+                setattr(msg, field, value)
+
+    @staticmethod
+    def _apply_signal_field(sig, field: str, value):
+        """写入信号字段；value_type 统一恢复为枚举。"""
+        if field == "value_type":
+            from app.models.signal import SignalValueType
+            value = SignalValueType(value)
+        setattr(sig, field, value)
+
+    def _restore_signal_update(self, session, msg_key: str, snap: dict, direction: str):
         """恢复信号属性更新。支持重命名回退。
 
         Args:
             snap: 完整快照，含 sigName / prev / next
             direction: "prev"（undo）或 "next"（redo）
         """
-        msg = session.db.messages.get(msg_id)
+        msg = session.db.messages.get(msg_key)
         if not msg:
-            raise ValueError(f"Message {msg_id} not found")
+            raise ValueError(f"Message {msg_key} not found")
 
         updates = snap[direction]
         other_dir = "next" if direction == "prev" else "prev"
@@ -346,18 +340,18 @@ class UndoEngine:
             if key == "name":
                 continue  # 已在上面处理
             if hasattr(sig, key):
-                setattr(sig, key, value)
+                self._apply_signal_field(sig, key, value)
 
-    def _restore_batch_signal_update(self, session, msg_id: int, snap: dict, direction: str):
+    def _restore_batch_signal_update(self, session, msg_key: str, snap: dict, direction: str):
         """恢复批量信号属性更新。
 
         Args:
             snap: 完整快照，含 prev ({sigName: {field: old_val}}) / next ({field: value})
             direction: "prev"（undo）或 "next"（redo）
         """
-        msg = session.db.messages.get(msg_id)
+        msg = session.db.messages.get(msg_key)
         if not msg:
-            raise ValueError(f"Message {msg_id} not found")
+            raise ValueError(f"Message {msg_key} not found")
 
         if direction == "prev":
             # undo: prev 是 {sigName: {field: old_val}, ...}，逐个恢复
@@ -367,7 +361,7 @@ class UndoEngine:
                     continue
                 for field, value in field_vals.items():
                     if hasattr(sig, field):
-                        setattr(sig, field, value)
+                        self._apply_signal_field(sig, field, value)
         else:
             # redo: next 是 {field: value}，对所有在 prev 中的信号应用
             fields = snap["next"]
@@ -377,24 +371,24 @@ class UndoEngine:
                     continue
                 for field, value in fields.items():
                     if hasattr(sig, field):
-                        setattr(sig, field, value)
+                        self._apply_signal_field(sig, field, value)
 
     def _restore_batch_message_update(self, session, snap: dict, direction: str):
         """恢复批量报文属性更新。
 
         Args:
-            snap: 完整快照，含 prev ([{msgId, field: old_val}, ...]) / next ({field: value})
+            snap: 完整快照，含 prev ([{msgKey, field: old_val}, ...]) / next ({field: value})
             direction: "prev"（undo）或 "next"（redo）
         """
         if direction == "prev":
-            # undo: prev 中每条含 msgId + 旧值
+            # undo: prev 中每条含 msgKey + 旧值
             for entry in snap["prev"]:
-                msg_id = entry["msgId"]
-                msg = session.db.messages.get(msg_id)
+                msg_key = entry["msgKey"]
+                msg = session.db.messages.get(msg_key)
                 if not msg:
                     continue
                 for field, value in entry.items():
-                    if field == "msgId":
+                    if field == "msgKey":
                         continue
                     if hasattr(msg, field):
                         setattr(msg, field, value)
@@ -402,8 +396,8 @@ class UndoEngine:
             # redo: next 是 {field: value}，对所有在 prev 中的报文应用
             fields = snap["next"]
             for entry in snap["prev"]:
-                msg_id = entry["msgId"]
-                msg = session.db.messages.get(msg_id)
+                msg_key = entry["msgKey"]
+                msg = session.db.messages.get(msg_key)
                 if not msg:
                     continue
                 for field, value in fields.items():
@@ -417,14 +411,14 @@ class UndoEngine:
             if hasattr(db, key):
                 setattr(db, key, value)
 
-    def _delete_message(self, session, msg_id: int):
+    def _delete_message(self, session, msg_key: str):
         """删除报文。"""
-        session.db.messages.pop(msg_id, None)
+        session.db.messages.pop(msg_key, None)
 
-    def _delete_signal(self, session, msg_id: int, sig_name: str):
+    def _delete_signal(self, session, msg_key: str, sig_name: str):
         """删除信号。"""
-        msg = session.db.messages.get(msg_id)
+        msg = session.db.messages.get(msg_key)
         if not msg:
-            raise ValueError(f"Message {msg_id} not found")
+            raise ValueError(f"Message {msg_key} not found")
 
         msg.signals.pop(sig_name, None)

@@ -8,15 +8,19 @@ diff_engine.py — 保存差异计算引擎。
 from typing import Any
 
 from app.models import CanDatabase
+from app.models.can_id import parse_key
 
 # ── 字段白名单 ──
 
 _DB_FIELDS = ['name', 'bus_type']
 
-_MESSAGE_FIELDS = ['name', 'dlc', 'cycle_time', 'comment', 'sender', 'is_fd']
+_MESSAGE_FIELDS = [
+    'name', 'dlc', 'cycle_time', 'comment', 'sender', 'is_fd',
+    'is_extended_frame',
+]
 
 _SIGNAL_FIELDS = [
-    'name', 'start_bit', 'length', 'byte_order', 'is_signed',
+    'name', 'start_bit', 'length', 'byte_order', 'value_type',
     'factor', 'offset', 'min_val', 'max_val', 'unit', 'comment',
     'receivers', 'multiplexer_mode', 'multiplexer_value', 'value_table_name',
 ]
@@ -51,9 +55,10 @@ def _values_equal(a: Any, b: Any) -> bool:
     return a == b
 
 
-def _msg_key_sort(key: str) -> int:
-    """报文 key 按 ID 数值排序。"""
-    return int(key, 16) if key.startswith("0x") else int(key)
+def _msg_key_sort(key: str) -> tuple[int, bool]:
+    """报文 key 按 CAN ID + 帧类型排序。"""
+    can_id, is_extended = parse_key(key)
+    return (can_id, is_extended)
 
 
 def compute_save_diff(disk_db: CanDatabase, mem_db: CanDatabase) -> list[dict]:

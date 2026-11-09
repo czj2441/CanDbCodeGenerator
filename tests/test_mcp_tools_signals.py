@@ -198,3 +198,61 @@ def test_edit_signal_overlap_reports_data_error(live_backend, monkeypatch):
             await pool.aclose_all()
 
     asyncio.run(run())
+
+
+def test_value_type_enum_controls_length(live_backend, monkeypatch):
+    """value_type 是枚举；float/double 会自动设置长度 32/64。"""
+
+    async def run():
+        pool = _prepare(live_backend, monkeypatch)
+        try:
+            set_current_pat(live_backend["pat_alice"])
+            sid = await _new_session("sig_value_type")
+            await candb_add_message(sid, _msg(400, "ValueTypeMsg", dlc=64))
+            await candb_add_signal(sid, 400, _sig("V", 0, length=8))
+
+            got = await candb_get_signal(sid, 400, "V")
+            assert got["value_type"] == "uint"
+            assert got["length"] == 8
+
+            edited = await candb_edit_signal(sid, 400, "V", "value_type", "float")
+            assert edited["value_type"] == "float"
+            assert edited["length"] == 32
+
+            edited = await candb_edit_signal(sid, 400, "V", "value_type", "double")
+            assert edited["value_type"] == "double"
+            assert edited["length"] == 64
+
+            edited = await candb_edit_signal(sid, 400, "V", "value_type", "int")
+            assert edited["value_type"] == "int"
+            assert edited["length"] == 64
+
+            with pytest.raises(ToolError):
+                await candb_edit_signal(sid, 400, "V", "value_type", "bool")
+        finally:
+            await pool.aclose_all()
+
+    asyncio.run(run())
+
+
+def test_batch_add_invalid_value_type_is_per_signal_error(live_backend, monkeypatch):
+    """单个非法 value_type 不应中断整个批量请求。"""
+
+    async def run():
+        pool = _prepare(live_backend, monkeypatch)
+        try:
+            set_current_pat(live_backend["pat_alice"])
+            sid = await _new_session("sig_batch_bad_type")
+            await candb_add_message(sid, _msg(401, "BatchBadType"))
+
+            result = await candb_batch_add_signals(sid, 401, [
+                _sig("Good", 0),
+                _sig("Bad", 8, value_type="bool"),
+            ])
+            assert result["count"] == 1
+            assert len(result["errors"]) == 1
+            assert result["errors"][0]["name"] == "Bad"
+        finally:
+            await pool.aclose_all()
+
+    asyncio.run(run())

@@ -277,3 +277,38 @@ def test_export_blocked_by_data_errors_mentions_fix(live_backend, monkeypatch):
             await pool.aclose_all()
 
     asyncio.run(run())
+
+
+def test_import_dbc_returns_warnings(live_backend, monkeypatch):
+    """导入 DBC 时返回未采用属性/结构提示，且不阻断导入。"""
+
+    async def run():
+        pool = _prepare(live_backend, monkeypatch)
+        try:
+            set_current_pat(live_backend["pat_alice"])
+            content = '''VERSION ""
+
+NS_ :
+\tSIG_GROUP_
+
+BS_:
+
+BU_: ECU1
+
+BO_ 256 Msg: 8 ECU1
+ SG_ SigA : 0|8@1+ (1,0) [0|255] "" ECU1
+
+BA_DEF_ BO_ "GenMsgSendType" ENUM "Cyclic","Event";
+BA_DEF_ SG_ "GenSigStartValue" INT 0 1000;
+BA_ "GenMsgSendType" BO_ 256 0;
+BA_ "GenSigStartValue" SG_ 256 SigA 5;
+'''
+            imported = await candb_import_file("warn.dbc", format="dbc", content=content)
+            names = {w["name"] for w in imported.get("import_warnings", [])}
+            assert "GenMsgSendType" in names
+            assert "GenSigStartValue" in names
+            assert imported["warning_count"] >= 2
+        finally:
+            await pool.aclose_all()
+
+    asyncio.run(run())

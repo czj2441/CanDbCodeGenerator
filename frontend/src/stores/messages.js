@@ -14,7 +14,7 @@ export const useMessagesStore = defineStore('messages', {
       const editor = useCoreStore()
       try {
         editor.messages = await editor._wsRequest('get_messages')
-        if (editor.selectedMsgId != null) {
+        if (editor.selectedMsgKey != null) {
           await this.loadSelectedMessage()
         }
       } catch (e) {
@@ -28,12 +28,12 @@ export const useMessagesStore = defineStore('messages', {
      */
     selectMessage(id, { flush = true } = {}) {
       const editor = useCoreStore()
-      if (editor.selectedMsgId === id) {
+      if (editor.selectedMsgKey === id) {
         if (editor.messageCache[id] == null) this.loadSelectedMessage()
         return
       }
       if (flush) flushPendingEdit()
-      editor.selectedMsgId = id
+      editor.selectedMsgKey = id
       this.loadSelectedMessage()
     },
 
@@ -42,11 +42,11 @@ export const useMessagesStore = defineStore('messages', {
      */
     async loadSelectedMessage() {
       const editor = useCoreStore()
-      if (editor.selectedMsgId == null) return
+      if (editor.selectedMsgKey == null) return
       try {
-        editor.messageCache[editor.selectedMsgId] = await editor._wsRequest('get_message', { msg_id: editor.selectedMsgId })
+        editor.messageCache[editor.selectedMsgKey] = await editor._wsRequest('get_message', { msg_key: editor.selectedMsgKey })
       } catch (e) {
-        delete editor.messageCache[editor.selectedMsgId]  // 清除可能过期的缓存，确保下次 selectMessage 会重新拉取
+        delete editor.messageCache[editor.selectedMsgKey]  // 清除可能过期的缓存，确保下次 selectMessage 会重新拉取
         useUiStore().showToast(e.message, true)
       }
     },
@@ -63,10 +63,10 @@ export const useMessagesStore = defineStore('messages', {
         const result = await editor._wsRequest('add_message', {
           message: { id, name, dlc: 8, cycle_time: 0, sender: '', is_fd: false, signals: {} }
         })
-        if (result?.id != null) {
-          editor.messageCache[result.id] = result
+        if (result?.key != null) {
+          editor.messageCache[result.key] = result
           flushPendingEdit()
-          editor.selectedMsgId = result.id
+          editor.selectedMsgKey = result.key
         }
         useUiStore().showToast(t('toast.messageAdded'))
         editor.addLogEntry('add', `添加报文: 0x${id.toString(16).toUpperCase()} ${name}`)
@@ -81,9 +81,9 @@ export const useMessagesStore = defineStore('messages', {
     async deleteMessage(id) {
       const editor = useCoreStore()
       try {
-        await editor._wsRequest('delete_message', { msg_id: id })
+        await editor._wsRequest('delete_message', { msg_key: id })
         useUiStore().showToast(t('toast.messageDeleted'))
-        editor.addLogEntry('delete', `删除报文: 0x${id.toString(16).toUpperCase()}`)
+        editor.addLogEntry('delete', `删除报文: ${id}`)
       } catch (e) {
         useUiStore().showToast(translateError(e), true)
       }
@@ -92,31 +92,31 @@ export const useMessagesStore = defineStore('messages', {
     /**
      * 更新报文属性（等待服务器模式）
      */
-    async updateMessageField(field, value, msgId) {
+    async updateMessageField(field, value, msgKey) {
       const editor = useCoreStore()
-      const targetId = msgId ?? editor.selectedMsgId
+      const targetId = msgKey ?? editor.selectedMsgKey
       if (targetId == null) return
       const msg = editor.messageCache[targetId]
       if (!msg) return
 
       // 记录旧值用于日志
       const oldVal = msg[field]
-      const msgName = msg.name || '0x' + targetId.toString(16).toUpperCase()
+      const msgName = msg.name || targetId
 
       try {
         const result = await editor._wsRequest('edit_message', {
-          msg_id: targetId,
+          msg_key: targetId,
           fields: { [field]: value }
         })
-        if (result?.id != null && result.id !== targetId) {
+        if (result?.key != null && result.key !== targetId) {
           delete editor.messageCache[targetId]
-          if (targetId === editor.selectedMsgId) {
-            editor.selectedMsgId = result.id
+          if (targetId === editor.selectedMsgKey) {
+            editor.selectedMsgKey = result.key
           }
         }
-        // 先更新缓存（处理 ID 变更等非选中报文场景）
+        // 先更新缓存（处理 key 变更等非选中报文场景）
         if (result) {
-          const cacheId = result?.id != null ? result.id : targetId
+          const cacheId = result?.key || targetId
           editor.messageCache[cacheId] = result
         }
         editor.addLogEntry('update', `报文 ${msgName}.${field}: ${oldVal} → ${value}`)
@@ -138,11 +138,11 @@ export const useMessagesStore = defineStore('messages', {
     /**
      * 批量更新多个报文的指定字段（等待服务器模式）
      */
-    async batchUpdateMessages(msgIds, fields) {
+    async batchUpdateMessages(msgKeys, fields) {
       const editor = useCoreStore()
       try {
         const result = await editor._wsRequest('batch_edit_messages', {
-          msg_ids: msgIds,
+          msg_keys: msgKeys,
           fields: fields,
         })
         const updated = result?.updated || 0
@@ -161,11 +161,11 @@ export const useMessagesStore = defineStore('messages', {
     /**
      * 批量删除多个报文（等待服务器模式）
      */
-    async batchDeleteMessages(msgIds) {
+    async batchDeleteMessages(msgKeys) {
       const editor = useCoreStore()
       try {
         const result = await editor._wsRequest('batch_delete_messages', {
-          msg_ids: msgIds,
+          msg_keys: msgKeys,
         })
         const deleted = result?.deleted || 0
         useUiStore().showToast(t('toast.batchDeleted', { count: deleted }))

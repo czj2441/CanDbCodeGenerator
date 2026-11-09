@@ -94,7 +94,7 @@ export const useClipboardStore = defineStore('clipboard', {
       if (!this.clipboard || this.clipboard.type !== 'signal') return
       const editor = useCoreStore()
       const msg = editor.selectedMessage
-      if (!msg || editor.selectedMsgId == null) return
+      if (!msg || editor.selectedMsgKey == null) return
 
       // 兼容旧格式 { type, data } → 视为单条目数组
       const sourceItems = this.clipboard.items || [this.clipboard.data]
@@ -116,7 +116,7 @@ export const useClipboardStore = defineStore('clipboard', {
       let successCount = 0
       for (const sig of toPaste) {
         try {
-          await editor._wsRequest('add_signal', { msg_id: editor.selectedMsgId, signal: sig })
+          await editor._wsRequest('add_signal', { msg_key: editor.selectedMsgKey, signal: sig })
           successCount++
         } catch (e) {
           // 单个失败不阻塞，继续粘贴后续信号
@@ -133,21 +133,21 @@ export const useClipboardStore = defineStore('clipboard', {
     /**
      * 复制报文到剪贴板（支持批量）
      * cache miss 时通过 get_message 预加载完整数据
-     * @param {number[]} msgIds
+     * @param {string[]} msgKeys
      * @param {boolean} skipLog - 内部调用时跳过日志（如 cut 操作）
      */
-    async copyMessages(msgIds, skipLog = false) {
+    async copyMessages(msgKeys, skipLog = false) {
       const editor = useCoreStore()
-      if (!msgIds.length) return
+      if (!msgKeys.length) return
 
       const items = []
-      for (const id of msgIds) {
-        let detail = editor.messageCache[id]
+      for (const key of msgKeys) {
+        let detail = editor.messageCache[key]
         // cache miss: 预加载完整数据
         if (!detail) {
           try {
-            detail = await editor._wsRequest('get_message', { msg_id: id })
-            editor.messageCache[id] = detail
+            detail = await editor._wsRequest('get_message', { msg_key: key })
+            editor.messageCache[key] = detail
           } catch (e) {
             continue  // 加载失败，跳过此报文
           }
@@ -157,7 +157,7 @@ export const useClipboardStore = defineStore('clipboard', {
 
       this._copyToClipboard('message', items, 'toast.messageCopied', 'toast.messagesCopied')
       if (!skipLog) {
-        const idStr = msgIds.map(id => '0x' + id.toString(16).toUpperCase()).join(', ')
+        const idStr = msgKeys.join(', ')
         editor.addLogEntry('copy', `复制报文: ${idStr}`)
       }
     },
@@ -167,27 +167,27 @@ export const useClipboardStore = defineStore('clipboard', {
      */
     copyMessage() {
       const editor = useCoreStore()
-      if (editor.selectedMsgId == null) return
-      return this.copyMessages([editor.selectedMsgId])
+      if (editor.selectedMsgKey == null) return
+      return this.copyMessages([editor.selectedMsgKey])
     },
 
     /**
      * 剪切报文到剪贴板（复制 + 删除）
-     * @param {number[]} msgIds
+     * @param {string[]} msgKeys
      */
-    async cutMessages(msgIds) {
-      await this.copyMessages(msgIds, true)  // skipLog=true，避免与 cut 日志重复
+    async cutMessages(msgKeys) {
+      await this.copyMessages(msgKeys, true)  // skipLog=true，避免与 cut 日志重复
       if (!this.clipboard) return
       const editor = useCoreStore()
-      const idStr = msgIds.map(id => '0x' + id.toString(16).toUpperCase()).join(', ')
+      const idStr = msgKeys.join(', ')
       editor.addLogEntry('cut', `剪切报文: ${idStr}`)
       const messages = useMessagesStore()
-      await messages.batchDeleteMessages(msgIds)
+      await messages.batchDeleteMessages(msgKeys)
       const ui = useUiStore()
-      if (msgIds.length === 1) {
+      if (msgKeys.length === 1) {
         ui.showToast(t('toast.messageCut'))
       } else {
-        ui.showToast(t('toast.messagesCut', { count: msgIds.length }))
+        ui.showToast(t('toast.messagesCut', { count: msgKeys.length }))
       }
     },
 
@@ -196,8 +196,8 @@ export const useClipboardStore = defineStore('clipboard', {
      */
     cutMessage() {
       const editor = useCoreStore()
-      if (editor.selectedMsgId == null) return
-      return this.cutMessages([editor.selectedMsgId])
+      if (editor.selectedMsgKey == null) return
+      return this.cutMessages([editor.selectedMsgKey])
     },
 
     /**
@@ -220,14 +220,16 @@ export const useClipboardStore = defineStore('clipboard', {
       for (const orig of sourceItems) {
         const msg = JSON.parse(JSON.stringify(orig))
         // ID 始终需要生成新的（避免与已有报文冲突）
+        delete msg.key
         msg.id = generateMessageId(editor.messages)
+        msg.is_extended_frame = false
         // 名称：无冲突保持原名，冲突加 _copy_N
         msg.name = resolveCopyName(existingNames, msg.name || 'PastedMsg')
         existingNames.add(msg.name)
 
         try {
-          await editor._wsRequest('add_message', { message: msg })
-          editor.selectedMsgId = msg.id
+          const added = await editor._wsRequest('add_message', { message: msg })
+          if (added?.key) editor.selectedMsgKey = added.key
           successCount++
         } catch (e) {
           useUiStore().showToast(e.message, true)

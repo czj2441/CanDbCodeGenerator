@@ -19,6 +19,16 @@
           </div>
         </div>
         <div class="field">
+          <label>{{ t('panel.signalValueType') }}</label>
+          <select :value="selectedSig.value_type" @change="updateSignal('value_type', $event.target.value)">
+            <option value="uint">{{ t('panel.valueTypeUint') }}</option>
+            <option value="int">{{ t('panel.valueTypeInt') }}</option>
+            <option value="float">{{ t('panel.valueTypeFloat') }}</option>
+            <option value="double">{{ t('panel.valueTypeDouble') }}</option>
+          </select>
+          <div class="field-hint">{{ t('panel.signalValueTypeHint') }}</div>
+        </div>
+        <div class="field">
           <label>{{ t('panel.signalByteOrder') }}</label>
           <select :value="selectedSig.byte_order" @change="handleByteOrderChange">
             <option value="intel">{{ t('panel.intel') }}</option>
@@ -127,7 +137,7 @@ const msg = computed(() => store.selectedMessage)
 // 开始编辑时快照目标；blur / change 提交只认快照，不再读全局选中。
 const edit = usePanelEdit('signal-panel', () => ({
   signalName: ui.selectedSignalName,
-  msgId: msg.value?.id,
+  msgKey: msg.value?.key,
   valueTableName: localValueTableName.value,
 }))
 
@@ -152,7 +162,7 @@ function onValueTableRefChange() {
   if (localValueTableName.value === '__new__') return
   edit.commit((t) => {
     if (!t.signalName) return
-    signals.updateSignal(t.signalName, 'value_table_name', localValueTableName.value, t.msgId).catch(() => {})
+    signals.updateSignal(t.signalName, 'value_table_name', localValueTableName.value, t.msgKey).catch(() => {})
   })
 }
 
@@ -268,7 +278,7 @@ async function confirmNewVt() {
       localValueTableName.value = name
       syncInlineEntries(name)
     }
-    signals.updateSignal(target.signalName, 'value_table_name', name, target.msgId).catch(() => {})
+    signals.updateSignal(target.signalName, 'value_table_name', name, target.msgKey).catch(() => {})
   } catch { /* toast already shown */ }
   finally {
     newVtInFlight = false
@@ -297,29 +307,29 @@ function showDisplayStartBit() {
 function modifyDisplayStartBit(displayValue) {
   edit.commit((t) => {
     if (!t.signalName) return
-    const targetMsg = store.messageCache[t.msgId]
+    const targetMsg = store.messageCache[t.msgKey]
     const sig = targetMsg?.signals?.[t.signalName]
     if (!sig) return
     const maxBit = (targetMsg.dlc || 8) * 8 - 1
     const msbValue = toStorageStartBit(displayValue, sig.length, sig.byte_order, maxBit, sig.start_bit)
     const valueToSend = msbValue >= 0 ? msbValue : -1
-    signals.updateSignal(t.signalName, 'start_bit', valueToSend, t.msgId).catch(() => {})
+    signals.updateSignal(t.signalName, 'start_bit', valueToSend, t.msgKey).catch(() => {})
   })
 }
 
 function updateSignal(field, value) {
   edit.commit((t) => {
     if (!t.signalName) return
-    signals.updateSignal(t.signalName, field, value, t.msgId).catch(() => {})
+    signals.updateSignal(t.signalName, field, value, t.msgKey).catch(() => {})
   })
 }
 
 function handleByteOrderChange(e) {
   edit.commit((t) => {
     if (!t.signalName) return
-    const sig = store.messageCache[t.msgId]?.signals?.[t.signalName]
+    const sig = store.messageCache[t.msgKey]?.signals?.[t.signalName]
     const oldOrder = sig?.byte_order
-    signals.updateSignal(t.signalName, 'byte_order', e.target.value, t.msgId)
+    signals.updateSignal(t.signalName, 'byte_order', e.target.value, t.msgKey)
       .catch(() => {
         // 异步失败时用户可能已切换到别的信号，不要覆写新面板的 select。
         if (ui.selectedSignalName === t.signalName && oldOrder != null) {
@@ -396,5 +406,13 @@ function handleByteOrderChange(e) {
   font-size: 12px;
   border-radius: var(--radius-sm);
   outline: none;
+}
+
+/* ── 字段提示 ── */
+.field-hint {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-dim, #888);
+  line-height: 1.4;
 }
 </style>

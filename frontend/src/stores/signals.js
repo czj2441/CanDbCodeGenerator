@@ -26,8 +26,8 @@ export const useSignalsStore = defineStore('signals', {
      */
     async addSignal(signalData) {
       const editor = useCoreStore()
-      if (editor.selectedMsgId == null) return
-      const msg = editor.messageCache[editor.selectedMsgId]
+      if (editor.selectedMsgKey == null) return
+      const msg = editor.messageCache[editor.selectedMsgKey]
       if (!msg) return
 
       // 自动顺延
@@ -50,7 +50,7 @@ export const useSignalsStore = defineStore('signals', {
       }
 
       try {
-        await editor._wsRequest('add_signal', { msg_id: editor.selectedMsgId, signal: fullData })
+        await editor._wsRequest('add_signal', { msg_key: editor.selectedMsgKey, signal: fullData })
         useUiStore().showToast(t('toast.signalAdded'))
         editor.addLogEntry('add', `添加信号: name=${fullData.name}, start_bit=${fullData.start_bit}, length=${fullData.length}`)
       } catch (e) {
@@ -61,9 +61,9 @@ export const useSignalsStore = defineStore('signals', {
     /**
      * 更新信号属性（等待服务器模式）
      */
-    async updateSignal(sigName, field, value, msgId) {
+    async updateSignal(sigName, field, value, msgKey) {
       const editor = useCoreStore()
-      const targetId = msgId ?? editor.selectedMsgId
+      const targetId = msgKey ?? editor.selectedMsgKey
       if (targetId == null) return
       const msg = editor.messageCache[targetId]
       if (!msg) return
@@ -80,7 +80,7 @@ export const useSignalsStore = defineStore('signals', {
 
       try {
         await editor._wsRequest('edit_signal', {
-          msg_id: targetId,
+          msg_key: targetId,
           sig_name: sigName,
           field: field,
           value: value
@@ -109,9 +109,9 @@ export const useSignalsStore = defineStore('signals', {
      */
     async deleteSignal(sigName) {
       const editor = useCoreStore()
-      if (editor.selectedMsgId == null) return
+      if (editor.selectedMsgKey == null) return
       try {
-        await editor._wsRequest('delete_signal', { msg_id: editor.selectedMsgId, sig_name: sigName })
+        await editor._wsRequest('delete_signal', { msg_key: editor.selectedMsgKey, sig_name: sigName })
         useUiStore().showToast(t('toast.signalDeleted'))
         editor.addLogEntry('delete', `删除信号: ${sigName}`)
       } catch (e) {
@@ -124,14 +124,14 @@ export const useSignalsStore = defineStore('signals', {
      */
     async batchUpdateSignals(sigNames, fields) {
       const editor = useCoreStore()
-      if (editor.selectedMsgId == null) return
-      const msg = editor.messageCache[editor.selectedMsgId]
+      if (editor.selectedMsgKey == null) return
+      const msg = editor.messageCache[editor.selectedMsgKey]
       if (!msg) return
 
       editor.isLoading = true
       try {
         const result = await editor._wsRequest('batch_edit_signals', {
-          msg_id: editor.selectedMsgId,
+          msg_key: editor.selectedMsgKey,
           sig_names: sigNames,
           fields: fields,
         })
@@ -155,12 +155,12 @@ export const useSignalsStore = defineStore('signals', {
      */
     async batchDeleteSignals(sigNames) {
       const editor = useCoreStore()
-      if (editor.selectedMsgId == null) return
+      if (editor.selectedMsgKey == null) return
 
       editor.isLoading = true
       try {
         const result = await editor._wsRequest('batch_delete_signals', {
-          msg_id: editor.selectedMsgId,
+          msg_key: editor.selectedMsgKey,
           sig_names: sigNames,
         })
         const deleted = result?.deleted || 0
@@ -181,8 +181,8 @@ export const useSignalsStore = defineStore('signals', {
      */
     async batchAddSignals({ nameTemplate, count, startNum, startBit, interval, length, byteOrder, factor, offset, minVal, maxVal, unit, commentTemplate }) {
       const editor = useCoreStore()
-      if (editor.selectedMsgId == null) return
-      const msg = editor.messageCache[editor.selectedMsgId]
+      if (editor.selectedMsgKey == null) return
+      const msg = editor.messageCache[editor.selectedMsgKey]
       if (!msg) return
       const { expandTemplate } = await import('../utils/format.js')
       const maxBit = msg.dlc * 8 - 1
@@ -209,7 +209,7 @@ export const useSignalsStore = defineStore('signals', {
       editor.isLoading = true
       try {
         const result = await editor._wsRequest('batch_add_signals', {
-          msg_id: editor.selectedMsgId,
+          msg_key: editor.selectedMsgKey,
           signals,
         })
         const created = result?.count || 0

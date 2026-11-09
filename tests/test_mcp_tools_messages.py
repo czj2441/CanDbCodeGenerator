@@ -78,7 +78,7 @@ def test_add_get_edit_delete_message_roundtrip(live_backend, monkeypatch):
             assert detail["cycle_time"] == 50
 
             deleted = await candb_delete_message(sid, 291)
-            assert deleted["deleted"] == "0x123"  # 291 → 0x123
+            assert deleted["deleted"] == "0x123:std"  # 291 → 0x123
             with pytest.raises(ToolError) as ei:
                 await candb_get_message(sid, 291)
             assert "MESSAGE_NOT_FOUND" in str(ei.value)
@@ -198,6 +198,40 @@ def test_add_message_missing_required_fields(live_backend, monkeypatch):
 
             listed = await candb_list_messages(sid)  # 校验失败不应留下报文
             assert listed["total"] == 0
+        finally:
+            await pool.aclose_all()
+
+    asyncio.run(run())
+
+
+def test_extended_frame_key_identity_and_move(live_backend, monkeypatch):
+    """扩展帧使用 key 身份；切换帧类型会重新生成 key。"""
+
+    async def run():
+        pool = _prepare(live_backend, monkeypatch)
+        try:
+            set_current_pat(live_backend["pat_alice"])
+            sid = await _new_session("ext_key")
+
+            added = await candb_add_message(sid, {
+                "id": 0x100,
+                "name": "ExtMsg",
+                "dlc": 8,
+                "is_extended_frame": True,
+            })
+            assert added["key"] == "0x100:ext"
+            assert added["is_extended_frame"] is True
+
+            detail = await candb_get_message(sid, "0x100:ext")
+            assert detail["name"] == "ExtMsg"
+            assert detail["id"] == 0x100
+
+            moved = await candb_edit_message(sid, "0x100:ext", {"is_extended_frame": False})
+            assert moved["key"] == "0x100:std"
+            assert moved["is_extended_frame"] is False
+
+            with pytest.raises(ToolError):
+                await candb_get_message(sid, "0x100:ext")
         finally:
             await pool.aclose_all()
 

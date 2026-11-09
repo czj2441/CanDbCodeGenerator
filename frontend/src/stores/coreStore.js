@@ -17,7 +17,7 @@ export const useCoreStore = defineStore('core', {
   state: () => ({
     // ── 核心数据 ──
     messages: {},
-    selectedMsgId: null,
+    selectedMsgKey: null,
     messageCache: {},
 
     // ── 会话与文件 ──
@@ -49,7 +49,7 @@ export const useCoreStore = defineStore('core', {
 
   getters: {
     selectedMessage(state) {
-      return state.messageCache[state.selectedMsgId] || null
+      return state.messageCache[state.selectedMsgKey] || null
     },
     messageCount(state) {
       return Object.keys(state.messages).length
@@ -58,8 +58,8 @@ export const useCoreStore = defineStore('core', {
       return Object.values(state.messages).reduce((sum, m) => sum + (m.signal_count || 0), 0)
     },
     signalErrors(state) {
-      if (state.selectedMsgId == null) return []
-      return (state.dataErrors || []).filter(e => e.msg_id === state.selectedMsgId)
+      if (state.selectedMsgKey == null) return []
+      return (state.dataErrors || []).filter(e => e.msg_key === state.selectedMsgKey)
     },
   },
 
@@ -109,7 +109,7 @@ export const useCoreStore = defineStore('core', {
     resetEditorState() {
       cancelAllPendingEdits()
       this.messages = {}
-      this.selectedMsgId = null
+      this.selectedMsgKey = null
       this.messageCache = {}
       this.currentFileName = ''
       this.busType = 'CAN'
@@ -277,16 +277,16 @@ export const useCoreStore = defineStore('core', {
           if (d.status) {
             this._syncBackendStatus(d.status)
           }
-          if (this.selectedMsgId != null &&
-              !this.messages[String(this.selectedMsgId)]) {
-            this.selectedMsgId = null
+          if (this.selectedMsgKey != null &&
+              !this.messages[String(this.selectedMsgKey)]) {
+            this.selectedMsgKey = null
             this.messageCache = {}
             useUiStore().clearSignalSelection({ discard: true })
           }
           // 关闭指向已不存在报文的动态标签页
           useUiStore().openTabs
-            .filter(t => !this.messages[String(t.msgId)])
-            .forEach(t => useUiStore().closeMessageTab(t.msgId, { discard: true }))
+            .filter(t => !this.messages[String(t.msgKey)])
+            .forEach(t => useUiStore().closeMessageTab(t.msgKey, { discard: true }))
           // full_sync 完成后自动拉取全局错误列表
           this._wsRequest('get_data_errors').then(errors => {
             this.dataErrors = errors || []
@@ -296,8 +296,8 @@ export const useCoreStore = defineStore('core', {
 
         case 'signal_updated': {
           WsFrontendDiag.count('signal_updated')
-          const { msg_id, signal, old_name, total_signal_bits } = msg.data
-          const cache = this.messageCache[msg_id]
+          const { msg_key, signal, old_name, total_signal_bits } = msg.data
+          const cache = this.messageCache[msg_key]
           if (cache && cache.signals) {
             if (old_name && old_name !== signal.name) {
               delete cache.signals[old_name]
@@ -306,33 +306,33 @@ export const useCoreStore = defineStore('core', {
           }
           if (old_name && old_name !== signal.name) {
             const ui = useUiStore()
-            if (this.selectedMsgId === msg_id && ui.selectedSignalName === old_name) {
+            if (this.selectedMsgKey === msg_key && ui.selectedSignalName === old_name) {
               ui.selectSignal(signal.name, { flush: false })
             }
             remapPendingEditTarget(PENDING_EDIT_OWNERS.signalPanel, (t) =>
-              t?.msgId === msg_id && t?.signalName === old_name
+              t?.msgKey === msg_key && t?.signalName === old_name
                 ? { ...t, signalName: signal.name }
                 : t
             )
           }
           if (total_signal_bits != null) {
-            const summary = this.messages[String(msg_id)]
+            const summary = this.messages[String(msg_key)]
             if (summary) {
-              this.messages[String(msg_id)] = { ...summary, total_signal_bits }
+              this.messages[String(msg_key)] = { ...summary, total_signal_bits }
             }
           }
           break
         }
 
         case 'signal_added': {
-          const { msg_id, signal, total_signal_bits } = msg.data
-          const cache = this.messageCache[msg_id]
+          const { msg_key, signal, total_signal_bits } = msg.data
+          const cache = this.messageCache[msg_key]
           if (cache) {
             cache.signals = { ...cache.signals, [signal.name]: signal }
           }
-          const msgSummary = this.messages[String(msg_id)]
+          const msgSummary = this.messages[String(msg_key)]
           if (msgSummary) {
-            this.messages[String(msg_id)] = {
+            this.messages[String(msg_key)] = {
               ...msgSummary,
               signal_count: cache ? Object.keys(cache.signals).length
                 : msgSummary.signal_count + 1,
@@ -343,16 +343,16 @@ export const useCoreStore = defineStore('core', {
         }
 
         case 'signal_deleted': {
-          const { msg_id, signal_name, total_signal_bits } = msg.data
-          const cache = this.messageCache[msg_id]
+          const { msg_key, signal_name, total_signal_bits } = msg.data
+          const cache = this.messageCache[msg_key]
           if (cache && cache.signals) {
             const newSignals = { ...cache.signals }
             delete newSignals[signal_name]
             cache.signals = newSignals
           }
-          const msgSummary2 = this.messages[String(msg_id)]
+          const msgSummary2 = this.messages[String(msg_key)]
           if (msgSummary2) {
-            this.messages[String(msg_id)] = {
+            this.messages[String(msg_key)] = {
               ...msgSummary2,
               signal_count: cache ? Object.keys(cache.signals).length
                 : Math.max(0, msgSummary2.signal_count - 1),
@@ -361,10 +361,10 @@ export const useCoreStore = defineStore('core', {
           }
           // 删除的信号若正在选中，清空 selectedSignalName
           cancelPendingEdit(PENDING_EDIT_OWNERS.signalPanel, (t) =>
-            t?.msgId === msg_id && t?.signalName === signal_name
+            t?.msgKey === msg_key && t?.signalName === signal_name
           )
           const ui = useUiStore()
-          if (this.selectedMsgId === msg_id && ui.selectedSignalName === signal_name) {
+          if (this.selectedMsgKey === msg_key && ui.selectedSignalName === signal_name) {
             ui.clearSignalSelection({ discard: true })
           }
           break
@@ -372,48 +372,50 @@ export const useCoreStore = defineStore('core', {
 
         case 'message_added': {
           const addedMsg = msg.data.message
-          this.messages = { ...this.messages, [String(addedMsg.id)]: addedMsg }
+          this.messages = { ...this.messages, [addedMsg.key]: addedMsg }
           break
         }
         case 'message_updated': {
           const m = msg.data.message
-          const oldId = msg.data.old_id
-          const lookupKey = oldId != null ? String(oldId) : String(m.id)
-          if (this.messages[lookupKey]) {
-            this.messages[lookupKey] = { ...this.messages[lookupKey], ...m }
-          }
-          if (oldId != null && oldId !== m.id) {
-            // ID 变更：re-key summary + cache
-            delete this.messages[String(oldId)]
-            this.messages[String(m.id)] = { ...m }
-            const oldCache = this.messageCache[oldId]
+          const oldKey = msg.data.old_key
+          const targetKey = m.key
+          if (oldKey != null && oldKey !== targetKey) {
+            // key 变更：re-key summary + cache
+            delete this.messages[oldKey]
+            this.messages[targetKey] = { ...m }
+            const oldCache = this.messageCache[oldKey]
             if (oldCache) {
               Object.assign(oldCache, m)
-              this.messageCache[m.id] = oldCache
-              delete this.messageCache[oldId]
+              this.messageCache[targetKey] = oldCache
+              delete this.messageCache[oldKey]
             }
-            // 同步 selectedMsgId
-            if (this.selectedMsgId === oldId) {
-              this.selectedMsgId = m.id
+            // 同步 selectedMsgKey
+            if (this.selectedMsgKey === oldKey) {
+              this.selectedMsgKey = targetKey
             }
             remapPendingEditTarget(PENDING_EDIT_OWNERS.messagePanel, (t) =>
-              t?.msgId === oldId ? { ...t, msgId: m.id } : t
+              t?.msgKey === oldKey ? { ...t, msgKey: targetKey } : t
             )
             remapPendingEditTarget(PENDING_EDIT_OWNERS.signalPanel, (t) =>
-              t?.msgId === oldId ? { ...t, msgId: m.id } : t
+              t?.msgKey === oldKey ? { ...t, msgKey: targetKey } : t
             )
-            // 更新动态标签页的 msgId
+            // 更新动态标签页的 msgKey
             const uiForTab = useUiStore()
-            const tab = uiForTab.openTabs.find(t => t.msgId === oldId)
+            const tab = uiForTab.openTabs.find(t => t.msgKey === oldKey)
             if (tab) {
-              tab.msgId = m.id
-              if (uiForTab.activeTabId === oldId) {
-                uiForTab.activeTabId = m.id
-                uiForTab.centerTab = `msg_${m.id}`
+              tab.msgKey = targetKey
+              if (uiForTab.activeTabId === oldKey) {
+                uiForTab.activeTabId = targetKey
+                uiForTab.centerTab = `msg_${targetKey}`
               }
             }
           } else {
-            const cache = this.messageCache[m.id]
+            if (this.messages[targetKey]) {
+              this.messages[targetKey] = { ...this.messages[targetKey], ...m }
+            } else {
+              this.messages[targetKey] = { ...m }
+            }
+            const cache = this.messageCache[targetKey]
             if (cache) {
               Object.assign(cache, m)
             }
@@ -421,21 +423,20 @@ export const useCoreStore = defineStore('core', {
           break
         }
         case 'message_deleted': {
-          const deletedId = msg.data.msg_id
-          const delKey = String(deletedId)
+          const deletedKey = msg.data.msg_key
           const newMessages = { ...this.messages }
-          delete newMessages[delKey]
+          delete newMessages[deletedKey]
           this.messages = newMessages
-          cancelPendingEdit(PENDING_EDIT_OWNERS.messagePanel, (t) => t?.msgId === deletedId)
-          cancelPendingEdit(PENDING_EDIT_OWNERS.signalPanel, (t) => t?.msgId === deletedId)
+          cancelPendingEdit(PENDING_EDIT_OWNERS.messagePanel, (t) => t?.msgKey === deletedKey)
+          cancelPendingEdit(PENDING_EDIT_OWNERS.signalPanel, (t) => t?.msgKey === deletedKey)
           const uiForDelete = useUiStore()
-          if (this.selectedMsgId === deletedId) {
-            this.selectedMsgId = null
+          if (this.selectedMsgKey === deletedKey) {
+            this.selectedMsgKey = null
             uiForDelete.clearSignalSelection({ discard: true })
           }
-          delete this.messageCache[deletedId]
+          delete this.messageCache[deletedKey]
           // 关闭引用此报文的动态标签页
-          uiForDelete.closeMessageTab(deletedId, { discard: true })
+          uiForDelete.closeMessageTab(deletedKey, { discard: true })
           break
         }
 
@@ -450,26 +451,26 @@ export const useCoreStore = defineStore('core', {
             this.messages = msg.data.messages
           }
           if (msg.data.message_details) {
-            // 全量替换：后端发送的是完整快照，消除旧 ID 残留
+            // 全量替换：后端发送的是完整快照，消除旧 key 残留
             const newCache = {}
-            for (const [mid, detail] of Object.entries(msg.data.message_details)) {
-              newCache[parseInt(mid)] = detail
+            for (const [key, detail] of Object.entries(msg.data.message_details)) {
+              newCache[key] = detail
             }
             this.messageCache = newCache
           }
           if (msg.data.value_tables) {
             this.valueTables = msg.data.value_tables
           }
-          // selectedMsgId 可能在 undo/redo ID 变更后失效（复用 full_sync 模式）
-          if (this.selectedMsgId != null &&
-              !this.messages[String(this.selectedMsgId)]) {
-            this.selectedMsgId = null
+          // selectedMsgKey 可能在 undo/redo ID 变更后失效（复用 full_sync 模式）
+          if (this.selectedMsgKey != null &&
+              !this.messages[String(this.selectedMsgKey)]) {
+            this.selectedMsgKey = null
             useUiStore().clearSignalSelection({ discard: true })
           }
           // 关闭指向已不存在报文的动态标签页
           useUiStore().openTabs
-            .filter(t => !this.messages[String(t.msgId)])
-            .forEach(t => useUiStore().closeMessageTab(t.msgId, { discard: true }))
+            .filter(t => !this.messages[String(t.msgKey)])
+            .forEach(t => useUiStore().closeMessageTab(t.msgKey, { discard: true }))
           break
         }
 

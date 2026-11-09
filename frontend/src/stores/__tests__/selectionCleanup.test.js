@@ -31,19 +31,19 @@ beforeEach(() => {
 test('删除其他报文中的同名信号不影响当前选中和待提交编辑', () => {
   const editor = useCoreStore()
   const ui = useUiStore()
-  editor.selectedMsgId = 100
+  editor.selectedMsgKey = 100
   ui.selectedSignalName = 'Speed'
-  beginPendingEdit(PENDING_EDIT_OWNERS.signalPanel, { msgId: 100, signalName: 'Speed' })
+  beginPendingEdit(PENDING_EDIT_OWNERS.signalPanel, { msgKey: 100, signalName: 'Speed' })
 
   editor._applyWsMessage({
     type: 'signal_deleted',
-    data: { msg_id: 200, signal_name: 'Speed' },
+    data: { msg_key: 200, signal_name: 'Speed' },
     data_version: 1,
   })
 
   assert.equal(ui.selectedSignalName, 'Speed')
   assert.deepEqual(peekPendingEdit(PENDING_EDIT_OWNERS.signalPanel), {
-    msgId: 100,
+    msgKey: 100,
     signalName: 'Speed',
   })
 })
@@ -51,16 +51,28 @@ test('删除其他报文中的同名信号不影响当前选中和待提交编�
 test('删除当前报文的选中信号会清空选中并取消待提交编辑', () => {
   const editor = useCoreStore()
   const ui = useUiStore()
-  editor.selectedMsgId = 100
+  editor.selectedMsgKey = 100
   ui.selectedSignalName = 'Speed'
-  beginPendingEdit(PENDING_EDIT_OWNERS.signalPanel, { msgId: 100, signalName: 'Speed' })
+  beginPendingEdit(PENDING_EDIT_OWNERS.signalPanel, { msgKey: 100, signalName: 'Speed' })
 
   editor._applyWsMessage({
     type: 'signal_deleted',
-    data: { msg_id: 100, signal_name: 'Speed' },
+    data: { msg_key: 100, signal_name: 'Speed' },
     data_version: 1,
   })
 
   assert.equal(ui.selectedSignalName, null)
   assert.equal(peekPendingEdit(PENDING_EDIT_OWNERS.signalPanel), null)
+})
+test('字符串 msgKey 也能识别动态报文 tab', () => {
+  const ui = useUiStore()
+  ui.openTabs = [{ msgKey: '0x100:std' }]
+  ui.activeTabId = '0x100:std'
+
+  assert.equal(ui.isAnyMessageTabActive, true)
+  assert.equal(ui.activeMessageTab.msgKey, '0x100:std')
+
+  ui.activeTabId = 'messages'
+  assert.equal(ui.isAnyMessageTabActive, false)
+  assert.equal(ui.activeMessageTab, null)
 })

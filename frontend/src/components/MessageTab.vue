@@ -54,38 +54,43 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="(m, mIdx) in sortedMessages" :key="m.id"
-              :data-msg-id="m.id"
-              :class="{ selected: store.selectedMsgId === m.id, 'multi-selected': multiSelect.selectedKeys.value.has(m.id) }"
-              @mousedown="handleRowMouseDown(m.id, mIdx, $event)">
+          <tr v-for="(m, mIdx) in sortedMessages" :key="m.key"
+              :data-msg-key="m.key"
+              :class="{ selected: store.selectedMsgKey === m.key, 'multi-selected': multiSelect.selectedKeys.value.has(m.key) }"
+              @mousedown="handleRowMouseDown(m.key, mIdx, $event)">
             <td v-for="col in visibleColumns" :key="col.key"
                 :class="{ 'cb-cell': col.key === '_cb' }"
-                @mousedown="col.key === '_cb' ? onCbCellMouseDown(m.id, $event) : null">
+                @mousedown="col.key === '_cb' ? onCbCellMouseDown(m.key, $event) : null">
               <template v-if="col.key === '_cb'">
-                <input type="checkbox" :checked="multiSelect.selectedKeys.value.has(m.id)"
-                       @click.stop @change="multiSelect.toggleCheckbox(m.id)">
+                <input type="checkbox" :checked="multiSelect.selectedKeys.value.has(m.key)"
+                       @click.stop @change="multiSelect.toggleCheckbox(m.key)">
               </template>
-              <template v-else-if="col.key === 'msg_id'"><input class="mono" v-lazy-value="toHex(m.id)" @blur="e => isCellEditable(m.id) && update(m.id, 'id', parseHex(e.target.value))" :disabled="multiSelect.isMultiSelect.value" :readonly="!isCellEditable(m.id)" data-field="msg_id"></template>
-              <template v-else-if="col.key === 'msg_name'"><input v-lazy-value="m.name" @blur="e => isCellEditable(m.id) && update(m.id, 'name', e.target.value)" :disabled="multiSelect.isMultiSelect.value" :readonly="!isCellEditable(m.id)" data-field="msg_name"></template>
-              <template v-else-if="col.key === 'msg_dlc'"><input class="mono" type="number" v-lazy-value="m.dlc" @blur="e => isCellEditable(m.id) && update(m.id, 'dlc', parseInt(e.target.value))" :readonly="!isCellEditable(m.id)" data-field="msg_dlc"></template>
-              <template v-else-if="col.key === 'msg_cycle'"><input class="mono" type="number" v-lazy-value="m.cycle_time" @blur="e => isCellEditable(m.id) && update(m.id, 'cycle_time', parseInt(e.target.value))" :readonly="!isCellEditable(m.id)" data-field="msg_cycle"></template>
+              <template v-else-if="col.key === 'msg_key'">
+                <div class="msg-id-cell">
+                  <input class="mono" v-lazy-value="toHex(m.id)" @blur="e => isCellEditable(m.key) && update(m.key, 'id', parseHex(e.target.value))" :disabled="multiSelect.isMultiSelect.value" :readonly="!isCellEditable(m.key)" data-field="msg_key">
+                  <span v-if="m.is_extended_frame" class="ext-badge" :title="t('panel.extendedFrame')">ext</span>
+                </div>
+              </template>
+              <template v-else-if="col.key === 'msg_name'"><input v-lazy-value="m.name" @blur="e => isCellEditable(m.key) && update(m.key, 'name', e.target.value)" :disabled="multiSelect.isMultiSelect.value" :readonly="!isCellEditable(m.key)" data-field="msg_name"></template>
+              <template v-else-if="col.key === 'msg_dlc'"><input class="mono" type="number" v-lazy-value="m.dlc" @blur="e => isCellEditable(m.key) && update(m.key, 'dlc', parseInt(e.target.value))" :readonly="!isCellEditable(m.key)" data-field="msg_dlc"></template>
+              <template v-else-if="col.key === 'msg_cycle'"><input class="mono" type="number" v-lazy-value="m.cycle_time" @blur="e => isCellEditable(m.key) && update(m.key, 'cycle_time', parseInt(e.target.value))" :readonly="!isCellEditable(m.key)" data-field="msg_cycle"></template>
               <template v-else-if="col.key === 'msg_fd'">
-                <select :value="String(m.is_fd)" @change="e => update(m.id, 'is_fd', e.target.value === 'true')" data-field="msg_fd">
+                <select :value="String(m.is_fd)" @change="e => update(m.key, 'is_fd', e.target.value === 'true')" data-field="msg_fd">
                   <option value="false">CAN</option>
                   <option value="true">CAN FD</option>
                 </select>
               </template>
-              <template v-else-if="col.key === 'msg_sender'"><input v-lazy-value="m.sender" @blur="e => isCellEditable(m.id) && update(m.id, 'sender', e.target.value)" :disabled="multiSelect.isMultiSelect.value" :readonly="!isCellEditable(m.id)" data-field="msg_sender"></template>
+              <template v-else-if="col.key === 'msg_sender'"><input v-lazy-value="m.sender" @blur="e => isCellEditable(m.key) && update(m.key, 'sender', e.target.value)" :disabled="multiSelect.isMultiSelect.value" :readonly="!isCellEditable(m.key)" data-field="msg_sender"></template>
               <template v-else-if="col.key === 'msg_bit_usage'">
                 <div class="bit-bar-cell">
                   <div class="bit-bar"><div class="bit-bar-fill" :class="bitUsageClass(m)" :style="{ width: bitUsagePct(m) + '%' }"></div></div>
                   <span class="bit-bar-text">{{ m.total_signal_bits || 0 }}/{{ m.dlc * 8 }} bit</span>
                 </div>
               </template>
-              <template v-else-if="col.key === 'msg_comment'"><input v-lazy-value="m.comment" @blur="e => isCellEditable(m.id) && update(m.id, 'comment', e.target.value)" :disabled="multiSelect.isMultiSelect.value" :readonly="!isCellEditable(m.id)" data-field="msg_comment"></template>
-              <template v-else-if="col.key === 'msg_edit_signals'"><button class="vt-tag" @click.stop="jumpToSignals(m.id)">{{ t('msgtable.editSignals') }}</button></template>
+              <template v-else-if="col.key === 'msg_comment'"><input v-lazy-value="m.comment" @blur="e => isCellEditable(m.key) && update(m.key, 'comment', e.target.value)" :disabled="multiSelect.isMultiSelect.value" :readonly="!isCellEditable(m.key)" data-field="msg_comment"></template>
+              <template v-else-if="col.key === 'msg_edit_signals'"><button class="vt-tag" @click.stop="jumpToSignals(m.key)">{{ t('msgtable.editSignals') }}</button></template>
               <template v-else-if="col.key === 'msg_actions'">
-                              <button v-if="!store.readOnly" class="action-delete" @click.stop="deleteMessage(m.id)" title="删除">×</button>
+                              <button v-if="!store.readOnly" class="action-delete" @click.stop="deleteMessage(m.key)" title="删除">×</button>
                             </template>
             </td>
           </tr>
@@ -118,7 +123,7 @@ import BatchEditModal from './BatchEditModal.vue'
 
 const COLUMNS = [
   { key: '_cb',         i18n: null,                toggleable: false, defaultPct: 2,  sortable: false },
-  { key: 'msg_id',      i18n: 'msgtable.thId',      toggleable: false, defaultPct: 9,  sortField: 'id' },
+  { key: 'msg_key',      i18n: 'msgtable.thId',      toggleable: false, defaultPct: 9,  sortField: 'id' },
   { key: 'msg_name',    i18n: 'msgtable.thName',    toggleable: false, defaultPct: 15, sortField: 'name' },
   { key: 'msg_sender',  i18n: 'msgtable.thSender',  toggleable: true,  defaultPct: 8,  sortField: 'sender' },
   { key: 'msg_dlc',     i18n: 'msgtable.thDlc',     toggleable: true,  defaultPct: 5,  sortField: 'dlc' },
@@ -136,10 +141,10 @@ const clipboard = useClipboardStore()
 const ui = useUiStore()
 
 // ── 双击编辑状态 ──
-const editingKey = ref(null) // { msgId, field } | null
-function isCellEditable(msgId) {
+const editingKey = ref(null) // { msgKey, field } | null
+function isCellEditable(msgKey) {
   if (store.readOnly) return false
-  return editingKey.value && editingKey.value.msgId === msgId
+  return editingKey.value && editingKey.value.msgKey === msgKey
 }
 
 /** input type 是否支持 setSelectionRange / selectionStart */
@@ -200,7 +205,7 @@ const { normalizedPcts, startResize, consumeJustResized } = useColumnResize(tabl
 // ── 多选 ──
 const multiSelect = useMultiSelect(
   () => sortedMessages.value,
-  { getKey: (m) => m.id }
+  { getKey: (m) => m.key }
 )
 
 // 同步多选 keys 到 uiStore（供右键菜单判断多选状态）
@@ -254,7 +259,7 @@ function onHeaderCbMouseDown(event) {
   multiSelect.toggleAll()
 }
 
-function handleRowMouseDown(msgId, msgIndex, event) {
+function handleRowMouseDown(msgKey, msgIndex, event) {
   const INTERACTIVE_TAGS = new Set(['INPUT', 'SELECT'])
 
   // 非左键：阻止输入框聚焦，不干扰多选状态（右键菜单由 contextmenu 事件处理）
@@ -276,7 +281,7 @@ function handleRowMouseDown(msgId, msgIndex, event) {
 
   // Ctrl/Shift + Click → 多选（preventDefault 阻止浏览器聚焦 input，避免进入编辑状态）
   if (event.ctrlKey || event.metaKey || event.shiftKey) {
-    multiSelect.handleRowClick(msgId, msgIndex, event)
+    multiSelect.handleRowClick(msgKey, msgIndex, event)
     commitAndExitEdit()
     if (isInteractive) event.preventDefault()
     return
@@ -290,20 +295,20 @@ function handleRowMouseDown(msgId, msgIndex, event) {
     if (event.detail >= 2) {
       // 双击新单元格前，先提交上一个编辑
       if (editingKey.value) commitAndExitEdit()
-      editingKey.value = { msgId, field: targetEl.dataset.field }
+      editingKey.value = { msgKey, field: targetEl.dataset.field }
     } else {
       // 单击非当前编辑单元格时提交并退出编辑模式
       const ek = editingKey.value
-      if (ek && (ek.msgId !== msgId || ek.field !== targetEl.dataset.field)) {
+      if (ek && (ek.msgKey !== msgKey || ek.field !== targetEl.dataset.field)) {
         commitAndExitEdit()
       }
     }
-    messages.selectMessage(msgId)
-    multiSelect.handleRowClick(msgId, msgIndex, {})
+    messages.selectMessage(msgKey)
+    multiSelect.handleRowClick(msgKey, msgIndex, {})
   } else {
     commitAndExitEdit()
-    messages.selectMessage(msgId)
-    multiSelect.handleRowClick(msgId, msgIndex, {})
+    messages.selectMessage(msgKey)
+    multiSelect.handleRowClick(msgKey, msgIndex, {})
   }
 }
 
@@ -318,8 +323,8 @@ function addMessage() {
   messages.addMessage()
 }
 
-function update(msgId, field, value) {
-  messages.updateMessageField(field, value, msgId).catch(() => {})
+function update(msgKey, field, value) {
+  messages.updateMessageField(field, value, msgKey).catch(() => {})
 }
 
 function batchDeleteSelected() {
@@ -365,7 +370,7 @@ function onKeyDown(e) {
     e.preventDefault()
     if (multiSelect.isMultiSelect.value) {
       clipboard.copyMessages(multiSelect.getSelectedKeys())
-    } else if (store.selectedMsgId != null) {
+    } else if (store.selectedMsgKey != null) {
       clipboard.copyMessage()
     }
   } else if (e.key === 'x' && !isInput) {
@@ -373,7 +378,7 @@ function onKeyDown(e) {
     if (multiSelect.isMultiSelect.value) {
       clipboard.cutMessages(multiSelect.getSelectedKeys())
       multiSelect.clearSelection()
-    } else if (store.selectedMsgId != null) {
+    } else if (store.selectedMsgKey != null) {
       clipboard.cutMessage()
     }
   } else if (e.key === 'v' && !isInput) {
@@ -399,13 +404,13 @@ const { onCellKeyDown } = useTableNavigation(tableRef, visibleColumns, {
   isEditing: () => editingKey.value !== null,
   onRowSelect: (rowIdx) => {
     const msg = sortedMessages.value[rowIdx]
-    if (msg) messages.selectMessage(msg.id)
+    if (msg) messages.selectMessage(msg.key)
   },
   onStartEdit: (el) => {
     if (store.readOnly) return false
-    const msgId = Number(el.closest('tr')?.dataset.msgId)
-    if (!msgId) return false
-    editingKey.value = { msgId, field: el.dataset.field }
+    const msgKey = el.closest('tr')?.dataset.msgKey
+    if (!msgKey) return false
+    editingKey.value = { msgKey, field: el.dataset.field }
   },
   onEndEdit: () => { editingKey.value = null },
 })
@@ -489,5 +494,20 @@ const { onCellKeyDown } = useTableNavigation(tableRef, visibleColumns, {
   color: var(--text-muted);
   white-space: nowrap;
   flex-shrink: 0;
+}
+.msg-id-cell {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.ext-badge {
+  flex-shrink: 0;
+  font-size: 9px;
+  line-height: 1;
+  padding: 2px 3px;
+  border-radius: 3px;
+  color: var(--accent);
+  border: 1px solid var(--accent-dim);
+  font-family: var(--font-mono);
 }
 </style>

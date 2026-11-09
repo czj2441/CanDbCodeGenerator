@@ -50,15 +50,15 @@ const signals = useSignalsStore()
 const ui = useUiStore()
 
 const props = defineProps({
-  // 动态标签页传入的 msgId，优先级高于全局 selectedMsgId
-  msgId: { type: Number, default: null },
+  // 动态标签页传入的 msgKey，优先级高于全局 selectedMsgKey
+  msgKey: { type: String, default: null },
 })
 
 // ── Computed data ──
-const effectiveMsgId = computed(() => props.msgId ?? store.selectedMsgId)
+const effectiveMsgKey = computed(() => props.msgKey ?? store.selectedMsgKey)
 const msg = computed(() => {
-  if (effectiveMsgId.value == null) return null
-  return store.messageCache[effectiveMsgId.value] || null
+  if (effectiveMsgKey.value == null) return null
+  return store.messageCache[effectiveMsgKey.value] || null
 })
 const dlcBytes = computed(() => msg.value?.dlc || 0)
 const msgSignals = computed(() => msg.value ? Object.values(msg.value.signals) : [])
@@ -327,8 +327,8 @@ function onStageClick() {
   ui.clearSignalSelection()
 }
 
-// ── Watch effectiveMsgId → clear selection（动态 tab 切换时 prop 不变，不会误清） ──
-watch(effectiveMsgId, () => {
+// ── Watch effectiveMsgKey → clear selection（动态 tab 切换时 prop 不变，不会误清） ──
+watch(effectiveMsgKey, () => {
   ui.clearSignalSelection({ discard: true })
 })
 </script>

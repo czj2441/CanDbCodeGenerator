@@ -18,8 +18,10 @@ def _validate_message(message: dict) -> None:
     """校验 add_message 的必填字段（后端缺 name/dlc 会静默用默认值，工具层兜底报错）。"""
     if not isinstance(message, dict):
         raise ToolError("message 必须是对象")
-    if "id" not in message or message["id"] in (None, ""):
-        raise ToolError("新增报文缺少必填字段 id（整数）")
+    if not message.get("key") and (
+        "id" not in message or message["id"] in (None, "")
+    ):
+        raise ToolError("新增报文缺少必填字段 key 或 id")
     name = message.get("name")
     if not isinstance(name, str) or not name.strip():
         raise ToolError("新增报文缺少必填字段 name（非空字符串）")
@@ -40,7 +42,7 @@ async def _get_conn(session_id: str):
 async def candb_list_messages(
     session_id: str, filter: str | None = None, limit: int = 50, offset: int = 0
 ) -> dict:
-    """分页列出报文的摘要（id/id_hex/name/dlc/cycle_time/is_fd/sender/comment/signal_count/total_signal_bits）。"""
+    """分页列出报文的摘要（key/id/id_hex/is_extended_frame/name/dlc/cycle_time/is_fd/sender/comment/signal_count/total_signal_bits）。"""
     await require_user()
     conn = await _get_conn(session_id)
     try:
@@ -52,7 +54,7 @@ async def candb_list_messages(
     return paginate(items, limit=limit, offset=offset, filter=filter, filter_fields=("name", "id_hex"))
 
 
-async def candb_get_message(session_id: str, msg_id: int) -> dict:
+async def candb_get_message(session_id: str, msg_id: int | str) -> dict:
     """获取单个报文的完整详情（含 signals 字段）。"""
     await require_user()
     conn = await _get_conn(session_id)
@@ -64,7 +66,7 @@ async def candb_get_message(session_id: str, msg_id: int) -> dict:
 
 
 async def candb_add_message(session_id: str, message: dict) -> dict:
-    """新增报文。message 必填 id(int)、name(str 非空)、dlc(int，须为合法 DLC)，其余字段透传。"""
+    """新增报文。message 必填 key 或 id、name(str 非空)、dlc(int，须为合法 DLC)，其余字段透传。"""
     await require_user()
     _validate_message(message)
     conn = await _get_conn(session_id)
@@ -75,7 +77,7 @@ async def candb_add_message(session_id: str, message: dict) -> dict:
     return dict(result.data or {})
 
 
-async def candb_edit_message(session_id: str, msg_id: int, fields: dict) -> dict:
+async def candb_edit_message(session_id: str, msg_id: int | str, fields: dict) -> dict:
     """修改单个报文的字段（fields: {field: value}；改 id 会移动报文）。"""
     await require_user()
     conn = await _get_conn(session_id)
@@ -86,7 +88,7 @@ async def candb_edit_message(session_id: str, msg_id: int, fields: dict) -> dict
     return dict(result.data or {})
 
 
-async def candb_batch_edit_messages(session_id: str, msg_ids: list[int], fields: dict) -> dict:
+async def candb_batch_edit_messages(session_id: str, msg_ids: list[int | str], fields: dict) -> dict:
     """批量修改多个报文的字段（禁止 id/name）。"""
     await require_user()
     conn = await _get_conn(session_id)
@@ -98,7 +100,7 @@ async def candb_batch_edit_messages(session_id: str, msg_ids: list[int], fields:
     return dict(result.data or {})
 
 
-async def candb_delete_message(session_id: str, msg_id: int) -> dict:
+async def candb_delete_message(session_id: str, msg_id: int | str) -> dict:
     """删除单个报文。"""
     await require_user()
     conn = await _get_conn(session_id)
@@ -109,7 +111,7 @@ async def candb_delete_message(session_id: str, msg_id: int) -> dict:
     return dict(result.data or {})
 
 
-async def candb_batch_delete_messages(session_id: str, msg_ids: list[int]) -> dict:
+async def candb_batch_delete_messages(session_id: str, msg_ids: list[int | str]) -> dict:
     """批量删除多个报文。"""
     await require_user()
     conn = await _get_conn(session_id)
@@ -124,7 +126,7 @@ async def candb_batch_delete_messages(session_id: str, msg_ids: list[int]) -> di
 def register_tools(mcp) -> None:
     """把七个报文工具注册进 MCPServer 实例。"""
     mcp.tool(
-        description="分页列出报文摘要（id/id_hex/name/dlc/cycle_time/is_fd/sender/comment/signal_count/total_signal_bits），filter 按 name 或 id_hex 子串过滤",
+        description="分页列出报文摘要（key/id/id_hex/is_extended_frame/name/dlc/cycle_time/is_fd/sender/comment/signal_count/total_signal_bits），filter 按 name 或 id_hex 子串过滤",
         annotations=ToolAnnotations(read_only_hint=True),
     )(candb_list_messages)
     mcp.tool(
@@ -132,7 +134,7 @@ def register_tools(mcp) -> None:
         annotations=ToolAnnotations(read_only_hint=True),
     )(candb_get_message)
     mcp.tool(
-        description="新增报文；message 必填 id(int)、name(非空 str)、dlc(int)，其余字段透传",
+        description="新增报文；message 必填 key 或 id(int)、name(非空 str)、dlc(int)，其余字段透传",
         annotations=ToolAnnotations(destructive_hint=True),
     )(candb_add_message)
     mcp.tool(

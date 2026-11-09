@@ -16,14 +16,17 @@ def _build_action_desc(snap: dict) -> str:
     t = snap.get("type", "")
     try:
         if t == "message_add":
-            msg_id = snap.get("msgId", 0)
+            msg_key = snap.get("msgKey", "")
             name = snap.get("data", {}).get("name", "")
-            return f"添加报文 0x{msg_id:X} {name}"
+            return f"添加报文 {msg_key} {name}"
         elif t == "message_delete":
-            msg_id = snap.get("data", {}).get("id", 0)
-            return f"删除报文 0x{msg_id:X}"
+            msg_key = snap.get("data", {}).get("key", "")
+            return f"删除报文 {msg_key}"
         elif t == "message_update":
-            fields = ", ".join(k for k in snap.get("next", {}) if k != "id")
+            fields = ", ".join(
+                k for k in snap.get("next", {})
+                if k not in ("id", "is_extended_frame")
+            )
             return f"修改报文 {fields}"
         elif t == "signal_add":
             return f"添加信号 {snap.get('sigName', snap.get('data', {}).get('name', ''))}"

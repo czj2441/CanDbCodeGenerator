@@ -9,6 +9,13 @@
           <input class="mono" :value="toHex(msg.id)" @blur="e => update('id', parseHex(e.target.value))">
         </div>
         <div class="field">
+          <label>{{ t('panel.frameType') }}</label>
+          <select :value="String(msg.is_extended_frame)" @change="update('is_extended_frame', $event.target.value === 'true')">
+            <option value="false">{{ t('panel.standardFrame') }}</option>
+            <option value="true">{{ t('panel.extendedFrame') }}</option>
+          </select>
+        </div>
+        <div class="field">
           <label>{{ t('panel.name') }}</label>
           <input v-lazy-value="msg.name" @blur="e => update('name', e.target.value)">
         </div>
@@ -72,7 +79,7 @@ const ui = useUiStore()
 const msg = computed(() => store.selectedMessage)
 
 // 开始编辑时快照报文 id；blur 提交只认快照。
-const edit = usePanelEdit('message-panel', () => ({ msgId: msg.value?.id }))
+const edit = usePanelEdit('message-panel', () => ({ msgKey: msg.value?.key }))
 
 // 动态报文标签页时为 true（centerTab 形如 'msg_{id}'）
 const isDynamicMsgTab = computed(() => typeof ui.centerTab === 'string' && ui.centerTab.startsWith('msg_'))
@@ -100,8 +107,8 @@ watch(() => msg.value?.is_fd, (v) => {
 
 function update(field, value) {
   edit.commit((t) => {
-    if (t.msgId == null) return
-    messages.updateMessageField(field, value, t.msgId).catch(() => {})
+    if (t.msgKey == null) return
+    messages.updateMessageField(field, value, t.msgKey).catch(() => {})
   })
 }
 
@@ -111,12 +118,12 @@ function updateDlc(value) {
 
 function toggleIsFd(newIsFd) {
   edit.commit((t) => {
-    if (t.msgId == null) return
-    messages.updateMessageField('is_fd', newIsFd, t.msgId)
+    if (t.msgKey == null) return
+    messages.updateMessageField('is_fd', newIsFd, t.msgKey)
       .catch(() => {
         // 用户可能已经切换到别的报文，只回滚仍显示的目标。
-        if (store.selectedMsgId !== t.msgId) return
-        const actual = store.messageCache[t.msgId]?.is_fd
+        if (store.selectedMsgKey !== t.msgKey) return
+        const actual = store.messageCache[t.msgKey]?.is_fd
         localIsFd.value = actual ? 'true' : 'false'
         if (isFdEl.value) {
           isFdEl.value.value = localIsFd.value

@@ -10,7 +10,7 @@ const files = readdirSync(componentDir).filter(f => f.endsWith('.vue'))
 const FORBIDDEN = [
   { pattern: /\.selectedSignalName\s*=(?!=)/, hint: 'ui.selectSignal() 或 ui.clearSignalSelection()' },
   { pattern: /\.selectedVtName\s*=(?!=)/, hint: 'ui.selectValueTable()' },
-  { pattern: /\.selectedMsgId\s*=(?!=)/, hint: 'messages.selectMessage()' },
+  { pattern: /\.selectedMsgKey\s*=(?!=)/, hint: 'messages.selectMessage()' },
 ]
 
 test('组件不得直接赋值选中状态', () => {

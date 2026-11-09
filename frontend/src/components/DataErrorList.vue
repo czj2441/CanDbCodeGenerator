@@ -7,8 +7,8 @@
     </div>
 
     <div v-if="totalCount > 0" class="error-list-body">
-      <div v-for="group in groupedErrors" :key="group.msg_id" class="error-group">
-        <div class="group-header" @click="toggleGroup(group.msg_id)">
+      <div v-for="group in groupedErrors" :key="group.msg_key" class="error-group">
+        <div class="group-header" @click="toggleGroup(group.msg_key)">
           <span class="expand-icon">{{ group.expanded ? '▼' : '▶' }}</span>
           <span class="msg-id">{{ group.msg_id_hex }}</span>
           <span class="msg-name">{{ group.msg_name }}</span>
@@ -56,6 +56,8 @@ const ERROR_ICONS = {
   signal_name_empty: '❌', signal_name_duplicate: '⚠',
   signal_length_zero: '❌', message_name_empty: '❌',
   canfd_in_can_bus: '⚠',
+  message_id_out_of_range: '❌',
+  signal_value_type_length_invalid: '❌',
 }
 function errorIcon(type) { return ERROR_ICONS[type] || '⚠' }
 
@@ -76,25 +78,25 @@ const groupedErrors = computed(() => {
   const errors = editor.dataErrors || []
   const map = new Map()
   for (const err of errors) {
-    if (!map.has(err.msg_id)) {
-      const msg = editor.messages[String(err.msg_id)]
-      map.set(err.msg_id, {
-        msg_id: err.msg_id,
-        msg_id_hex: '0x' + err.msg_id.toString(16).toUpperCase(),
+    if (!map.has(err.msg_key)) {
+      const msg = editor.messages[String(err.msg_key)]
+      map.set(err.msg_key, {
+        msg_key: err.msg_key,
+        msg_id_hex: err.msg_id_hex || err.msg_key,
         msg_name: msg?.name || '(unknown)',
         errors: [],
-        expanded: expandedGroups.value.has(err.msg_id),
+        expanded: expandedGroups.value.has(err.msg_key),
       })
     }
-    map.get(err.msg_id).errors.push(err)
+    map.get(err.msg_key).errors.push(err)
   }
   return [...map.values()]
 })
 
-function toggleGroup(msgId) {
+function toggleGroup(msgKey) {
   const next = new Set(expandedGroups.value)
-  if (next.has(msgId)) next.delete(msgId)
-  else next.add(msgId)
+  if (next.has(msgKey)) next.delete(msgKey)
+  else next.add(msgKey)
   expandedGroups.value = next  // 触发响应式
 }
 
@@ -106,16 +108,16 @@ async function navigateToError(err) {
   const isSignalError = !!err.signal_name
   if (isSignalError) {
     // 信号错误：在动态报文标签页中打开
-    ui.openMessageTab(err.msg_id)
+    ui.openMessageTab(err.msg_key)
   } else {
     // 报文错误：切到报文列表 tab 并选中
     ui.switchCenterTab('messages')
-    messages.selectMessage(err.msg_id)
+    messages.selectMessage(err.msg_key)
   }
   await nextTick()
   const MAX_WAIT_MS = 5000
   const start = Date.now()
-  while (editor.messageCache[err.msg_id] == null) {
+  while (editor.messageCache[err.msg_key] == null) {
     if (Date.now() - start > MAX_WAIT_MS) {
       ui.showToast('报文加载失败，无法跳转', true)
       return

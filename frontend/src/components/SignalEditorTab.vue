@@ -1,5 +1,5 @@
 <template>
-  <SignalLayoutVisualizer v-if="ui.layoutViewMode" :msg-id="effectiveMsgId" />
+  <SignalLayoutVisualizer v-if="ui.layoutViewMode" :msg-key="effectiveMsgKey" />
   <template v-else>
   <div class="signal-area">
     <div class="center-header">
@@ -155,8 +155,8 @@ const undoRedo = useUndoRedoStore()
 const ui = useUiStore()
 
 const props = defineProps({
-  // 当来自动态标签页时，强制使用本 tab 的 msgId；否则 fallback 到全局 selectedMsgId
-  msgId: { type: Number, default: null },
+  // 当来自动态标签页时，强制使用本 tab 的 msgKey；否则 fallback 到全局 selectedMsgKey
+  msgKey: { type: String, default: null },
 })
 
 // ── 值描述表名称列表 ──
@@ -179,17 +179,17 @@ function commitAndExitEdit() {
   editingKey.value = null
 }
 
-// 动态 tab 时优先使用 prop，fallback 到全局 selectedMsgId
-const effectiveMsgId = computed(() => props.msgId ?? store.selectedMsgId)
+// 动态 tab 时优先使用 prop，fallback 到全局 selectedMsgKey
+const effectiveMsgKey = computed(() => props.msgKey ?? store.selectedMsgKey)
 const msg = computed(() => {
-  if (effectiveMsgId.value == null) return null
-  return store.messageCache[effectiveMsgId.value] || null
+  if (effectiveMsgKey.value == null) return null
+  return store.messageCache[effectiveMsgKey.value] || null
 })
 // ✅ 使用单一数据源：直接代理 ui.selectedSignalName，避免双写
 const selectedSigName = computed(() => ui.selectedSignalName)
 
-// 切换报文时清除选中（仅在 effectiveMsgId 真正变化时触发，动态 tab 切换时 prop 不变，不会误清）
-watch(effectiveMsgId, () => {
+// 切换报文时清除选中（仅在 effectiveMsgKey 真正变化时触发，动态 tab 切换时 prop 不变，不会误清）
+watch(effectiveMsgKey, () => {
   ui.clearSignalSelection({ discard: true })
   editingKey.value = null
   multiSelect.clearSelection()
@@ -426,17 +426,17 @@ function addSignal() {
 }
 
 function update(sigName, field, value) {
-  signals.updateSignal(sigName, field, value, msg.value?.id).catch(() => {})
+  signals.updateSignal(sigName, field, value, msg.value?.key).catch(() => {})
 }
 
 function updateByteOrder(sig, e) {
   const oldOrder = sig.byte_order
-  signals.updateSignal(sig.name, 'byte_order', e.target.value, msg.value?.id)
+  signals.updateSignal(sig.name, 'byte_order', e.target.value, msg.value?.key)
     .catch(() => { e.target.value = oldOrder })
 }
 
 function updateValueTableRef(sigName, value) {
-  signals.updateSignal(sigName, 'value_table_name', value || '', msg.value?.id).catch(() => {})
+  signals.updateSignal(sigName, 'value_table_name', value || '', msg.value?.key).catch(() => {})
 }
 
 function batchDeleteSelected() {
@@ -465,7 +465,7 @@ function updateStartBit(sig, displayValue) {
   const maxBit = (msg.value?.dlc || 8) * 8 - 1
   const msbValue = toStorageStartBit(displayValue, sig.length, sig.byte_order, maxBit, sig.start_bit)
   const valueToSend = msbValue >= 0 ? msbValue : -1
-  signals.updateSignal(sig.name, 'start_bit', valueToSend, msg.value?.id).catch(() => {})
+  signals.updateSignal(sig.name, 'start_bit', valueToSend, msg.value?.key).catch(() => {})
 }
 
 // ── 方向键单元格导航 ──

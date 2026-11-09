@@ -6,21 +6,36 @@ EditMessage / AddMessage / DeleteMessage / GetMessage / GetMessages / BatchEditM
 from __future__ import annotations
 
 from app.models import Message
-from app.services import FileNameExistsError
+from app.models.can_id import CanIdError
 from app.ws.router import HandlerResult, HandlerError
-from ._common import push_data_errors, build_messages_summary, _single_message_summary
+from ._common import (
+    build_messages_summary,
+    parse_msg_key,
+    push_data_errors,
+    _single_message_summary,
+)
 
 
-def _parse_id(s) -> int | None:
-    """解析报文 ID。仅接受 int 或十进制整数字符串。"""
-    if isinstance(s, int):
-        return s
-    if isinstance(s, str):
+def _parse_id(value) -> int | None:
+    """解析原始 CAN ID（int / 十进制或 0x 字符串）。"""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
         try:
-            return int(s.strip())
+            return int(value.strip(), 0)
         except ValueError:
             return None
     return None
+
+
+def _request_msg_keys(data: dict) -> list[str]:
+    """读取批量请求中的报文 key 列表，兼容旧 ``msg_ids``。"""
+    raw = data.get("msg_keys")
+    if raw is None:
+        raw = data.get("msg_ids", [])
+    return [parse_msg_key(v) for v in raw]
 
 
 class EditMessageHandler:
@@ -32,43 +47,65 @@ class EditMessageHandler:
         session = self._sm.get(sid)
         if not session:
             raise HandlerError("SESSION_NOT_FOUND", "会话不存在")
-        msg_id = data["msg_id"]
-        original_msg_id = msg_id
+        original_key = parse_msg_key(data.get("msg_key", data.get("msg_id")))
         fields = data.get("fields", {})
 
         db = session.db
         with db.with_lock():
-            msg = db.messages.get(msg_id)
+            msg = db.messages.get(original_key)
             if not msg:
-                raise HandlerError("MESSAGE_NOT_FOUND", f"报文 {msg_id} 不存在")
-            ok, err, info = db.validate_message_fields(msg_id, fields)
+                raise HandlerError("MESSAGE_NOT_FOUND", f"报文 {original_key} 不存在")
+            ok, err, info = db.validate_message_fields(original_key, fields)
             if not ok:
                 raise HandlerError("VALUE_INVALID", err, info)
+
             old_values = {}
             for key in fields:
-                if key != "id" and hasattr(msg, key):
+                if key not in ("id", "is_extended_frame") and hasattr(msg, key):
                     old_values[key] = getattr(msg, key)
-            new_id = _parse_id(fields.get("id", msg_id))
-            if new_id is None:
+
+            target_id = _parse_id(fields.get("id", msg.can_id))
+            if target_id is None:
                 raise HandlerError("VALUE_INVALID", "Invalid new ID")
-            if new_id != msg_id:
-                if not db.move_message(msg_id, new_id):
-                    raise HandlerError("CONFLICT", f"报文 0x{new_id:X} 已存在")
-                msg_id = new_id
-            db.update_message(msg_id, **{k: v for k, v in fields.items() if k != "id"})
-            if old_values or new_id != original_msg_id:
+            target_ext = fields.get("is_extended_frame", msg.is_extended_frame)
+            if not isinstance(target_ext, bool):
+                raise HandlerError("VALUE_INVALID", "is_extended_frame must be a boolean")
+
+            new_key = original_key
+            if target_id != msg.can_id or target_ext != msg.is_extended_frame:
+                moved = db.move_message(original_key, target_id, target_ext)
+                if moved is None:
+                    raise HandlerError(
+                        "CONFLICT",
+                        f"报文 0x{target_id:X}"
+                        f"{':ext' if target_ext else ':std'} 已存在",
+                    )
+                new_key = moved
+
+            db.update_message(
+                new_key,
+                **{k: v for k, v in fields.items()
+                   if k not in ("id", "is_extended_frame")},
+            )
+
+            if old_values or new_key != original_key:
                 prev = dict(old_values)
-                nxt = {k: v for k, v in fields.items() if k != "id"}
-                if new_id != original_msg_id:
-                    prev["id"] = original_msg_id
-                    nxt["id"] = new_id
-                self._sm.push_undo(session, {"type": "message_update", "msgId": msg_id,
-                                         "prev": prev, "next": nxt})
+                nxt = {k: v for k, v in fields.items()
+                       if k not in ("id", "is_extended_frame")}
+                self._sm.push_undo(session, {
+                    "type": "message_update",
+                    "msgKey": new_key,
+                    "prevKey": original_key,
+                    "nextKey": new_key,
+                    "prev": prev,
+                    "next": nxt,
+                })
+
             new_version = db._bump_version()
-            updated_msg = db.get_message(msg_id)
+            updated_msg = db.get_message(new_key)
             evt_data = {"message": _single_message_summary(updated_msg)}
-            if new_id != original_msg_id:
-                evt_data["old_id"] = original_msg_id
+            if new_key != original_key:
+                evt_data["old_key"] = original_key
             events = [
                 {"type": "message_updated", "data": evt_data,
                  "data_version": new_version},
@@ -76,8 +113,7 @@ class EditMessageHandler:
                  "undo_count": len(session.undo_stack), "redo_count": len(session.redo_stack)},
                  "data_version": new_version},
             ]
-            # 无条件推送全局数据完整性错误（覆盖 message_name_empty 等）
-            push_data_errors(events, db, new_version, {original_msg_id, msg_id})
+            push_data_errors(events, db, new_version, {original_key, new_key})
             return HandlerResult(data=updated_msg.to_dict(), events=events,
                                  new_version=new_version, session_id=sid)
 
@@ -95,9 +131,6 @@ class AddMessageHandler:
 
         db = session.db
         with db.with_lock():
-            msg_id = _parse_id(msg_data.get("id", ""))
-            if msg_id is None:
-                raise HandlerError("VALUE_INVALID", "Invalid or missing message ID")
             if "name" in msg_data:
                 name = msg_data["name"]
                 if not isinstance(name, str) or not name.strip():
@@ -110,14 +143,27 @@ class AddMessageHandler:
                                        {"error_code": "dlc_invalid", "field": "dlc"})
                 dlc_int = int(dlc)
                 if dlc_int not in db.VALID_DLC_VALUES:
-                    raise HandlerError("VALUE_INVALID", f"Invalid DLC",
+                    raise HandlerError("VALUE_INVALID", "Invalid DLC",
                                        {"error_code": "dlc_invalid", "field": "dlc",
                                         "valid_values": sorted(db.VALID_DLC_VALUES)})
-            msg = Message.from_dict(msg_data)
-            msg.id = msg_id
+            if not msg_data.get("key") and msg_data.get("id") in (None, ""):
+                raise HandlerError(
+                    "VALUE_INVALID",
+                    "Message ID or key is required",
+                    {"error_code": "message_id_required", "field": "id"},
+                )
+            try:
+                msg = Message.from_dict(msg_data)
+            except (CanIdError, ValueError, TypeError) as e:
+                raise HandlerError("VALUE_INVALID", f"Invalid message: {e}")
             if not db.add_message(msg):
-                raise HandlerError("CONFLICT", f"报文 0x{msg_id:X} 已存在")
-            self._sm.push_undo(session, {"type": "message_add", "msgId": msg_id, "data": msg.to_dict()})
+                raise HandlerError(
+                    "CONFLICT",
+                    f"报文 {msg.key} 已存在",
+                )
+            self._sm.push_undo(session, {
+                "type": "message_add", "msgKey": msg.key, "data": msg.to_dict(),
+            })
             new_version = db._bump_version()
             summary = _single_message_summary(msg)
             events = [
@@ -126,7 +172,7 @@ class AddMessageHandler:
                  "undo_count": len(session.undo_stack), "redo_count": len(session.redo_stack)},
                  "data_version": new_version},
             ]
-            push_data_errors(events, db, new_version, {msg_id})
+            push_data_errors(events, db, new_version, {msg.key})
             return HandlerResult(data=msg.to_dict(), events=events,
                                  new_version=new_version, session_id=sid)
 
@@ -140,19 +186,19 @@ class DeleteMessageHandler:
         session = self._sm.get(sid)
         if not session:
             raise HandlerError("SESSION_NOT_FOUND", "会话不存在")
-        msg_id = data["msg_id"]
+        msg_key = parse_msg_key(data.get("msg_key", data.get("msg_id")))
 
         db = session.db
         with db.with_lock():
-            msg = db.messages.get(msg_id)
+            msg = db.messages.get(msg_key)
             if not msg:
-                raise HandlerError("MESSAGE_NOT_FOUND", f"报文 {msg_id} 不存在")
+                raise HandlerError("MESSAGE_NOT_FOUND", f"报文 {msg_key} 不存在")
             msg_data = msg.to_dict()
-            db.remove_message(msg_id)
+            db.remove_message(msg_key)
             self._sm.push_undo(session, {"type": "message_delete", "data": msg_data})
             new_version = db._bump_version()
             events = [
-                {"type": "message_deleted", "data": {"msg_id": msg_id}, "data_version": new_version},
+                {"type": "message_deleted", "data": {"msg_key": msg_key}, "data_version": new_version},
                 {"type": "status_changed", "data": {"modified": True,
                  "undo_count": len(session.undo_stack), "redo_count": len(session.redo_stack)},
                  "data_version": new_version},
@@ -162,9 +208,8 @@ class DeleteMessageHandler:
             events.append({"type": "data_errors_changed",
                            "data": {"errors": integrity_errors},
                            "data_version": new_version})
-            return HandlerResult(data={"deleted": f"0x{msg_id:X}"}, events=events,
+            return HandlerResult(data={"deleted": msg_key}, events=events,
                                  new_version=new_version, session_id=sid)
-
 
 
 class GetMessageHandler:
@@ -177,10 +222,13 @@ class GetMessageHandler:
         if not session:
             raise HandlerError("SESSION_NOT_FOUND", "会话不存在")
         db = session.db
-        msg_id = _parse_id(data.get("msg_id", ""))
-        msg = db.get_message(msg_id) if msg_id is not None else None
+        try:
+            msg_key = parse_msg_key(data.get("msg_key", data.get("msg_id")))
+        except HandlerError:
+            msg_key = None
+        msg = db.get_message(msg_key) if msg_key is not None else None
         if not msg:
-            label = f"0x{msg_id:X}" if msg_id is not None else str(data.get("msg_id", ""))
+            label = msg_key or str(data.get("msg_key", data.get("msg_id", "")))
             raise HandlerError("MESSAGE_NOT_FOUND", f"报文 {label} 不存在")
         return HandlerResult(data=msg.to_dict(), session_id=sid)
 
@@ -201,13 +249,14 @@ class GetMessagesHandler:
 
 
 # 批量编辑时禁止的字段（唯一标识字段）
-_BATCH_EDIT_FORBIDDEN_FIELDS = {'id', 'name'}
+_BATCH_EDIT_FORBIDDEN_FIELDS = {'id', 'is_extended_frame', 'key', 'name'}
 
 
 class BatchEditMessagesHandler:
     """批量编辑多个报文的指定字段。
 
-    请求格式: { session_id, msg_ids: [int], fields: { field: value } }
+    请求格式: { session_id, msg_keys: [str], fields: { field: value } }
+    兼容旧 ``msg_ids: [int]``。
     """
     def __init__(self, session_mgr):
         self._sm = session_mgr
@@ -218,15 +267,14 @@ class BatchEditMessagesHandler:
         if not session:
             raise HandlerError("SESSION_NOT_FOUND", "会话不存在")
 
-        msg_ids = data.get("msg_ids", [])
+        msg_keys = _request_msg_keys(data)
         fields = data.get("fields", {})
 
-        if not msg_ids:
-            raise HandlerError("VALUE_INVALID", "msg_ids 不能为空")
+        if not msg_keys:
+            raise HandlerError("VALUE_INVALID", "msg_keys 不能为空")
         if not fields:
             raise HandlerError("VALUE_INVALID", "fields 不能为空")
 
-        # 禁止批量修改 id 和 name
         for field in fields:
             if field in _BATCH_EDIT_FORBIDDEN_FIELDS:
                 raise HandlerError("FIELD_NOT_EDITABLE",
@@ -235,39 +283,34 @@ class BatchEditMessagesHandler:
 
         db = session.db
         with db.with_lock():
-            prev = []   # [{msgId: id, field: old_value, ...}, ...]
+            prev = []   # [{msgKey: key, field: old_value, ...}, ...]
             updated_msgs = []
             errors = []
 
-            for msg_id in msg_ids:
-                msg = db.messages.get(msg_id)
+            for msg_key in msg_keys:
+                msg = db.messages.get(msg_key)
                 if not msg:
-                    errors.append({"msg_id": msg_id, "error": "报文不存在"})
+                    errors.append({"msg_key": msg_key, "error": "报文不存在"})
                     continue
 
-                # 记录旧值
-                old_vals = {"msgId": msg_id}
+                old_vals = {"msgKey": msg_key}
                 for field in fields:
                     if hasattr(msg, field):
                         old_vals[field] = getattr(msg, field)
 
-                # 验证字段
-                ok, err, info = db.validate_message_fields(msg_id, fields)
+                ok, err, info = db.validate_message_fields(msg_key, fields)
                 if not ok:
-                    errors.append({"msg_id": msg_id, "error": err})
+                    errors.append({"msg_key": msg_key, "error": err})
                     continue
 
-                # 应用变更
-                db.update_message(msg_id, **fields)
-
+                db.update_message(msg_key, **fields)
                 prev.append(old_vals)
-                updated_msgs.append(db.get_message(msg_id))
+                updated_msgs.append(db.get_message(msg_key))
 
             if not updated_msgs:
                 raise HandlerError("VALUE_INVALID", "没有报文被更新",
                                    {"errors": errors})
 
-            # 单个 undo 快照
             self._sm.push_undo(session, {
                 "type": "batch_message_update",
                 "prev": prev,
@@ -276,7 +319,6 @@ class BatchEditMessagesHandler:
 
             new_version = db._bump_version()
 
-            # 逐报文发 message_updated 事件
             events = []
             for updated_msg in updated_msgs:
                 summary = _single_message_summary(updated_msg)
@@ -311,7 +353,8 @@ class BatchEditMessagesHandler:
 class BatchDeleteMessagesHandler:
     """批量删除多个报文。
 
-    请求格式: { session_id, msg_ids: [int] }
+    请求格式: { session_id, msg_keys: [str] }
+    兼容旧 ``msg_ids: [int]``。
     """
     def __init__(self, session_mgr):
         self._sm = session_mgr
@@ -322,30 +365,28 @@ class BatchDeleteMessagesHandler:
         if not session:
             raise HandlerError("SESSION_NOT_FOUND", "会话不存在")
 
-        msg_ids = data.get("msg_ids", [])
-
-        if not msg_ids:
-            raise HandlerError("VALUE_INVALID", "msg_ids 不能为空")
+        msg_keys = _request_msg_keys(data)
+        if not msg_keys:
+            raise HandlerError("VALUE_INVALID", "msg_keys 不能为空")
 
         db = session.db
         with db.with_lock():
             deleted = []
             errors = []
 
-            for msg_id in msg_ids:
-                msg = db.messages.get(msg_id)
+            for msg_key in msg_keys:
+                msg = db.messages.get(msg_key)
                 if not msg:
-                    errors.append({"msg_id": msg_id, "error": "报文不存在"})
+                    errors.append({"msg_key": msg_key, "error": "报文不存在"})
                     continue
                 msg_data = msg.to_dict()
-                db.remove_message(msg_id)
+                db.remove_message(msg_key)
                 deleted.append(msg_data)
 
             if not deleted:
                 raise HandlerError("VALUE_INVALID", "没有报文被删除",
                                    {"errors": errors})
 
-            # 单个 undo 快照
             self._sm.push_undo(session, {
                 "type": "batch_message_delete",
                 "messages": deleted,
@@ -353,12 +394,11 @@ class BatchDeleteMessagesHandler:
 
             new_version = db._bump_version()
 
-            # 逐报文发 message_deleted 事件
             events = []
             for msg_data in deleted:
                 events.append({
                     "type": "message_deleted",
-                    "data": {"msg_id": msg_data["id"]},
+                    "data": {"msg_key": msg_data["key"]},
                     "data_version": new_version,
                 })
             events.append({
@@ -368,7 +408,6 @@ class BatchDeleteMessagesHandler:
                          "redo_count": len(session.redo_stack)},
                 "data_version": new_version,
             })
-            # 报文已删除，全量校验
             integrity_errors = db.full_validate()
             events.append({
                 "type": "data_errors_changed",

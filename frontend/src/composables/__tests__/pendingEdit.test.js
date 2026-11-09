@@ -41,9 +41,9 @@ test('cancel 的 predicate 返回 false 时保留快照', () => {
 })
 
 test('remap 修改已有快照的目标', () => {
-  beginPendingEdit('e', { msgId: 1, signalName: 'A' })
+  beginPendingEdit('e', { msgKey: 1, signalName: 'A' })
   remapPendingEditTarget('e', (t) => ({ ...t, signalName: 'B' }))
-  assert.deepEqual(peekPendingEdit('e'), { msgId: 1, signalName: 'B' })
+  assert.deepEqual(peekPendingEdit('e'), { msgKey: 1, signalName: 'B' })
 })
 
 test('flush 在注册表为空时不会 blur（保护方向键焦点）', () => {

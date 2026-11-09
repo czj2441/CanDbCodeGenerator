@@ -158,7 +158,7 @@ function getSortIconText(field) {
 const refCountMap = computed(() => {
   const map = new Map()
   for (const msg of Object.values(editor.messages)) {
-    const cache = editor.messageCache[msg.id]
+    const cache = editor.messageCache[msg.key]
     if (cache?.signals) {
       for (const s of Object.values(cache.signals)) {
         if (s.value_table_name) {

@@ -39,7 +39,7 @@ export const useFileOperationsStore = defineStore('fileOperations', {
 
       useUiStore().closeAllMessageTabs()
       cancelAllPendingEdits()
-      editor.selectedMsgId = null
+      editor.selectedMsgKey = null
       editor.messageCache = {}
       editor.messages = {}
       resetMessageIdGenerator()
@@ -113,7 +113,7 @@ export const useFileOperationsStore = defineStore('fileOperations', {
 
       useUiStore().closeAllMessageTabs()
       cancelAllPendingEdits()
-      editor.selectedMsgId = null
+      editor.selectedMsgKey = null
       editor.messageCache = {}
       editor.messages = {}
       resetMessageIdGenerator()
@@ -167,7 +167,7 @@ export const useFileOperationsStore = defineStore('fileOperations', {
         editor.busType = data.bus_type || 'CAN'
         useUiStore().closeAllMessageTabs()
         cancelAllPendingEdits()
-        editor.selectedMsgId = null
+        editor.selectedMsgKey = null
         editor.messageCache = {}
         editor.messages = {}
         resetMessageIdGenerator()

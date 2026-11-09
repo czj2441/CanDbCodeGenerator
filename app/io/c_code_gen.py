@@ -29,6 +29,9 @@ logger = logging.getLogger(__name__)
 
 _TEMPLATE_DIR = os.path.join(os.path.dirname(__file__), "templates", "c")
 
+# AUTOSAR Can_IdType：bit31 置位表示扩展帧
+AUTOSAR_EXTENDED_ID_MASK = 0x80000000
+
 
 # ── Helper functions ────────────────────────────────────────────────────────────
 
@@ -143,10 +146,13 @@ def _prepare_context(db: "CanDatabase") -> dict[str, Any]:
     all_signals = []
     global_idx = 0
     
-    for msg_id in sorted(db.messages.keys()):
-        msg = db.messages[msg_id]
-        # Use PDU ID as identifier (no leading _; template separator provides it)
-        msg_pdu = f"0x{msg.id:X}"
+    for msg_key in db.sorted_keys():
+        msg = db.messages[msg_key]
+        # AUTOSAR Can_IdType：扩展帧在 bit31 置位，同时用于区分 C 标识符
+        autosar_id = msg.can_id | (
+            AUTOSAR_EXTENDED_ID_MASK if msg.is_extended_frame else 0
+        )
+        msg_pdu = f"0x{autosar_id:X}"
         
         msg_signals = []
         seen_sig_names: dict[str, int] = {}
@@ -176,8 +182,8 @@ def _prepare_context(db: "CanDatabase") -> dict[str, Any]:
             global_idx += 1
         
         messages_data.append({
-            'id': msg.id,
-            'id_hex': f'0x{msg.id:X}',
+            'id': autosar_id,
+            'id_hex': f'0x{autosar_id:X}',
             'name': msg.name,                             # comment: original name
             'name_sanitized': msg_pdu,                    # 0x100
             'name_upper': msg_pdu.upper(),                # 0X100

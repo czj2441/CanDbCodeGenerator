@@ -1,6 +1,27 @@
 """app.ws.handlers 共享工具函数。"""
 import os
 
+from app.models.can_id import CanIdError, parse_ref, to_key
+from app.ws.router import HandlerError
+
+
+def parse_msg_key(value, field: str = "msg_id") -> str:
+    """把 WS 请求里的报文引用解析成 key。
+
+    兼容旧客户端传整数 ``msg_id``；新前端统一传 ``msg_key``。
+    """
+    if value is None or value == "":
+        raise HandlerError("VALUE_INVALID", "Message key is required", {
+            "error_code": "message_key_required", "field": field,
+        })
+    try:
+        can_id, is_extended = parse_ref(value)
+    except CanIdError as e:
+        raise HandlerError("VALUE_INVALID", str(e), {
+            "error_code": "message_key_invalid", "field": field,
+        })
+    return to_key(can_id, is_extended)
+
 
 def pure_file_name(session) -> str:
     """从 session 中提取纯文件名。"""
@@ -10,7 +31,9 @@ def pure_file_name(session) -> str:
 def _single_message_summary(m) -> dict:
     """构建单条报文摘要 dict。"""
     return {
-        "id": m.id, "id_hex": f"0x{m.id:X}", "name": m.name,
+        "key": m.key, "id": m.can_id, "id_hex": f"0x{m.can_id:X}",
+        "is_extended_frame": m.is_extended_frame,
+        "name": m.name,
         "dlc": m.dlc, "cycle_time": m.cycle_time,
         "is_fd": m.is_fd, "sender": m.sender, "comment": m.comment,
         "signal_count": len(m.signals),
@@ -19,10 +42,10 @@ def _single_message_summary(m) -> dict:
 
 
 def build_messages_summary(db) -> dict[str, dict]:
-    """构建报文摘要 dict（keyed by msg_id），供 full_sync / undo / redo / get_messages 复用。"""
+    """构建报文摘要 dict（keyed by msg key），供 full_sync / undo / redo / get_messages 复用。"""
     return {
-        str(mid): _single_message_summary(m)
-        for mid, m in sorted(db.messages.items())
+        m.key: _single_message_summary(m)
+        for m in sorted(db.messages.values(), key=lambda x: x.sort_key)
     }
 
 
@@ -32,7 +55,7 @@ def build_undo_redo_events(session, db, action_type: str) -> tuple[list, int, li
     Returns: (events, new_version, integrity_errors)
     """
     messages_data = build_messages_summary(db)
-    message_details = {str(mid): m.to_dict() for mid, m in db.messages.items()}
+    message_details = {m.key: m.to_dict() for m in db.messages.values()}
     new_version = db._bump_version()
     integrity_errors = db.full_validate()
 
