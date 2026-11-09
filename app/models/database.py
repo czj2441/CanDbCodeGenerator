@@ -495,38 +495,15 @@ class CanDatabase:
                 "error_code": "signal_value_type_length_invalid", "type": "invalid_param",
                 "field": "length", "value": sig.length,
             }
-        if sig.min_val == 0 and sig.max_val == 0:
-            return True, "", {"type": "ok"}
-        if sig.factor != 0:
-            if not all(math.isfinite(v) for v in (
-                sig.factor, sig.offset, sig.min_val, sig.max_val
-            )):
-                return False, "Signal min/max values must be finite", {
-                    "error_code": "signal_min_max_invalid", "type": "invalid_param",
-                    "field": "min_val",
-                    "min_val": str(sig.min_val), "max_val": str(sig.max_val),
-                }
-            if sig.min_val > sig.max_val:
-                return False, "Signal min value must not exceed max value", {
-                    "error_code": "signal_min_max_invalid", "type": "invalid_param",
-                    "field": "max_val", "min_val": sig.min_val, "max_val": sig.max_val,
-                }
-            p_min, p_max = self.signal_physical_range(sig)
-            tol = _range_tolerance(sig, p_min, p_max)
-            if sig.min_val < p_min - tol:
-                return False, f"Signal min value {sig.min_val} is below {p_min}", {
-                    "error_code": "signal_min_out_of_range", "type": "invalid_param",
-                    "field": "min_val", "value": sig.min_val,
-                    "min_allowed": p_min, "max_allowed": p_max,
-                    "value_type": str(sig.value_type), "length": sig.length,
-                }
-            if sig.max_val > p_max + tol:
-                return False, f"Signal max value {sig.max_val} is above {p_max}", {
-                    "error_code": "signal_max_out_of_range", "type": "invalid_param",
-                    "field": "max_val", "value": sig.max_val,
-                    "min_allowed": p_min, "max_allowed": p_max,
-                    "value_type": str(sig.value_type), "length": sig.length,
-                }
+        if not all(math.isfinite(v) for v in (
+            sig.factor, sig.offset, sig.min_val, sig.max_val
+        )):
+            return False, "Signal min/max values must be finite", {
+                "error_code": "signal_min_max_invalid", "type": "invalid_param",
+                "field": "min_val",
+                "min_val": str(sig.min_val), "max_val": str(sig.max_val),
+            }
+        # 量程错误是非阻断数据错误，由 _validate_single_message_integrity() 报告
         # A3/A4 已延后：越界和重叠由 validate_all_signals() 非阻断检测
         return True, "", {"type": "ok"}
 

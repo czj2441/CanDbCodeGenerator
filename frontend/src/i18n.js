@@ -313,8 +313,6 @@ const dict = {
     'toast.validation.signal_overlap': '信号 "{name}" 与 "{other}" 位重叠',
     'toast.validation.signal_out_of_bounds': '信号超出报文范围',
     'toast.validation.signal_min_max_invalid': '最小值/最大值不合法或最小值大于最大值',
-    'toast.validation.signal_min_out_of_range': '最小值 {value} 超出可表示物理范围 [{min_allowed}, {max_allowed}]',
-    'toast.validation.signal_max_out_of_range': '最大值 {value} 超出可表示物理范围 [{min_allowed}, {max_allowed}]',
     'toast.validation.dbc_export_errors': '存在 {total} 个数据错误，无法导出 DBC。请先修复错误面板中的问题。',
     'toast.validation.checking': '正在全量检查...',
     'toast.validation.noErrors': '数据检查通过，无错误',
