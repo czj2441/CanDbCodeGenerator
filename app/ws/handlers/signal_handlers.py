@@ -191,6 +191,12 @@ class FitSignalRangeHandler:
                     "Cannot compute range when factor is 0",
                     {"error_code": "factor_zero", "field": "factor"},
                 )
+            if sig.length < 1:
+                raise HandlerError(
+                    "VALUE_INVALID",
+                    "Signal length must be at least 1",
+                    {"error_code": "signal_length_invalid", "field": "length"},
+                )
             if not all(math.isfinite(v) for v in (sig.factor, sig.offset)):
                 raise HandlerError(
                     "VALUE_INVALID",

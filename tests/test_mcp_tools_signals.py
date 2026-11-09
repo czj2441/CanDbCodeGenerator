@@ -278,3 +278,28 @@ def test_batch_add_rejects_out_of_physical_range(live_backend, monkeypatch):
             await pool.aclose_all()
 
     asyncio.run(run())
+
+
+def test_edit_revalidates_physical_range(live_backend, monkeypatch):
+    """edit_signal 合并新值后必须重新做物理量程校验。"""
+
+    async def run():
+        pool = _prepare(live_backend, monkeypatch)
+        try:
+            set_current_pat(live_backend["pat_alice"])
+            sid = await _new_session("sig_edit_range")
+            await candb_add_message(sid, _msg(403, "EditRange"))
+            await candb_add_signal(sid, 403, _sig("R", 0, min_val=0, max_val=255))
+
+            with pytest.raises(ToolError):
+                await candb_edit_signal(sid, 403, "R", "length", 4)
+            got = await candb_get_signal(sid, 403, "R")
+            assert got["length"] == 8
+            assert got["max_val"] == 255
+
+            with pytest.raises(ToolError):
+                await candb_edit_signal(sid, 403, "R", "factor", 0.5)
+        finally:
+            await pool.aclose_all()
+
+    asyncio.run(run())

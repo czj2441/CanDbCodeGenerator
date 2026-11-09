@@ -20,6 +20,9 @@ logger = logging.getLogger(__name__)
 
 # IEEE 754 单精度最大有限值；双精度用 sys.float_info.max。
 _FLT_MAX = 3.4028234663852886e38
+# 浮点类型允许 1e-6 相对误差：DBC 常把 FLT_MAX 写成 3.4028235E+38，
+# 该十进制值作为 float64 解析后略大于精确的 FLT_MAX。
+_RANGE_REL_TOL = 1e-6
 
 
 def _as_float(value: int | float) -> float:
@@ -28,6 +31,13 @@ def _as_float(value: int | float) -> float:
         return float(value)
     except OverflowError:
         return math.inf if value > 0 else -math.inf
+
+
+def _range_tolerance(sig: Signal, p_min: float, p_max: float) -> float:
+    """浮点类型按相对误差放宽；整数类型保持精确比较。"""
+    if sig.value_type in (SignalValueType.FLOAT, SignalValueType.DOUBLE):
+        return _RANGE_REL_TOL * max(abs(p_min), abs(p_max), 1.0)
+    return 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -443,6 +453,8 @@ class CanDatabase:
         """按 value_type/length/factor/offset 计算物理可表示范围。"""
         if sig.factor == 0:
             return sig.offset, sig.offset
+        if sig.length < 1:
+            return sig.offset, sig.offset
 
         if sig.value_type == SignalValueType.UINT:
             raw_min, raw_max = 0, (1 << sig.length) - 1
@@ -491,7 +503,8 @@ class CanDatabase:
             )):
                 return False, "Signal min/max values must be finite", {
                     "error_code": "signal_min_max_invalid", "type": "invalid_param",
-                    "field": "min_val", "min_val": sig.min_val, "max_val": sig.max_val,
+                    "field": "min_val",
+                    "min_val": str(sig.min_val), "max_val": str(sig.max_val),
                 }
             if sig.min_val > sig.max_val:
                 return False, "Signal min value must not exceed max value", {
@@ -499,14 +512,15 @@ class CanDatabase:
                     "field": "max_val", "min_val": sig.min_val, "max_val": sig.max_val,
                 }
             p_min, p_max = self.signal_physical_range(sig)
-            if sig.min_val < p_min:
+            tol = _range_tolerance(sig, p_min, p_max)
+            if sig.min_val < p_min - tol:
                 return False, f"Signal min value {sig.min_val} is below {p_min}", {
                     "error_code": "signal_min_out_of_range", "type": "invalid_param",
                     "field": "min_val", "value": sig.min_val,
                     "min_allowed": p_min, "max_allowed": p_max,
                     "value_type": str(sig.value_type), "length": sig.length,
                 }
-            if sig.max_val > p_max:
+            if sig.max_val > p_max + tol:
                 return False, f"Signal max value {sig.max_val} is above {p_max}", {
                     "error_code": "signal_max_out_of_range", "type": "invalid_param",
                     "field": "max_val", "value": sig.max_val,
@@ -608,14 +622,15 @@ class CanDatabase:
                     "signal_name": sig.name,
                     "message": f"Signal '{sig.name}' factor is 0",
                 })
-            if sig.factor != 0 and not (sig.min_val == 0 and sig.max_val == 0):
+            if (sig.factor != 0 and sig.length >= 1
+                    and not (sig.min_val == 0 and sig.max_val == 0)):
                 if not all(math.isfinite(v) for v in (
                     sig.factor, sig.offset, sig.min_val, sig.max_val
                 )):
                     errors.append({
                         "type": "signal_min_max_invalid", **msg_ref,
                         "signal_name": sig.name,
-                        "min_val": sig.min_val, "max_val": sig.max_val,
+                        "min_val": str(sig.min_val), "max_val": str(sig.max_val),
                         "message": f"Signal '{sig.name}' min/max values must be finite",
                     })
                 elif sig.min_val > sig.max_val:
@@ -627,7 +642,8 @@ class CanDatabase:
                     })
                 else:
                     p_min, p_max = self.signal_physical_range(sig)
-                    if sig.min_val < p_min:
+                    tol = _range_tolerance(sig, p_min, p_max)
+                    if sig.min_val < p_min - tol:
                         errors.append({
                             "type": "signal_min_out_of_range", **msg_ref,
                             "signal_name": sig.name,
@@ -638,7 +654,7 @@ class CanDatabase:
                                 f"is below {p_min}"
                             ),
                         })
-                    if sig.max_val > p_max:
+                    if sig.max_val > p_max + tol:
                         errors.append({
                             "type": "signal_max_out_of_range", **msg_ref,
                             "signal_name": sig.name,

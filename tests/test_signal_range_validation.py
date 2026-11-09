@@ -1,5 +1,6 @@
 """信号物理量程校验单元测试。"""
 
+import json
 import sys
 
 import pytest
@@ -206,3 +207,44 @@ def test_integrity_skips_zero_zero():
 
 def test_integrity_skips_factor_zero():
     assert not (RANGE_ERRORS & _error_types(_db_with_sig(factor=0.0)))
+
+
+def test_signal_physical_range_zero_length_is_safe():
+    db = _db()
+    sig = _sig(value_type=SignalValueType.INT, length=0, min_val=1, max_val=2)
+    assert db.signal_physical_range(sig) == (0.0, 0.0)
+
+
+def test_integrity_int_zero_length_does_not_crash():
+    db = _db_with_sig(value_type=SignalValueType.INT, length=0, min_val=1, max_val=2)
+    types = _error_types(db)
+    assert "signal_length_zero" in types
+    assert not (RANGE_ERRORS & types)
+
+
+def test_validate_non_finite_details_are_json_safe():
+    ok, _, info = _check(min_val=float("nan"), max_val=0)
+    assert ok is False
+    json.dumps(info, allow_nan=False)
+
+
+def test_integrity_non_finite_payload_is_json_safe():
+    errors = _db_with_sig(min_val=float("inf"), max_val=0).full_validate()
+    json.dumps(errors, allow_nan=False)
+
+
+def test_float32_rounded_decimal_max_is_accepted():
+    ok, _, _ = _check(
+        value_type=SignalValueType.FLOAT, length=32,
+        min_val=0, max_val=3.4028235e38,
+    )
+    assert ok is True
+
+
+def test_offset_change_revalidates_existing_min():
+    db = _db()
+    sig = _sig(factor=1.0, offset=0.0, min_val=0, max_val=255)
+    sig.offset = 10.0
+    ok, _, info = db.validate_signal(db.messages["0x100:std"], sig)
+    assert ok is False
+    assert info["error_code"] == "signal_min_out_of_range"

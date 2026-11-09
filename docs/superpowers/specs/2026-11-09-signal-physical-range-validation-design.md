@@ -80,8 +80,9 @@ max_val ≤ p_max
 - **`min_val == 0 且 max_val == 0` 视为“未设置”**，跳过上述全部检查。
   原因：Properties/DBC 未提供 min/max 时模型都落为 `0.0`，无法与“真实范围就是 0”区分；若不跳过，offset 不为 0 的导入信号会被大量误报。
 - **`factor == 0`** 时跳过量程检查（物理量程退化为单点），避免与现有 `factor_zero` 重复报错。
-- **非有限值**（NaN/Infinity）：编辑路径继续由 `_validate_signal_fields` 拦截；完整性路径把非有限 `min_val` / `max_val` 报为范围错误，避免比较静默通过。
-- 浮点比较使用 Python `float` 直接比较；不做容差，边界值（如 uint8 的 `255.0`）应通过。
+- **非有限值**（NaN/Infinity）：编辑路径继续由 `_validate_signal_fields` 拦截；完整性路径把非有限 `min_val` / `max_val` 报为范围错误，并把错误载荷中的值转为字符串，避免 WebSocket JSON 序列化产生非标准 `Infinity`/`NaN`。
+- **`length < 1`**：量程计算返回退化区间 `(offset, offset)`；完整性检查跳过范围校验，只保留 `signal_length_zero`，避免 `int` 类型负移位崩溃。
+- 整数类型精确比较；`float` / `double` 允许 `1e-6` 相对容差。原因：DBC 常把 `FLT_MAX` 写成十进制舍入值 `3.4028235E+38`，作为 float64 解析后略大于精确 `FLT_MAX`，严格比较会误报。
 
 ## 实现方案（已选定 A）
 
