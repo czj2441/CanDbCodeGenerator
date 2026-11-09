@@ -162,6 +162,87 @@ class EditSignalHandler:
                                  new_version=new_version, session_id=sid)
 
 
+class FitSignalRangeHandler:
+    """按 value_type/length/factor/offset 计算并写入 min_val/max_val。"""
+
+    def __init__(self, session_mgr):
+        self._sm = session_mgr
+
+    def __call__(self, data: dict) -> HandlerResult:
+        sid = data["session_id"]
+        session = self._sm.get(sid)
+        if not session:
+            raise HandlerError("SESSION_NOT_FOUND", "会话不存在")
+
+        msg_key = parse_msg_key(data.get("msg_key", data.get("msg_id")))
+        sig_name = data["sig_name"]
+
+        db = session.db
+        with db.with_lock():
+            msg = db.messages.get(msg_key)
+            if not msg:
+                raise HandlerError("MESSAGE_NOT_FOUND", f"报文 {msg_key} 不存在")
+            sig = msg.signals.get(sig_name)
+            if not sig:
+                raise HandlerError("SIGNAL_NOT_FOUND", f"信号 {sig_name} 不存在")
+            if sig.factor == 0:
+                raise HandlerError(
+                    "VALUE_INVALID",
+                    "Cannot compute range when factor is 0",
+                    {"error_code": "factor_zero", "field": "factor"},
+                )
+            if not all(math.isfinite(v) for v in (sig.factor, sig.offset)):
+                raise HandlerError(
+                    "VALUE_INVALID",
+                    "factor/offset must be finite",
+                    {"error_code": "invalid_number", "field": "factor"},
+                )
+
+            p_min, p_max = db.signal_physical_range(sig)
+            updates = {"min_val": p_min, "max_val": p_max}
+            old_values = {k: getattr(sig, k) for k in updates}
+
+            try:
+                _validate_signal_fields(updates, msg, sig_name)
+            except HandlerError as e:
+                if e.details is not None:
+                    e.details.update(old_values)
+                raise
+
+            test_sig = Signal.from_dict({**sig.to_dict(), **updates})
+            ok, err, info = db.validate_signal(msg, test_sig, exclude_name=sig_name)
+            if not ok:
+                info = info or {}
+                info.update(old_values)
+                raise HandlerError("VALUE_INVALID", err, info)
+
+            ok, _ = db.update_signal_in_message(msg_key, sig_name, **updates)
+            if not ok:
+                raise HandlerError("SIGNAL_NOT_FOUND", f"信号 {sig_name} 不存在")
+            sig = msg.signals[sig_name]
+
+            self._sm.push_undo(session, {
+                "type": "signal_update", "msgKey": msg_key, "sigName": sig_name,
+                "oldName": None, "prev": old_values, "next": updates,
+            })
+            new_version = db._bump_version()
+            total_bits = sum(s.length for s in msg.signals.values())
+            events = [
+                {"type": "signal_updated",
+                 "data": {"msg_key": msg_key, "signal": sig.to_dict(),
+                          "old_name": None, "total_signal_bits": total_bits},
+                 "data_version": new_version},
+                {"type": "status_changed",
+                 "data": {"modified": True,
+                          "undo_count": len(session.undo_stack),
+                          "redo_count": len(session.redo_stack)},
+                 "data_version": new_version},
+            ]
+            push_data_errors(events, db, new_version, {msg_key})
+            return HandlerResult(data=sig.to_dict(), events=events,
+                                 new_version=new_version, session_id=sid)
+
+
 class AddSignalHandler:
     def __init__(self, session_mgr):
         self._sm = session_mgr
