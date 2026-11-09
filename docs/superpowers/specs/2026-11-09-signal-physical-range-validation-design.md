@@ -17,9 +17,10 @@
 
 用 `value_type`、`length`（以及 `factor`、`offset`）推导出信号可表示的物理量程，并校验 `min_val` / `max_val`：
 
-1. 新增 / 编辑 / 批量编辑 / MCP 修改时，非法值被阻断并返回明确错误；
-2. DBC 导入或历史文件中的非法值，通过数据完整性检查显示为数据错误；
+1. 新增 / 编辑 / 批量编辑 / MCP 修改时，量程非法值**不阻断、不回滚**，保存后作为数据错误显示（与 `overlap` 相同的红色冲突行 + 数据错误面板）；这样用户可以先改 `factor` / `offset` / `length`，再点“自动计算量程”修正；
+2. DBC 导入或历史文件中的非法值，同样通过数据完整性检查显示为数据错误；
 3. 修改 `length`、`value_type`、`factor`、`offset` 导致原有 `min_val` / `max_val` 失效时，同样被检出。
+4. `NaN` / `Infinity`、`length < 1`、float/double 长度不匹配仍属于无法表示的输入，保持阻断并 toast。
 
 ## 配套功能：一键填充物理量程
 
@@ -37,7 +38,7 @@
 - 不校验 `factor` 是否合理；`factor == 0` 继续由现有 `factor_zero` 完整性错误负责。
 - 不单独限制 `offset` 的上下限。`offset` 是平移量，物理值 `p(0) = offset` 必然落在可表示范围内；它只参与物理量程计算。
 - 不改变 DBC 导入的成功/失败行为。导入仍保持宽松，问题通过数据错误提示。
-- 不做前端输入过程的实时校验；仍由后端返回错误后 toast 提示。
+- 不做前端输入过程的实时校验；量程问题不弹 toast，由数据错误面板与红色冲突行呈现。
 - 不给批量新增面板、表格行或 MCP 增加“一键填充”；仅限当前选中信号。
 
 ## 规则
@@ -77,7 +78,7 @@ max_val ≤ p_max
 
 ### 例外与约定
 
-- **`min_val == 0 且 max_val == 0` 视为“未设置”**，跳过上述全部检查。
+- **`min_val == 0 且 max_val == 0` 视为“未设置”**，跳过上述量程判定（有限值校验仍然执行）。
   原因：Properties/DBC 未提供 min/max 时模型都落为 `0.0`，无法与“真实范围就是 0”区分；若不跳过，offset 不为 0 的导入信号会被大量误报。
 - **`factor == 0`** 时跳过量程检查（物理量程退化为单点），避免与现有 `factor_zero` 重复报错。
 - **非有限值**（NaN/Infinity）：编辑路径继续由 `_validate_signal_fields` 拦截；完整性路径把非有限 `min_val` / `max_val` 报为范围错误，并把错误载荷中的值转为字符串，避免 WebSocket JSON 序列化产生非标准 `Infinity`/`NaN`。
@@ -88,9 +89,9 @@ max_val ≤ p_max
 
 ### 方案 A：规则集中 + 双层生效（采用）
 
-- 在 `CanDatabase` 增加一个纯函数/静态方法（如 `signal_physical_range(sig)`），由 `Signal` 计算 `(p_min, p_max)`，供校验、完整性检查和“一键填充”三处复用。
-- `validate_signal()`：在现有 `value_type`/`length` 检查之后追加量程校验 → 阻断新增、编辑、批量编辑、批量新增、MCP 路径。
-- `_validate_single_message_integrity()`：追加非阻断错误 → 导入/历史文件可见。
+- 在 `CanDatabase` 增加一个纯函数/静态方法（如 `signal_physical_range(sig)`），由 `Signal` 计算 `(p_min, p_max)`，供完整性检查和“一键填充”复用。
+- `validate_signal()`：只保留结构校验（`length`、float/double 长度）与有限值校验；量程错误不再阻断。
+- `_validate_single_message_integrity()`：报告全部量程错误（越界、`min > max`、非有限值）→ 保存后立即通过 `push_data_errors()` 广播，与 `overlap` 同一条数据错误通道。
 - 新增 WS 动作 `fit_signal_range`：
   - 位于 `app/ws/handlers/signal_handlers.py`，返回更新后的信号；
   - 用同一 helper 计算 `p_min` / `p_max`，原子写入 `min_val` / `max_val`；
@@ -99,29 +100,29 @@ max_val ≤ p_max
 
 ### 未采用
 
-- **B：只做编辑阻断**。改动小，但导入的坏数据仍然静默存在。
-- **C：只做完整性提示**。编辑仍可写入坏数据，不满足“有效性检查”的预期。
+- **B：编辑阻断 + toast + 回滚输入**。会被 `factor` / `offset` / `length` 的中间修改卡住，用户无法先改参数再点“自动计算量程”。
+- **C：仅完整性提示、不显示红色冲突行**。错误只能从底部面板找到，不如 `overlap` 直观。
 
 ## 错误结构
 
-### 阻断错误（`validate_signal` → `HandlerError`）
+### 数据错误（`_validate_single_message_integrity`，非阻断）
 
-| error_code | 条件 | details 关键字段 |
+| type | 条件 | 关键字段 |
 |---|---|---|
-| `signal_min_max_invalid` | `min_val > max_val` | `field`, `min_val`, `max_val` |
-| `signal_min_out_of_range` | `min_val < p_min` | `field`, `value`, `min_allowed`, `max_allowed` |
-| `signal_max_out_of_range` | `max_val > p_max` | `field`, `value`, `min_allowed`, `max_allowed` |
+| `signal_min_max_invalid` | 非有限值，或 `min_val > max_val` | `signal_name`, `min_val`, `max_val` |
+| `signal_min_out_of_range` | `min_val < p_min` | `signal_name`, `value`, `min_allowed`, `max_allowed` |
+| `signal_max_out_of_range` | `max_val > p_max` | `signal_name`, `value`, `min_allowed`, `max_allowed` |
 
-### 完整性错误（`_validate_single_message_integrity`）
+另带 `msg_key` / `msg_id` / `msg_id_hex` / `message`，沿用现有完整性错误结构。`signal_name` 会让 `SignalEditorTab` 的现有 `errorNames` 逻辑把该信号行标红，行为与 `overlap` 一致。
 
-`type` 与上表 `error_code` 相同，另带 `msg_key` / `msg_id` / `msg_id_hex` / `signal_name` / `message`，沿用现有完整性错误结构。
+### 阻断错误（仅输入无法表示时）
+
+`NaN` / `Infinity` 仍由 `validate_signal()` 返回 `signal_min_max_invalid`，走现有 toast + 回滚；`length < 1`、float/double 长度不匹配沿用原阻断逻辑。
 
 ### 前端
 
 - `frontend/src/i18n.js`
-  - `toast.validation.signal_min_max_invalid`
-  - `toast.validation.signal_min_out_of_range`
-  - `toast.validation.signal_max_out_of_range`
+  - `toast.validation.signal_min_max_invalid`（非有限值）
   - `dataErrors.type.*` 对应的三条中文描述
   - `panel.autoFitRange`（按钮文案 / tooltip）
 - `frontend/src/components/DataErrorList.vue`
@@ -132,6 +133,7 @@ max_val ≤ p_max
   - `factor == 0` 时禁用。
 - `frontend/src/stores/signals.js`
   - 新增 `fitSignalRange(sigName, msgKey)`，调用 `fit_signal_range`；失败时沿用 `translateError` + toast。
+- 信号行红色冲突：直接复用 `SignalEditorTab.vue` 的 `errorNames`（来自 `store.signalErrors`），无需新增样式。
 - 测试：`fit_signal_range` 写入后 `min_val == p_min`、`max_val == p_max`，并生成可撤销的 undo 快照。
 
 ## 测试
@@ -149,10 +151,11 @@ max_val ≤ p_max
 
 ### 编辑路径测试
 
-- 修改 `max_val` 超出量程被拒绝（WS handler / MCP）；
-- 修改 `length` 从 8 到 4 使原 `max_val=255` 失效，被拒绝；
-- 修改 `value_type` 使原有 min/max 失效，被拒绝；
-- 批量编辑中单个信号失败不中断其余信号（沿用现有批量语义）。
+- 修改 `max_val` 超出量程成功保存，随后数据错误中出现 `signal_max_out_of_range`；
+- 修改 `length` 从 8 到 4 使原 `max_val=255` 失效：编辑成功，数据错误中出现量程错误；
+- 修改 `value_type` / `factor` / `offset` 使原有 min/max 失效：编辑成功，数据错误中出现量程错误；
+- 批量新增越界信号全部创建成功，数据错误按信号名报告；
+- 非有限值仍被阻断。
 
 ### 一键填充测试
 

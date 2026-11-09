@@ -1,4 +1,7 @@
-"""信号物理量程校验单元测试。"""
+"""信号物理量程校验单元测试。
+
+量程错误是非阻断的数据错误（与 overlap 同类）：编辑时保存，完整性检查中报告。
+"""
 
 import json
 import sys
@@ -33,139 +36,6 @@ def _check(**kwargs):
     return db.validate_signal(msg, _sig(**kwargs))
 
 
-def test_uint8_full_range_passes():
-    ok, _, _ = _check(min_val=0, max_val=255)
-    assert ok is True
-
-
-def test_uint8_min_below_range_is_rejected():
-    ok, _, info = _check(min_val=-1, max_val=255)
-    assert ok is False
-    assert info["error_code"] == "signal_min_out_of_range"
-
-
-def test_uint8_max_above_range_is_rejected():
-    ok, _, info = _check(min_val=0, max_val=256)
-    assert ok is False
-    assert info["error_code"] == "signal_max_out_of_range"
-
-
-def test_int8_full_range_passes():
-    ok, _, _ = _check(value_type=SignalValueType.INT, min_val=-128, max_val=127)
-    assert ok is True
-
-
-@pytest.mark.parametrize("mn,mx,code", [
-    (-129, 127, "signal_min_out_of_range"),
-    (-128, 128, "signal_max_out_of_range"),
-])
-def test_int8_out_of_range_is_rejected(mn, mx, code):
-    ok, _, info = _check(value_type=SignalValueType.INT, min_val=mn, max_val=mx)
-    assert ok is False
-    assert info["error_code"] == code
-
-
-def test_min_greater_than_max_is_rejected():
-    ok, _, info = _check(min_val=10, max_val=5)
-    assert ok is False
-    assert info["error_code"] == "signal_min_max_invalid"
-
-
-def test_zero_zero_is_treated_as_unset():
-    ok, _, _ = _check(offset=1000.0)
-    assert ok is True
-
-
-def test_factor_zero_skips_range_check():
-    ok, _, _ = _check(factor=0.0)
-    assert ok is True
-
-
-def test_factor_and_offset_define_physical_range():
-    ok, _, _ = _check(factor=2.0, offset=10.0, min_val=10, max_val=520)
-    assert ok is True
-
-    ok, _, info = _check(factor=2.0, offset=10.0, min_val=9, max_val=520)
-    assert ok is False
-    assert info["error_code"] == "signal_min_out_of_range"
-
-    ok, _, info = _check(factor=2.0, offset=10.0, min_val=10, max_val=521)
-    assert ok is False
-    assert info["error_code"] == "signal_max_out_of_range"
-
-
-def test_negative_factor_swaps_endpoints():
-    ok, _, _ = _check(value_type=SignalValueType.INT, factor=-1.0, min_val=-127, max_val=128)
-    assert ok is True
-
-    ok, _, info = _check(value_type=SignalValueType.INT, factor=-1.0, min_val=-128, max_val=128)
-    assert ok is False
-    assert info["error_code"] == "signal_min_out_of_range"
-
-
-def test_float32_range():
-    max_f = 3.4028234663852886e38
-    ok, _, _ = _check(value_type=SignalValueType.FLOAT, length=32, min_val=-max_f, max_val=max_f)
-    assert ok is True
-
-    ok, _, info = _check(value_type=SignalValueType.FLOAT, length=32, min_val=0, max_val=3.5e38)
-    assert ok is False
-    assert info["error_code"] == "signal_max_out_of_range"
-
-
-def test_double_overflow_is_clamped_to_finite_max():
-    max_d = sys.float_info.max
-    ok, _, _ = _check(
-        value_type=SignalValueType.DOUBLE, length=64, factor=2.0,
-        min_val=0, max_val=max_d,
-    )
-    assert ok is True
-
-    ok, _, info = _check(
-        value_type=SignalValueType.DOUBLE, length=64, factor=0.5,
-        min_val=0, max_val=max_d,
-    )
-    assert ok is False
-    assert info["error_code"] == "signal_max_out_of_range"
-
-
-def test_long_uint_length_does_not_overflow():
-    ok, _, _ = _check(length=1024, min_val=0, max_val=sys.float_info.max)
-    assert ok is True
-
-
-def test_non_finite_range_values_are_rejected():
-    ok, _, info = _check(min_val=float("nan"), max_val=0)
-    assert ok is False
-    assert info["error_code"] == "signal_min_max_invalid"
-
-
-def test_length_change_revalidates_existing_max():
-    db = _db()
-    sig = _sig(length=8, min_val=0, max_val=255)
-    sig.length = 4
-    ok, _, info = db.validate_signal(db.messages["0x100:std"], sig)
-    assert ok is False
-    assert info["error_code"] == "signal_max_out_of_range"
-
-
-def test_factor_change_revalidates_existing_max():
-    db = _db()
-    sig = _sig(factor=1.0, min_val=0, max_val=255)
-    sig.factor = 0.5
-    ok, _, info = db.validate_signal(db.messages["0x100:std"], sig)
-    assert ok is False
-    assert info["error_code"] == "signal_max_out_of_range"
-
-
-def test_value_type_change_revalidates_existing_max():
-    db = _db()
-    sig = _sig(value_type=SignalValueType.UINT, length=8, min_val=0, max_val=255)
-    sig.value_type = SignalValueType.INT
-    ok, _, info = db.validate_signal(db.messages["0x100:std"], sig)
-    assert ok is False
-    assert info["error_code"] == "signal_max_out_of_range"
-
 def _db_with_sig(**kwargs) -> CanDatabase:
     db = CanDatabase()
     sig = _sig(**kwargs)
@@ -182,6 +52,107 @@ def _error_types(db: CanDatabase) -> set[str]:
 
 RANGE_ERRORS = {"signal_min_max_invalid", "signal_min_out_of_range", "signal_max_out_of_range"}
 
+
+# ── 物理量程计算 ───────────────────────────────────────────────────
+
+def test_uint8_physical_range():
+    db = _db()
+    assert db.signal_physical_range(_sig(length=8)) == (0.0, 255.0)
+
+
+def test_int8_physical_range():
+    db = _db()
+    p_min, p_max = db.signal_physical_range(
+        _sig(value_type=SignalValueType.INT, length=8)
+    )
+    assert (p_min, p_max) == (-128.0, 127.0)
+
+
+def test_factor_and_offset_define_physical_range():
+    db = _db()
+    p_min, p_max = db.signal_physical_range(_sig(factor=2.0, offset=10.0))
+    assert (p_min, p_max) == (10.0, 520.0)
+
+
+def test_negative_factor_swaps_endpoints():
+    db = _db()
+    p_min, p_max = db.signal_physical_range(
+        _sig(value_type=SignalValueType.INT, factor=-1.0)
+    )
+    assert (p_min, p_max) == (-127.0, 128.0)
+
+
+def test_float32_physical_range():
+    max_f = 3.4028234663852886e38
+    db = _db()
+    p_min, p_max = db.signal_physical_range(
+        _sig(value_type=SignalValueType.FLOAT, length=32)
+    )
+    assert p_min == pytest.approx(-max_f)
+    assert p_max == pytest.approx(max_f)
+
+
+def test_double_overflow_is_clamped_to_finite_max():
+    db = _db()
+    p_min, p_max = db.signal_physical_range(
+        _sig(value_type=SignalValueType.DOUBLE, length=64, factor=2.0)
+    )
+    assert p_min == -sys.float_info.max
+    assert p_max == sys.float_info.max
+
+
+def test_long_uint_length_does_not_overflow():
+    db = _db()
+    p_min, p_max = db.signal_physical_range(_sig(length=1024))
+    assert p_min == 0.0
+    assert p_max == sys.float_info.max
+
+
+def test_zero_length_physical_range_is_safe():
+    db = _db()
+    p_min, p_max = db.signal_physical_range(
+        _sig(value_type=SignalValueType.INT, length=0, min_val=1, max_val=2)
+    )
+    assert (p_min, p_max) == (0.0, 0.0)
+
+
+# ── validate_signal：量程错误不阻断 ────────────────────────────────
+
+def test_validate_signal_allows_out_of_range_min():
+    ok, _, _ = _check(min_val=-1, max_val=255)
+    assert ok is True
+
+
+def test_validate_signal_allows_out_of_range_max():
+    ok, _, _ = _check(min_val=0, max_val=256)
+    assert ok is True
+
+
+def test_validate_signal_allows_min_greater_than_max():
+    ok, _, _ = _check(min_val=10, max_val=5)
+    assert ok is True
+
+
+def test_validate_signal_still_rejects_non_finite_values():
+    ok, _, info = _check(min_val=float("nan"), max_val=0)
+    assert ok is False
+    assert info["error_code"] == "signal_min_max_invalid"
+    json.dumps(info, allow_nan=False)
+
+
+def test_validate_signal_still_rejects_zero_length():
+    ok, _, info = _check(length=0)
+    assert ok is False
+    assert info["error_code"] == "signal_length_invalid"
+
+
+def test_validate_signal_still_rejects_bad_float_length():
+    ok, _, info = _check(value_type=SignalValueType.FLOAT, length=8)
+    assert ok is False
+    assert info["error_code"] == "signal_value_type_length_invalid"
+
+
+# ── 完整性检查：量程错误在此报告 ──────────────────────────────────
 
 def test_integrity_reports_min_out_of_range():
     assert "signal_min_out_of_range" in _error_types(_db_with_sig(min_val=-1, max_val=255))
@@ -201,18 +172,17 @@ def test_integrity_reports_non_finite_range():
     )
 
 
+def test_integrity_non_finite_payload_is_json_safe():
+    errors = _db_with_sig(min_val=float("inf"), max_val=0).full_validate()
+    json.dumps(errors, allow_nan=False)
+
+
 def test_integrity_skips_zero_zero():
     assert not (RANGE_ERRORS & _error_types(_db_with_sig(offset=1000.0)))
 
 
 def test_integrity_skips_factor_zero():
     assert not (RANGE_ERRORS & _error_types(_db_with_sig(factor=0.0)))
-
-
-def test_signal_physical_range_zero_length_is_safe():
-    db = _db()
-    sig = _sig(value_type=SignalValueType.INT, length=0, min_val=1, max_val=2)
-    assert db.signal_physical_range(sig) == (0.0, 0.0)
 
 
 def test_integrity_int_zero_length_does_not_crash():
@@ -222,29 +192,43 @@ def test_integrity_int_zero_length_does_not_crash():
     assert not (RANGE_ERRORS & types)
 
 
-def test_validate_non_finite_details_are_json_safe():
-    ok, _, info = _check(min_val=float("nan"), max_val=0)
-    assert ok is False
-    json.dumps(info, allow_nan=False)
-
-
-def test_integrity_non_finite_payload_is_json_safe():
-    errors = _db_with_sig(min_val=float("inf"), max_val=0).full_validate()
-    json.dumps(errors, allow_nan=False)
-
-
 def test_float32_rounded_decimal_max_is_accepted():
-    ok, _, _ = _check(
+    db = _db_with_sig(
         value_type=SignalValueType.FLOAT, length=32,
         min_val=0, max_val=3.4028235e38,
     )
-    assert ok is True
+    assert not (RANGE_ERRORS & _error_types(db))
 
 
-def test_offset_change_revalidates_existing_min():
-    db = _db()
-    sig = _sig(factor=1.0, offset=0.0, min_val=0, max_val=255)
-    sig.offset = 10.0
-    ok, _, info = db.validate_signal(db.messages["0x100:std"], sig)
-    assert ok is False
-    assert info["error_code"] == "signal_min_out_of_range"
+def test_float32_clearly_above_range_is_reported():
+    db = _db_with_sig(
+        value_type=SignalValueType.FLOAT, length=32,
+        min_val=0, max_val=3.5e38,
+    )
+    assert "signal_max_out_of_range" in _error_types(db)
+
+
+# ── 修改 length / value_type / factor / offset 后重新报告 ──────────
+
+def test_length_change_reports_range_error():
+    db = _db_with_sig(length=8, min_val=0, max_val=255)
+    db.messages["0x100:std"].signals["S"].length = 4
+    assert "signal_max_out_of_range" in _error_types(db)
+
+
+def test_factor_change_reports_range_error():
+    db = _db_with_sig(factor=1.0, min_val=0, max_val=255)
+    db.messages["0x100:std"].signals["S"].factor = 0.5
+    assert "signal_max_out_of_range" in _error_types(db)
+
+
+def test_value_type_change_reports_range_error():
+    db = _db_with_sig(value_type=SignalValueType.UINT, length=8, min_val=0, max_val=255)
+    db.messages["0x100:std"].signals["S"].value_type = SignalValueType.INT
+    assert "signal_max_out_of_range" in _error_types(db)
+
+
+def test_offset_change_reports_range_error():
+    db = _db_with_sig(factor=1.0, offset=0.0, min_val=0, max_val=255)
+    db.messages["0x100:std"].signals["S"].offset = 10.0
+    assert "signal_min_out_of_range" in _error_types(db)

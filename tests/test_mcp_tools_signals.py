@@ -258,8 +258,8 @@ def test_batch_add_invalid_value_type_is_per_signal_error(live_backend, monkeypa
     asyncio.run(run())
 
 
-def test_batch_add_rejects_out_of_physical_range(live_backend, monkeypatch):
-    """批量新增绕过 _validate_signal_fields，量程校验仍必须生效。"""
+def test_batch_add_out_of_physical_range_is_data_error(live_backend, monkeypatch):
+    """量程错误不阻断批量新增，而是作为数据错误返回。"""
 
     async def run():
         pool = _prepare(live_backend, monkeypatch)
@@ -271,17 +271,22 @@ def test_batch_add_rejects_out_of_physical_range(live_backend, monkeypatch):
                 _sig("Good", 0, min_val=0, max_val=255),
                 _sig("Bad", 8, min_val=0, max_val=256),
             ])
-            assert result["count"] == 1
-            assert result["errors"][0]["name"] == "Bad"
-            assert "256" in result["errors"][0]["error"]
+            assert result["count"] == 2
+            assert result["errors"] == []
+            errors = await candb_get_data_errors(sid)
+            assert any(
+                e["type"] == "signal_max_out_of_range"
+                and e.get("signal_name") == "Bad"
+                for e in errors["items"]
+            )
         finally:
             await pool.aclose_all()
 
     asyncio.run(run())
 
 
-def test_edit_revalidates_physical_range(live_backend, monkeypatch):
-    """edit_signal 合并新值后必须重新做物理量程校验。"""
+def test_edit_range_violation_is_non_blocking_data_error(live_backend, monkeypatch):
+    """edit_signal 允许保存量程越界值，并在数据错误中报告。"""
 
     async def run():
         pool = _prepare(live_backend, monkeypatch)
@@ -291,14 +296,18 @@ def test_edit_revalidates_physical_range(live_backend, monkeypatch):
             await candb_add_message(sid, _msg(403, "EditRange"))
             await candb_add_signal(sid, 403, _sig("R", 0, min_val=0, max_val=255))
 
-            with pytest.raises(ToolError):
-                await candb_edit_signal(sid, 403, "R", "length", 4)
-            got = await candb_get_signal(sid, 403, "R")
-            assert got["length"] == 8
-            assert got["max_val"] == 255
+            edited = await candb_edit_signal(sid, 403, "R", "length", 4)
+            assert edited["length"] == 4
+            assert edited["max_val"] == 255
+            errors = await candb_get_data_errors(sid)
+            assert any(
+                e["type"] == "signal_max_out_of_range"
+                and e.get("signal_name") == "R"
+                for e in errors["items"]
+            )
 
-            with pytest.raises(ToolError):
-                await candb_edit_signal(sid, 403, "R", "factor", 0.5)
+            edited = await candb_edit_signal(sid, 403, "R", "factor", 0.5)
+            assert edited["factor"] == 0.5
         finally:
             await pool.aclose_all()
 
