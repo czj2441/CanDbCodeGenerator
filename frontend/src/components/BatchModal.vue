@@ -51,6 +51,15 @@
                   </select>
                 </div>
               </div>
+              <div class="field">
+                <label>{{ t('batch.valueType') }}</label>
+                <select v-model="form.valueType">
+                  <option value="uint">{{ t('batch.valueTypeUint') }}</option>
+                  <option value="int">{{ t('batch.valueTypeInt') }}</option>
+                  <option value="float">{{ t('batch.valueTypeFloat') }}</option>
+                  <option value="double">{{ t('batch.valueTypeDouble') }}</option>
+                </select>
+              </div>
               <div class="row">
                 <div class="field">
                   <label>{{ t('batch.factor') }}</label>
@@ -166,6 +175,7 @@ const createDefaultForm = () => ({
   interval: 0,
   length: 8,
   byteOrder: 'motorola',
+  valueType: 'uint',
   factor: 1.0,
   offset: 0.0,
   minVal: 0.0,
@@ -192,6 +202,7 @@ function applyAutoRange(force = false) {
     try {
       const range = await signals.getSignalRange({
         length: form.length,
+        valueType: form.valueType,
         factor: form.factor,
         offset: form.offset,
       })
@@ -218,8 +229,18 @@ watch(visible, (newVal) => {
 })
 
 watch(
-  [() => form.length, () => form.factor, () => form.offset],
-  () => { applyAutoRange() }
+  [() => form.valueType, () => form.length, () => form.factor, () => form.offset],
+  ([valueType]) => {
+    if (valueType === 'float' && form.length !== 32) {
+      form.length = 32
+      return
+    }
+    if (valueType === 'double' && form.length !== 64) {
+      form.length = 64
+      return
+    }
+    applyAutoRange()
+  }
 )
 
 // ── 预览计算 ──

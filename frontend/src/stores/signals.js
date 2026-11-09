@@ -242,7 +242,7 @@ export const useSignalsStore = defineStore('signals', {
      * interval 为信号间隔（相邻信号起点相差 length + interval）
      * 无效/越界信号被跳过（标记 invalid），不中止整批
      */
-    async batchAddSignals({ nameTemplate, count, startNum, startBit, interval, length, byteOrder, factor, offset, minVal, maxVal, unit, commentTemplate }) {
+    async batchAddSignals({ nameTemplate, count, startNum, startBit, interval, length, byteOrder, valueType = 'uint', factor, offset, minVal, maxVal, unit, commentTemplate }) {
       const editor = useCoreStore()
       if (editor.selectedMsgKey == null) return
       const msg = editor.messageCache[editor.selectedMsgKey]
@@ -260,6 +260,7 @@ export const useSignalsStore = defineStore('signals', {
         const comment = commentTemplate ? expandTemplate(commentTemplate, n) : ''
         signals.push({
           name, start_bit: layouts[i].start_bit, length, byte_order: byteOrder,
+          value_type: valueType,
           factor, offset, min_val: minVal, max_val: maxVal, unit, comment,
         })
       }

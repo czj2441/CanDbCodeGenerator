@@ -312,3 +312,26 @@ def test_edit_range_violation_is_non_blocking_data_error(live_backend, monkeypat
             await pool.aclose_all()
 
     asyncio.run(run())
+
+
+def test_batch_add_with_value_types(live_backend, monkeypatch):
+    """批量新增支持 uint/int/float/double 值类型。"""
+
+    async def run():
+        pool = _prepare(live_backend, monkeypatch)
+        try:
+            set_current_pat(live_backend["pat_alice"])
+            sid = await _new_session("sig_batch_value_types")
+            await candb_add_message(sid, _msg(404, "BatchValueTypes"))
+            result = await candb_batch_add_signals(sid, 404, [
+                _sig("F", 0, length=32, value_type="float"),
+                _sig("I", 32, length=32, value_type="int"),
+            ])
+            assert result["count"] == 2
+            assert result["errors"] == []
+            assert (await candb_get_signal(sid, 404, "F"))["value_type"] == "float"
+            assert (await candb_get_signal(sid, 404, "I"))["value_type"] == "int"
+        finally:
+            await pool.aclose_all()
+
+    asyncio.run(run())
