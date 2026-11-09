@@ -7,6 +7,8 @@
 from __future__ import annotations
 
 import logging
+import math
+import sys
 import threading
 from typing import Any
 
@@ -15,6 +17,17 @@ from .message import Message
 from .can_id import CanIdError, parse_ref, to_key, validate_id
 
 logger = logging.getLogger(__name__)
+
+# IEEE 754 单精度最大有限值；双精度用 sys.float_info.max。
+_FLT_MAX = 3.4028234663852886e38
+
+
+def _as_float(value: int | float) -> float:
+    """整数可能超过 float 上限；溢出按 ±inf 处理，随后统一钳制。"""
+    try:
+        return float(value)
+    except OverflowError:
+        return math.inf if value > 0 else -math.inf
 
 
 # ---------------------------------------------------------------------------
@@ -425,6 +438,27 @@ class CanDatabase:
                 bits.add(start_bit + i)
         return bits
 
+    @staticmethod
+    def signal_physical_range(sig: Signal) -> tuple[float, float]:
+        """按 value_type/length/factor/offset 计算物理可表示范围。"""
+        if sig.factor == 0:
+            return sig.offset, sig.offset
+
+        if sig.value_type == SignalValueType.UINT:
+            raw_min, raw_max = 0, (1 << sig.length) - 1
+        elif sig.value_type == SignalValueType.INT:
+            raw_min = -(1 << (sig.length - 1))
+            raw_max = (1 << (sig.length - 1)) - 1
+        elif sig.value_type == SignalValueType.FLOAT:
+            raw_min, raw_max = -_FLT_MAX, _FLT_MAX
+        else:
+            raw_min, raw_max = -sys.float_info.max, sys.float_info.max
+
+        a = _as_float(raw_min) * sig.factor + sig.offset
+        b = _as_float(raw_max) * sig.factor + sig.offset
+        lo, hi = min(a, b), max(a, b)
+        return max(lo, -sys.float_info.max), min(hi, sys.float_info.max)
+
     def validate_signal(
         self, msg: Message, sig: Signal, exclude_name: str | None = None
     ) -> tuple[bool, str, dict]:
@@ -449,6 +483,36 @@ class CanDatabase:
                 "error_code": "signal_value_type_length_invalid", "type": "invalid_param",
                 "field": "length", "value": sig.length,
             }
+        if sig.min_val == 0 and sig.max_val == 0:
+            return True, "", {"type": "ok"}
+        if sig.factor != 0:
+            if not all(math.isfinite(v) for v in (
+                sig.factor, sig.offset, sig.min_val, sig.max_val
+            )):
+                return False, "Signal min/max values must be finite", {
+                    "error_code": "signal_min_max_invalid", "type": "invalid_param",
+                    "field": "min_val", "min_val": sig.min_val, "max_val": sig.max_val,
+                }
+            if sig.min_val > sig.max_val:
+                return False, "Signal min value must not exceed max value", {
+                    "error_code": "signal_min_max_invalid", "type": "invalid_param",
+                    "field": "max_val", "min_val": sig.min_val, "max_val": sig.max_val,
+                }
+            p_min, p_max = self.signal_physical_range(sig)
+            if sig.min_val < p_min:
+                return False, f"Signal min value {sig.min_val} is below {p_min}", {
+                    "error_code": "signal_min_out_of_range", "type": "invalid_param",
+                    "field": "min_val", "value": sig.min_val,
+                    "min_allowed": p_min, "max_allowed": p_max,
+                    "value_type": str(sig.value_type), "length": sig.length,
+                }
+            if sig.max_val > p_max:
+                return False, f"Signal max value {sig.max_val} is above {p_max}", {
+                    "error_code": "signal_max_out_of_range", "type": "invalid_param",
+                    "field": "max_val", "value": sig.max_val,
+                    "min_allowed": p_min, "max_allowed": p_max,
+                    "value_type": str(sig.value_type), "length": sig.length,
+                }
         # A3/A4 已延后：越界和重叠由 validate_all_signals() 非阻断检测
         return True, "", {"type": "ok"}
 
